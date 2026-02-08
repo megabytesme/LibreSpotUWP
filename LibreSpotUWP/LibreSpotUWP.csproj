@@ -124,6 +124,7 @@
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
     <Compile Include="AudioFormatProbe.cs" />
+    <Compile Include="LibrespotRingBufferPlayer.cs" />
     <Compile Include="LibreSpot.cs" />
     <Compile Include="NativeProbe.cs" />
     <Compile Include="MainPage.xaml.cs">
