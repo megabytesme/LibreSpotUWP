@@ -1,5 +1,4 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
@@ -11,7 +10,8 @@
     Publisher="CN=ben"
     Version="1.0.0.0" />
 
-  <mp:PhoneIdentity PhoneProductId="34151aa6-2b17-4a37-bddb-2ee83fdf53e4" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <mp:PhoneIdentity PhoneProductId="34151aa6-2b17-4a37-bddb-2ee83fdf53e4"
+                    PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
     <DisplayName>LibreSpotUWP</DisplayName>
@@ -20,7 +20,9 @@
   </Properties>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.0.0" MaxVersionTested="10.0.0.0" />
+    <TargetDeviceFamily Name="Windows.Universal"
+                        MinVersion="10.0.15063.0"
+                        MaxVersionTested="10.0.17763.0" />
   </Dependencies>
 
   <Resources>
@@ -29,8 +31,9 @@
 
   <Applications>
     <Application Id="App"
-      Executable="$targetnametoken$.exe"
-      EntryPoint="LibreSpotUWP.App">
+                 Executable="$targetnametoken$.exe"
+                 EntryPoint="LibreSpotUWP.App">
+
       <uap:VisualElements
         DisplayName="LibreSpotUWP"
         Square150x150Logo="Assets\Square150x150Logo.png"
