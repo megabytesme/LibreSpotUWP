@@ -36,9 +36,13 @@ namespace LibreSpotUWP.Services
         public async Task InitializeAsync()
         {
             _smtc = SystemMediaTransportControls.GetForCurrentView();
+
             _smtc.IsPlayEnabled = true;
             _smtc.IsPauseEnabled = true;
             _smtc.IsStopEnabled = true;
+            _smtc.IsNextEnabled = true;
+            _smtc.IsPreviousEnabled = true;
+
             _smtc.ButtonPressed += OnSmtcButtonPressed;
 
             _librespot.TrackChanged += OnTrackChanged;
@@ -66,6 +70,9 @@ namespace LibreSpotUWP.Services
         public Task ResumeAsync() => _librespot.ResumeAsync();
         public Task StopAsync() => _librespot.StopAsync();
         public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
+        public void Next() => _librespot.Next();
+        public void Previous() => _librespot.Previous();
+        public void Seek(uint posMs) => _librespot.Seek(posMs);
 
         private async void OnTrackChanged(object sender, LibrespotTrackInfo track)
         {
@@ -167,6 +174,12 @@ namespace LibreSpotUWP.Services
                     break;
                 case SystemMediaTransportControlsButton.Stop:
                     await StopAsync();
+                    break;
+                case SystemMediaTransportControlsButton.Next:
+                    Next();
+                    break;
+                case SystemMediaTransportControlsButton.Previous:
+                    Previous();
                     break;
             }
         }
