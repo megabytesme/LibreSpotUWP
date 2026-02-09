@@ -85,8 +85,7 @@ namespace LibreSpotUWP
 
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            ushort rawVolume = (ushort)(e.NewValue * 65535 / 100);
-            _ = _media.SetVolumeAsync(rawVolume);
+            _media.SetVolumeDebounced(e.NewValue);
         }
 
         private void RunOnUI(Action action)

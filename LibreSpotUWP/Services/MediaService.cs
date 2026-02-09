@@ -29,6 +29,9 @@ namespace LibreSpotUWP.Services
         private LibrespotRingBufferPlayer _ringPlayer;
 
         private DispatcherTimer _positionTimer;
+        private DispatcherTimer _volumeDebounceTimer;
+        private ushort _pendingVolume;
+        private bool _volumeDirty = false;
 
         public MediaState Current => _state;
         public event EventHandler<MediaState> MediaStateChanged;
@@ -75,6 +78,13 @@ namespace LibreSpotUWP.Services
             _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _positionTimer.Tick += PositionTimer_Tick;
             _positionTimer.Start();
+
+            _volumeDebounceTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _volumeDebounceTimer.Tick += VolumeDebounceTimer_Tick;
+            _volumeDebounceTimer.Start();
 
             await Task.CompletedTask;
         }
@@ -135,6 +145,22 @@ namespace LibreSpotUWP.Services
             await _librespot.StopAsync();
             _mediaPlayer.Pause();
             _ringPlayer?.Stop();
+        }
+
+        private void VolumeDebounceTimer_Tick(object sender, object e)
+        {
+            if (!_volumeDirty)
+                return;
+
+            _volumeDirty = false;
+            _ = _librespot.SetVolumeAsync(_pendingVolume);
+        }
+
+        public void SetVolumeDebounced(double percent)
+        {
+            ushort raw = (ushort)(percent * 65535 / 100);
+            _pendingVolume = raw;
+            _volumeDirty = true;
         }
 
         public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
