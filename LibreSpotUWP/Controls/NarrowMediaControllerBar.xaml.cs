@@ -1,4 +1,5 @@
-﻿using LibreSpotUWP.Interfaces;
+﻿using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using System;
 using Windows.UI.Xaml;
@@ -19,23 +20,21 @@ namespace LibreSpotUWP.Controls
         public NarrowMediaControllerBar()
         {
             InitializeComponent();
-            Loaded += OnLoaded;
+
+            if (Media != null)
+            {
+                Media.MediaStateChanged += Media_MediaStateChanged;
+                UpdateUI(Media.Current);
+            }
+
             SizeChanged += OnSizeChanged;
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private void Media_MediaStateChanged(object sender, MediaState state)
         {
-            if (Media == null)
-                return;
-
-            Media.MediaStateChanged += (s, state) =>
-            {
-                Dispatcher.RunAsync(
-                    Windows.UI.Core.CoreDispatcherPriority.Normal,
-                    () => UpdateUI(state));
-            };
-
-            UpdateUI(Media.Current);
+            Dispatcher.RunAsync(
+                Windows.UI.Core.CoreDispatcherPriority.Normal,
+                () => UpdateUI(state));
         }
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -81,7 +80,23 @@ namespace LibreSpotUWP.Controls
 
         private void Root_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            // todo
+            var mainPage = FindMainPage();
+            mainPage?.NavigateTo("Player");
+        }
+
+        private MainPage FindMainPage()
+        {
+            DependencyObject parent = this;
+
+            while (parent != null)
+            {
+                if (parent is MainPage mp)
+                    return mp;
+
+                parent = Windows.UI.Xaml.Media.VisualTreeHelper.GetParent(parent);
+            }
+
+            return null;
         }
 
         private void Root_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
