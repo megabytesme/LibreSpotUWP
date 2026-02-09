@@ -77,7 +77,16 @@
                         Height="48"
                         Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
                         CornerRadius="4">
-                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE93C;" />
+                        <Grid>
+                            <FontIcon
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                Glyph="&#xE93C;"
+                                Opacity="0.5" />
+
+                            <Image x:Name="AlbumArtImage" Stretch="UniformToFill" />
+                        </Grid>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock

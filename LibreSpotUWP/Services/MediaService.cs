@@ -155,6 +155,12 @@ namespace LibreSpotUWP.Services
                 updater.MusicProperties.Title = t.Name;
                 updater.MusicProperties.Artist = string.Join(", ", t.Artists?.Select(a => a.Name));
                 updater.MusicProperties.AlbumTitle = t.Album?.Name;
+
+                if (t.Album?.Images != null && t.Album.Images.Any())
+                {
+                    var imageUrl = t.Album.Images[0].Url;
+                    updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromUri(new Uri(imageUrl));
+                }
             }
 
             updater.Update();

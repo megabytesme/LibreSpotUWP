@@ -25,6 +25,7 @@ namespace LibreSpotUWP
         {
             _librespot = App.Librespot;
             _auth = App.SpotifyAuth;
+            var media = App.Media;
 
             if (_librespot != null)
             {
@@ -32,6 +33,11 @@ namespace LibreSpotUWP
                 _librespot.TrackChanged += (s, track) => RunOnUI(() => UpdateTrackUI(track));
                 _librespot.PlaybackStateChanged += (s, state) => RunOnUI(() => UpdatePlaybackButtons(state));
                 _librespot.VolumeChanged += (s, vol) => RunOnUI(() => VolumeSlider.Value = vol);
+            }
+
+            if (media != null)
+            {
+                media.MediaStateChanged += (s, state) => RunOnUI(() => UpdateMetadataUI(state));
             }
 
             if (_auth != null)
@@ -62,6 +68,15 @@ namespace LibreSpotUWP
             TrackArtistText.Text = track.Artist;
             PositionSlider.Maximum = track.Duration.TotalMilliseconds;
             TotalTimeText.Text = FormatTime((uint)track.Duration.TotalMilliseconds);
+        }
+
+        private void UpdateMetadataUI(MediaState state)
+        {
+            if (state.Metadata?.Album?.Images != null && state.Metadata.Album.Images.Count > 0)
+            {
+                var url = state.Metadata.Album.Images[0].Url;
+                AlbumArtImage.Source = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(url));
+            }
         }
 
         private void UpdatePlaybackButtons(LibrespotPlaybackState state)
