@@ -6,8 +6,6 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Navigation;
 
 namespace LibreSpotUWP
@@ -16,7 +14,6 @@ namespace LibreSpotUWP
     {
         private IMediaService _media;
         private ISpotifyAuthService _auth;
-        private bool _isDraggingSlider = false;
 
         public MainPage()
         {
@@ -29,24 +26,6 @@ namespace LibreSpotUWP
             _media = App.Media;
             _auth = App.SpotifyAuth;
 
-            DataContext = _media.Current;
-
-            _media.MediaStateChanged += (s, state) =>
-            {
-                RunOnUI(() =>
-                {
-                    DataContext = state;
-
-                    if (state.Metadata?.Album?.Images != null &&
-                        state.Metadata.Album.Images.Count > 0)
-                    {
-                        AlbumArtImage.Source =
-                            new Windows.UI.Xaml.Media.Imaging.BitmapImage(
-                                new Uri(state.Metadata.Album.Images[0].Url));
-                    }
-                });
-            };
-
             if (_auth != null)
                 _auth.AuthStateChanged += (s, state) => RunOnUI(() => UpdateSpotifyApiStatus(state));
 
@@ -57,35 +36,6 @@ namespace LibreSpotUWP
         {
             if (!string.IsNullOrWhiteSpace(TrackUriTextBox.Text))
                 await _media.PlayTrackAsync(TrackUriTextBox.Text);
-        }
-
-        private async void PauseButton_Click(object sender, RoutedEventArgs e)
-            => await _media.PauseAsync();
-
-        private async void ResumeButton_Click(object sender, RoutedEventArgs e)
-            => await _media.ResumeAsync();
-
-        private async void StopButton_Click(object sender, RoutedEventArgs e)
-            => await _media.StopAsync();
-
-        private void NextButton_Click(object sender, RoutedEventArgs e)
-            => _media.Next();
-
-        private void PrevButton_Click(object sender, RoutedEventArgs e)
-            => _media.Previous();
-
-        private void PositionSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
-            => _isDraggingSlider = true;
-
-        private void PositionSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-        {
-            _media.Seek((uint)PositionSlider.Value);
-            _isDraggingSlider = false;
-        }
-
-        private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
-        {
-            _media.SetVolumeDebounced(e.NewValue);
         }
 
         private void RunOnUI(Action action)

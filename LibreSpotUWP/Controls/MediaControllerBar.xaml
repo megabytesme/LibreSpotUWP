@@ -1,0 +1,63 @@
+﻿<UserControl
+    x:Class="LibreSpotUWP.Controls.MediaControllerBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:LibreSpotUWP.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:LibreSpotUWP.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <converters:TimeConverter x:Key="TimeConverter" />
+        <converters:BoolToVisibility x:Key="BoolToVisibility" />
+        <converters:InverseBoolToVisibility x:Key="InverseBoolToVisibility" />
+    </UserControl.Resources>
+
+    <StackPanel Spacing="12">
+
+        <TextBlock x:Name="TrackTitle" FontSize="20" />
+        <TextBlock x:Name="TrackArtist" FontSize="14" />
+
+        <Image
+            x:Name="AlbumArt"
+            Width="200"
+            Height="200"
+            Stretch="UniformToFill" />
+
+        <Slider
+            x:Name="PositionSlider"
+            Maximum="0"
+            Minimum="0"
+            PointerCaptureLost="PositionSlider_PointerCaptureLost"
+            PointerPressed="PositionSlider_PointerPressed"
+            ValueChanged="PositionSlider_ValueChanged" />
+
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock x:Name="CurrentTime" />
+            <TextBlock Text="/" />
+            <TextBlock x:Name="TotalTime" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Click="Prev_Click" Content="Prev" />
+            <Button
+                x:Name="PlayButton"
+                Click="Play_Click"
+                Content="Play" />
+            <Button
+                x:Name="PauseButton"
+                Click="Pause_Click"
+                Content="Pause" />
+            <Button Click="Stop_Click" Content="Stop" />
+            <Button Click="Next_Click" Content="Next" />
+        </StackPanel>
+
+        <Slider
+            x:Name="VolumeSlider"
+            Maximum="100"
+            Minimum="0"
+            ValueChanged="VolumeSlider_ValueChanged" />
+
+    </StackPanel>
+</UserControl>
