@@ -158,7 +158,6 @@
       <SubType>Designer</SubType>
     </AppxManifest>
     <None Include="LibreSpotUWP_TemporaryKey.pfx" />
-    <None Include="LICENSE.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="librespot.dll">
