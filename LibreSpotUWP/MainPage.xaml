@@ -47,10 +47,10 @@
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />
                     <Button
-                        x:Name="SpotifyLoginButton"
+                        x:Name="AccountButton"
                         Margin="0,10,0,0"
-                        Click="SpotifyLoginButton_Click"
-                        Content="Login to Spotify" />
+                        Click="AccountButton_Click"
+                        Content="Manage Account" />
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
@@ -187,5 +187,26 @@
                 </StackPanel>
             </Grid>
         </Border>
+
+        <Grid
+            x:Name="LoadingOverlay"
+            Grid.RowSpan="2"
+            Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
+            Visibility="Collapsed">
+            <StackPanel
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12">
+                <ProgressRing
+                    x:Name="LoadingProgressRing"
+                    Width="60"
+                    Height="60"
+                    IsActive="False" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Text="Processing..." />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>

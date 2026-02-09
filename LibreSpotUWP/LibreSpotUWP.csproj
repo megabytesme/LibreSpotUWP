@@ -124,17 +124,22 @@
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
     <Compile Include="Helpers\AudioFormatProbe.cs" />
+    <Compile Include="Helpers\BarcodeHelper.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
     <Compile Include="Interfaces\IMetadataCache.cs" />
     <Compile Include="Interfaces\ILibrespotService.cs" />
     <Compile Include="Interfaces\ISpotifyAuthService.cs" />
     <Compile Include="Interfaces\IMediaService.cs" />
+    <Compile Include="ScannerPage.xaml.cs">
+      <DependentUpon>ScannerPage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Models\MediaState.cs" />
     <Compile Include="Models\LibrespotPlaybackState.cs" />
     <Compile Include="Models\LibrespotTrackInfo.cs" />
     <Compile Include="Models\LibrespotSessionState.cs" />
     <Compile Include="Models\AuthState.cs" />
     <Compile Include="Interfaces\ISecureStorage.cs" />
+    <Compile Include="Services\BarcodeUIService.cs" />
     <Compile Include="Services\SecureStorage.cs" />
     <Compile Include="Exceptions\SpotifyWebExceptions.cs" />
     <Compile Include="Services\SpotifyAuthService.cs" />
@@ -177,6 +182,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Page Include="ScannerPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="MainPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -191,6 +200,9 @@
     </PackageReference>
     <PackageReference Include="SpotifyAPI.Web">
       <Version>7.2.1</Version>
+    </PackageReference>
+    <PackageReference Include="ZXing.Net.Mobile">
+      <Version>2.4.1</Version>
     </PackageReference>
   </ItemGroup>
   <ItemGroup />

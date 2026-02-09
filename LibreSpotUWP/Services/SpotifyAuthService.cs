@@ -167,5 +167,21 @@ namespace LibreSpotUWP.Services
                 await _storage.DeleteAsync(StorageKey);
             }
         }
+
+        public async Task ImportAuthStateAsync(AuthState state)
+        {
+            if (state == null || string.IsNullOrEmpty(state.AccessToken))
+                throw new ArgumentException("Invalid AuthState imported.");
+
+            Current = state;
+
+            await SaveStateAsync();
+
+            App.AuthToken = Current.AccessToken;
+
+            await App.Librespot.ConnectWithAccessTokenAsync(Current.AccessToken);
+
+            AuthStateChanged?.Invoke(this, Current);
+        }
     }
 }

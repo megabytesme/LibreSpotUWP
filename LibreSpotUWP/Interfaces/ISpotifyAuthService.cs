@@ -13,5 +13,6 @@ namespace LibreSpotUWP.Interfaces
         Task ExchangePkceCodeAsync(string code);
         Task RefreshAsync();
         Task<string> GetAccessToken();
+        Task ImportAuthStateAsync(AuthState state);
     }
 }
