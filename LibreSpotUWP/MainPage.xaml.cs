@@ -57,6 +57,31 @@ namespace LibreSpotUWP
             }
         }
 
+        public void NavigateTo(string pageTag)
+        {
+            foreach (var item in NavListBox.Items)
+            {
+                if (item is ListBoxItem lbi && (string)lbi.Tag == pageTag)
+                {
+                    NavListBox.SelectedItem = lbi;
+                    break;
+                }
+            }
+
+            foreach (var item in BottomNavListBox.Items)
+            {
+                if (item is ListBoxItem lbi && (string)lbi.Tag == pageTag)
+                {
+                    BottomNavListBox.SelectedItem = lbi;
+                    break;
+                }
+            }
+
+            var pageType = NavigationHelper.GetPageType(pageTag);
+            if (ContentFrame.CurrentSourcePageType != pageType)
+                ContentFrame.Navigate(pageType);
+        }
+
         private void HamburgerButton_Click(object sender, RoutedEventArgs e)
         {
             RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
