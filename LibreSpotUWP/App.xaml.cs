@@ -1,4 +1,6 @@
-﻿using System;
+﻿using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Services;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,6 +24,15 @@ namespace LibreSpotUWP
     /// </summary>
     sealed partial class App : Application
     {
+        public static string AuthToken { get; set; }
+        public static ILibrespotService Librespot { get; private set; }
+        public static ISpotifyAuthService SpotifyAuth { get; private set; }
+        public static ISpotifyWebService SpotifyWeb { get; private set; }
+        public static IMediaService Media { get; private set; }
+        private ISecureStorage _secureStorage;
+        private IFileSystem _fileSystem;
+        private IMetadataCache _metadataCache;
+
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
         /// executed, and as such is the logical equivalent of main() or WinMain().
@@ -32,13 +43,55 @@ namespace LibreSpotUWP
             this.Suspending += OnSuspending;
         }
 
+        protected override async void OnActivated(IActivatedEventArgs args)
+        {
+            if (args.Kind == ActivationKind.Protocol)
+            {
+                var p = (ProtocolActivatedEventArgs)args;
+                var uri = p.Uri;
+
+                System.Diagnostics.Debug.WriteLine("PKCE Callback URI: " + uri);
+
+                var query = uri.Query;
+                var parsed = System.Web.HttpUtility.ParseQueryString(query);
+
+                var code = parsed["code"];
+                var error = parsed["error"];
+
+                if (!string.IsNullOrEmpty(error))
+                {
+                    System.Diagnostics.Debug.WriteLine("PKCE Error: " + error);
+                }
+                else if (!string.IsNullOrEmpty(code))
+                {
+                    System.Diagnostics.Debug.WriteLine("PKCE Code received: " + code);
+                    await SpotifyAuth.ExchangePkceCodeAsync(code);
+                }
+
+                Window.Current.Activate();
+            }
+        }
+
         /// <summary>
         /// Invoked when the application is launched normally by the end user.  Other entry points
         /// will be used such as when the application is launched to open a specific file.
         /// </summary>
         /// <param name="e">Details about the launch request and process.</param>
-        protected override void OnLaunched(LaunchActivatedEventArgs e)
+        protected override async void OnLaunched(LaunchActivatedEventArgs e)
         {
+            _fileSystem = new FileSystem();
+            _metadataCache = new FileMetadataCache(_fileSystem);
+            _secureStorage = new SecureStorage();
+            Librespot = new LibrespotService();
+            SpotifyAuth = new SpotifyAuthService(_secureStorage);
+            SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache);
+            Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
+
+            await Librespot.InitializeAsync();
+            if (!string.IsNullOrEmpty(await SpotifyAuth.GetAccessToken()))
+                await Librespot.ConnectWithAccessTokenAsync(App.AuthToken);
+            await Media.InitializeAsync();
+
             Frame rootFrame = Window.Current.Content as Frame;
 
             // Do not repeat app initialization when the Window already has content,

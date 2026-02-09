@@ -123,10 +123,31 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
-    <Compile Include="AudioFormatProbe.cs" />
-    <Compile Include="LibrespotRingBufferPlayer.cs" />
-    <Compile Include="LibreSpot.cs" />
-    <Compile Include="NativeProbe.cs" />
+    <Compile Include="Helpers\AudioFormatProbe.cs" />
+    <Compile Include="Interfaces\ISpotifyWebService.cs" />
+    <Compile Include="Interfaces\IMetadataCache.cs" />
+    <Compile Include="Interfaces\ILibrespotService.cs" />
+    <Compile Include="Interfaces\ISpotifyAuthService.cs" />
+    <Compile Include="Interfaces\IMediaService.cs" />
+    <Compile Include="Models\MediaState.cs" />
+    <Compile Include="Models\LibrespotPlaybackState.cs" />
+    <Compile Include="Models\LibrespotTrackInfo.cs" />
+    <Compile Include="Models\LibrespotSessionState.cs" />
+    <Compile Include="Models\AuthState.cs" />
+    <Compile Include="Interfaces\ISecureStorage.cs" />
+    <Compile Include="Services\SecureStorage.cs" />
+    <Compile Include="Exceptions\SpotifyWebExceptions.cs" />
+    <Compile Include="Services\SpotifyAuthService.cs" />
+    <Compile Include="Services\FileMetadataCache.cs" />
+    <Compile Include="Services\FileSystem.cs" />
+    <Compile Include="Interfaces\IFileSystem.cs" />
+    <Compile Include="Constants\SpotifyConfig.cs" />
+    <Compile Include="Services\SpotifyWebService.cs" />
+    <Compile Include="Services\MediaService.cs" />
+    <Compile Include="Services\LibrespotService.cs" />
+    <Compile Include="Services\LibrespotRingBufferPlayer.cs" />
+    <Compile Include="Interop\LibreSpot.cs" />
+    <Compile Include="Interop\NativeProbe.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
@@ -137,6 +158,7 @@
       <SubType>Designer</SubType>
     </AppxManifest>
     <None Include="LibreSpotUWP_TemporaryKey.pfx" />
+    <None Include="LICENSE.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="librespot.dll">
@@ -172,6 +194,7 @@
       <Version>7.2.1</Version>
     </PackageReference>
   </ItemGroup>
+  <ItemGroup />
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
     <VisualStudioVersion>14.0</VisualStudioVersion>
   </PropertyGroup>

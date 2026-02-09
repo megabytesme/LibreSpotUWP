@@ -43,6 +43,14 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"/>
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
+
+      <Extensions>
+         <uap:Extension Category="windows.protocol">
+            <uap:Protocol Name="librespotuwp">
+               <uap:DisplayName>LibreSpotUWP</uap:DisplayName>
+            </uap:Protocol>
+         </uap:Extension>
+      </Extensions>
     </Application>
   </Applications>
 
