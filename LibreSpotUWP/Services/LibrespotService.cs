@@ -6,6 +6,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Windows.Media.MediaProperties;
 using Windows.Storage;
 using Windows.System.Profile;
 using static LibreSpotUWP.Interop.Librespot;
@@ -20,7 +21,6 @@ namespace LibreSpotUWP.Services
         private IntPtr _instance = IntPtr.Zero;
         private LibrespotCallback _callbackDelegate;
 
-        private LibrespotRingBufferPlayer _player;
         private AudioFormatProbeResult _audioFormat;
 
         private LibrespotSessionState _session = new LibrespotSessionState();
@@ -33,6 +33,7 @@ namespace LibreSpotUWP.Services
         private bool _shuffle;
         private uint _repeatMode;
 
+        public AudioEncodingProperties EncodingProperties => _audioFormat?.EncodingProperties;
         public LibrespotSessionState Session => _session;
         public LibrespotPlaybackState PlaybackState => _playbackState;
         public LibrespotTrackInfo CurrentTrack => _currentTrack;
@@ -85,13 +86,8 @@ namespace LibreSpotUWP.Services
         public async Task LoadAndPlayAsync(string spotifyUri)
         {
             ThrowIfDisposed();
-            if (!_initialized)
-                throw new InvalidOperationException("LibrespotService not initialized.");
-            if (_instance == IntPtr.Zero)
-                throw new InvalidOperationException("Librespot instance not connected (no access token).");
-
-            if (string.IsNullOrWhiteSpace(spotifyUri))
-                throw new ArgumentException("Spotify URI must not be null or empty.", nameof(spotifyUri));
+            if (!_initialized) throw new InvalidOperationException("Not initialized.");
+            if (_instance == IntPtr.Zero) throw new InvalidOperationException("Not connected.");
 
             IntPtr uriPtr = Marshal.StringToHGlobalAnsi(spotifyUri);
             try
@@ -101,12 +97,6 @@ namespace LibreSpotUWP.Services
             finally
             {
                 Marshal.FreeHGlobal(uriPtr);
-            }
-
-            if (_player == null)
-            {
-                _player = new LibrespotRingBufferPlayer(_audioFormat.EncodingProperties);
-                await _player.InitializeAsync().ConfigureAwait(false);
             }
         }
 
@@ -175,9 +165,6 @@ namespace LibreSpotUWP.Services
         {
             if (_disposed) return;
             _disposed = true;
-
-            _player?.Dispose();
-            _player = null;
 
             if (_instance != IntPtr.Zero)
             {

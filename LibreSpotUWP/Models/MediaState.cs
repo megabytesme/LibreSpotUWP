@@ -8,6 +8,10 @@ namespace LibreSpotUWP.Models
         public LibrespotTrackInfo Track { get; set; }
         public SpotifyAPI.Web.FullTrack Metadata { get; set; }
         public ushort Volume { get; set; }
+        public uint PositionMs { get; set; }
+        public uint DurationMs { get; set; }
+
+        public bool IsPlaying => PlaybackState == LibrespotPlaybackState.Playing;
 
         public MediaState Clone()
         {
@@ -16,7 +20,9 @@ namespace LibreSpotUWP.Models
                 PlaybackState = this.PlaybackState,
                 Track = this.Track,
                 Metadata = this.Metadata,
-                Volume = this.Volume
+                Volume = this.Volume,
+                PositionMs = this.PositionMs,
+                DurationMs = this.DurationMs
             };
         }
     }

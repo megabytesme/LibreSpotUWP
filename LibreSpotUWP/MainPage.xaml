@@ -2,7 +2,14 @@
     x:Class="LibreSpotUWP.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:LibreSpotUWP.Converters"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Page.Resources>
+        <converters:TimeConverter x:Key="TimeConverter" />
+        <converters:BoolToVisibility x:Key="BoolToVisibility" />
+        <converters:InverseBoolToVisibility x:Key="InverseBoolToVisibility" />
+        <converters:VolumeToPercentConverter x:Key="VolumeToPercentConverter" />
+    </Page.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -11,23 +18,28 @@
         </Grid.RowDefinitions>
 
         <ScrollViewer Grid.Row="0" Padding="24">
-            <StackPanel
-                MaxWidth="800"
-                HorizontalAlignment="Left"
-                Spacing="20">
-                <TextBlock Style="{StaticResource HeaderTextBlockStyle}" Text="Spotify" />
+            <StackPanel MaxWidth="800" HorizontalAlignment="Left">
+                <TextBlock
+                    Margin="0,0,0,20"
+                    Style="{StaticResource HeaderTextBlockStyle}"
+                    Text="Spotify" />
 
-                <StackPanel Spacing="8">
+                <StackPanel>
                     <TextBlock
+                        Margin="0,0,0,8"
                         FontWeight="SemiBold"
                         Style="{StaticResource BaseTextBlockStyle}"
                         Text="Stream Configuration" />
-                    <Grid ColumnSpacing="12">
+                    <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="TrackUriTextBox" PlaceholderText="Enter Spotify URI" />
+                        <TextBox
+                            x:Name="TrackUriTextBox"
+                            Margin="0,0,12,0"
+                            PlaceholderText="Enter Spotify URI"
+                            Text="spotify:track:3AJwUDP919kvQ9QcozQPxg" />
                         <Button
                             Grid.Column="1"
                             Width="100"
@@ -37,13 +49,15 @@
                     </Grid>
                 </StackPanel>
 
-                <StackPanel Spacing="4">
+                <StackPanel Margin="0,20,0,0">
                     <TextBlock
                         x:Name="LibrespotStatusText"
+                        Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBlock
                         x:Name="SpotifyApiStatusText"
+                        Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />
                     <Button
@@ -55,152 +69,66 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Border
-            Grid.Row="1"
-            Padding="12,8"
-            Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-            BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}"
-            BorderThickness="0,1,0,0">
-            <Grid ColumnSpacing="20">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="300" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="300" />
-                </Grid.ColumnDefinitions>
+        <StackPanel Spacing="12">
 
-                <StackPanel
-                    VerticalAlignment="Center"
-                    Orientation="Horizontal"
-                    Spacing="12">
-                    <Border
-                        Width="48"
-                        Height="48"
-                        Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
-                        CornerRadius="4">
-                        <Grid>
-                            <FontIcon
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontFamily="Segoe MDL2 Assets"
-                                Glyph="&#xE93C;"
-                                Opacity="0.5" />
+            <TextBlock FontSize="20" Text="{Binding Track.Name}" />
+            <TextBlock FontSize="14" Text="{Binding Track.Artist}" />
 
-                            <Image x:Name="AlbumArtImage" Stretch="UniformToFill" />
-                        </Grid>
-                    </Border>
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock
-                            x:Name="TrackTitleText"
-                            FontWeight="SemiBold"
-                            TextTrimming="CharacterEllipsis" />
-                        <TextBlock
-                            x:Name="TrackArtistText"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </StackPanel>
+            <Image
+                x:Name="AlbumArtImage"
+                Width="200"
+                Height="200"
+                Stretch="UniformToFill" />
 
-                <StackPanel
-                    Grid.Column="1"
-                    MaxWidth="600"
-                    VerticalAlignment="Center">
-                    <StackPanel
-                        HorizontalAlignment="Center"
-                        Orientation="Horizontal"
-                        Spacing="20">
-                        <Button
-                            Background="Transparent"
-                            Click="PrevButton_Click"
-                            Content="&#xE892;"
-                            FontFamily="Segoe MDL2 Assets" />
-                        <Button
-                            x:Name="PauseButton"
-                            Click="PauseButton_Click"
-                            Content="&#xE769;"
-                            FontFamily="Segoe MDL2 Assets"
-                            FontSize="20"
-                            Visibility="Collapsed" />
-                        <Button
-                            x:Name="ResumeButton"
-                            Click="ResumeButton_Click"
-                            Content="&#xE768;"
-                            FontFamily="Segoe MDL2 Assets"
-                            FontSize="20" />
-                        <Button
-                            Background="Transparent"
-                            Click="NextButton_Click"
-                            Content="&#xE893;"
-                            FontFamily="Segoe MDL2 Assets" />
-                        <Button
-                            Background="Transparent"
-                            Click="StopButton_Click"
-                            Content="&#xE71A;"
-                            FontFamily="Segoe MDL2 Assets" />
-                    </StackPanel>
+            <Slider
+                x:Name="PositionSlider"
+                Maximum="{Binding DurationMs}"
+                Minimum="0"
+                PointerCaptureLost="PositionSlider_PointerCaptureLost"
+                PointerPressed="PositionSlider_PointerPressed"
+                Value="{Binding PositionMs, Mode=TwoWay}" />
 
-                    <Grid Margin="0,4,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock
-                            x:Name="CurrentTimeText"
-                            Width="40"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="0:00" />
-                        <Slider
-                            x:Name="PositionSlider"
-                            Grid.Column="1"
-                            Margin="12,0"
-                            VerticalAlignment="Center"
-                            PointerCaptureLost="PositionSlider_PointerCaptureLost"
-                            PointerPressed="PositionSlider_PointerPressed" />
-                        <TextBlock
-                            x:Name="TotalTimeText"
-                            Grid.Column="2"
-                            Width="40"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="0:00" />
-                    </Grid>
-                </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="{Binding PositionMs, Converter={StaticResource TimeConverter}}" />
+                <TextBlock Text="/" />
+                <TextBlock Text="{Binding DurationMs, Converter={StaticResource TimeConverter}}" />
+            </StackPanel>
 
-                <StackPanel
-                    Grid.Column="2"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
-                    Orientation="Horizontal"
-                    Spacing="12">
-                    <FontIcon
-                        FontFamily="Segoe MDL2 Assets"
-                        FontSize="16"
-                        Glyph="&#xE767;" />
-                    <Slider
-                        x:Name="VolumeSlider"
-                        Width="120"
-                        VerticalAlignment="Center"
-                        Maximum="100"
-                        Minimum="0"
-                        ValueChanged="VolumeSlider_ValueChanged" />
-                </StackPanel>
-            </Grid>
-        </Border>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Click="PrevButton_Click" Content="Prev" />
+                <Button
+                    Click="ResumeButton_Click"
+                    Content="Play"
+                    Visibility="{Binding IsPlaying, Converter={StaticResource InverseBoolToVisibility}}" />
+                <Button
+                    Click="PauseButton_Click"
+                    Content="Pause"
+                    Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVisibility}}" />
+                <Button Click="StopButton_Click" Content="Stop" />
+                <Button Click="NextButton_Click" Content="Next" />
+            </StackPanel>
+
+            <!--  Volume  -->
+            <Slider
+                x:Name="VolumeSlider"
+                Maximum="100"
+                Minimum="0"
+                ValueChanged="VolumeSlider_ValueChanged"
+                Value="{Binding Volume, Converter={StaticResource VolumeToPercentConverter}}" />
+
+        </StackPanel>
 
         <Grid
             x:Name="LoadingOverlay"
             Grid.RowSpan="2"
             Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
             Visibility="Collapsed">
-            <StackPanel
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Spacing="12">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <ProgressRing
                     x:Name="LoadingProgressRing"
                     Width="60"
                     Height="60"
+                    Margin="0,0,0,12"
                     IsActive="False" />
                 <TextBlock
                     HorizontalAlignment="Center"

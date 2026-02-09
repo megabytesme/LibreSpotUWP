@@ -57,6 +57,18 @@ namespace LibreSpotUWP.Services
             _graph.Start();
         }
 
+        public void Start()
+        {
+            _graph?.Start();
+            _inputNode?.Start();
+        }
+
+        public void Stop()
+        {
+            _inputNode?.Stop();
+            _graph?.Stop();
+        }
+
         private async Task WaitForRingBufferAsync()
         {
             int waited = 0;
@@ -68,7 +80,8 @@ namespace LibreSpotUWP.Services
                     _bufferPtr = ptr;
                     return;
                 }
-                if (waited >= 5000) throw new InvalidOperationException("Ring Buffer timeout.");
+                if (waited >= 5000)
+                    throw new InvalidOperationException("Ring Buffer timeout.");
                 await Task.Delay(50);
                 waited += 50;
             }
@@ -77,14 +90,16 @@ namespace LibreSpotUWP.Services
         private void OnQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
         {
             uint numSamplesNeeded = (uint)args.RequiredSamples;
-            if (numSamplesNeeded == 0) return;
+            if (numSamplesNeeded == 0)
+                return;
 
             int bytesRequested = (int)numSamplesNeeded * _frameSize;
 
             uint writePos = librespot_audio_get_write_cursor().ToUInt32();
             int available = (int)(((long)_capacityBytes + (int)writePos - _readPos) % _capacityBytes);
 
-            if (available < _frameSize) return;
+            if (available < _frameSize)
+                return;
 
             int bytesToCopy = Math.Min(available, bytesRequested);
             bytesToCopy -= bytesToCopy % _frameSize;
@@ -98,15 +113,14 @@ namespace LibreSpotUWP.Services
                 if (byteAccess != null)
                 {
                     byteAccess.GetBuffer(out IntPtr dataInPtr, out uint capacity);
+
                     byte[] tempManagedBuffer = new byte[bytesToCopy];
                     int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - _readPos);
 
                     Marshal.Copy(_bufferPtr + _readPos, tempManagedBuffer, 0, firstChunkSize);
 
                     if (bytesToCopy > firstChunkSize)
-                    {
                         Marshal.Copy(_bufferPtr, tempManagedBuffer, firstChunkSize, bytesToCopy - firstChunkSize);
-                    }
 
                     Marshal.Copy(tempManagedBuffer, 0, dataInPtr, bytesToCopy);
 

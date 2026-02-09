@@ -123,6 +123,7 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Converters\SpotifyConfig.cs" />
     <Compile Include="Helpers\AudioFormatProbe.cs" />
     <Compile Include="Helpers\BarcodeHelper.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />

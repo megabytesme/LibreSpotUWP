@@ -6,15 +6,18 @@ namespace LibreSpotUWP.Interfaces
 {
     public interface IMediaService
     {
-        MediaState Current { get; }
-
         Task InitializeAsync();
-
         Task PlayTrackAsync(string spotifyUri);
         Task PauseAsync();
         Task ResumeAsync();
         Task StopAsync();
-        Task SetVolumeAsync(ushort volume);
+        Task SetVolumeAsync(ushort v);
+
+        void Next();
+        void Previous();
+        void Seek(uint posMs);
+
+        MediaState Current { get; }
 
         event EventHandler<MediaState> MediaStateChanged;
     }

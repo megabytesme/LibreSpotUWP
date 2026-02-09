@@ -3,8 +3,14 @@ using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
 using System;
 using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using Windows.Media;
+using Windows.Media.Core;
+using Windows.Media.MediaProperties;
+using Windows.Media.Playback;
+using Windows.Storage.Streams;
+using Windows.UI.Xaml;
 
 namespace LibreSpotUWP.Services
 {
@@ -17,10 +23,14 @@ namespace LibreSpotUWP.Services
         private readonly object _lock = new object();
 
         private MediaState _state = new MediaState();
+        private MediaPlayer _mediaPlayer;
         private SystemMediaTransportControls _smtc;
 
-        public MediaState Current => _state;
+        private LibrespotRingBufferPlayer _ringPlayer;
 
+        private DispatcherTimer _positionTimer;
+
+        public MediaState Current => _state;
         public event EventHandler<MediaState> MediaStateChanged;
 
         public MediaService(
@@ -35,8 +45,18 @@ namespace LibreSpotUWP.Services
 
         public async Task InitializeAsync()
         {
-            _smtc = SystemMediaTransportControls.GetForCurrentView();
+            _mediaPlayer = new MediaPlayer();
+            _mediaPlayer.AutoPlay = false;
+            _mediaPlayer.AudioCategory = MediaPlayerAudioCategory.Media;
 
+            var commandManager = _mediaPlayer.CommandManager;
+            commandManager.IsEnabled = true;
+            commandManager.PlayBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+            commandManager.PauseBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+            commandManager.NextBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+            commandManager.PreviousBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+
+            _smtc = _mediaPlayer.SystemMediaTransportControls;
             _smtc.IsPlayEnabled = true;
             _smtc.IsPauseEnabled = true;
             _smtc.IsStopEnabled = true;
@@ -50,7 +70,23 @@ namespace LibreSpotUWP.Services
             _librespot.VolumeChanged += OnVolumeChanged;
             _auth.AuthStateChanged += OnAuthChanged;
 
+            _mediaPlayer.Source = CreateSilentMediaSource();
+
+            _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _positionTimer.Tick += PositionTimer_Tick;
+            _positionTimer.Start();
+
             await Task.CompletedTask;
+        }
+
+        private void PositionTimer_Tick(object sender, object e)
+        {
+            if (_state.PlaybackState != LibrespotPlaybackState.Playing)
+                return;
+
+            uint pos = _librespot.GetPositionMs();
+
+            UpdateState(s => s.PositionMs = pos);
         }
 
         public async Task PlayTrackAsync(string spotifyUri)
@@ -64,11 +100,43 @@ namespace LibreSpotUWP.Services
 
             await _librespot.ConnectWithAccessTokenAsync(auth.AccessToken);
             await _librespot.LoadAndPlayAsync(spotifyUri);
+
+            if (_ringPlayer == null)
+            {
+                var props = (_librespot as LibrespotService)?.EncodingProperties
+                            ?? AudioEncodingProperties.CreatePcm(44100, 2, 16);
+
+                _ringPlayer = new LibrespotRingBufferPlayer(props);
+                await _ringPlayer.InitializeAsync();
+            }
+
+            if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+                _mediaPlayer.Play();
+
+            _ringPlayer.Start();
         }
 
-        public Task PauseAsync() => _librespot.PauseAsync();
-        public Task ResumeAsync() => _librespot.ResumeAsync();
-        public Task StopAsync() => _librespot.StopAsync();
+        public async Task PauseAsync()
+        {
+            await _librespot.PauseAsync();
+            _mediaPlayer.Pause();
+            _ringPlayer?.Stop();
+        }
+
+        public async Task ResumeAsync()
+        {
+            await _librespot.ResumeAsync();
+            _mediaPlayer.Play();
+            _ringPlayer?.Start();
+        }
+
+        public async Task StopAsync()
+        {
+            await _librespot.StopAsync();
+            _mediaPlayer.Pause();
+            _ringPlayer?.Stop();
+        }
+
         public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
         public void Next() => _librespot.Next();
         public void Previous() => _librespot.Previous();
@@ -88,15 +156,36 @@ namespace LibreSpotUWP.Services
             {
                 state.Track = track;
                 state.Metadata = metadata;
+                state.DurationMs = (uint)track.Duration.TotalMilliseconds;
             });
 
             UpdateSmtcDisplay();
+
+            if (_state.PlaybackState == LibrespotPlaybackState.Playing)
+            {
+                _mediaPlayer.Play();
+                _ringPlayer?.Start();
+            }
         }
 
         private void OnPlaybackChanged(object sender, LibrespotPlaybackState state)
         {
             UpdateState(s => s.PlaybackState = state);
-            UpdateSmtcPlaybackStatus();
+
+            if (state == LibrespotPlaybackState.Playing)
+            {
+                if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+                    _mediaPlayer.Play();
+
+                _ringPlayer?.Start();
+            }
+            else
+            {
+                if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Paused)
+                    _mediaPlayer.Pause();
+
+                _ringPlayer?.Stop();
+            }
         }
 
         private void OnVolumeChanged(object sender, ushort volume)
@@ -124,27 +213,10 @@ namespace LibreSpotUWP.Services
             MediaStateChanged?.Invoke(this, snapshot);
         }
 
-        private void UpdateSmtcPlaybackStatus()
-        {
-            if (_smtc == null) return;
-
-            switch (_state.PlaybackState)
-            {
-                case LibrespotPlaybackState.Playing:
-                    _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
-                    break;
-                case LibrespotPlaybackState.Paused:
-                    _smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
-                    break;
-                default:
-                    _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
-                    break;
-            }
-        }
-
         private void UpdateSmtcDisplay()
         {
-            if (_smtc == null) return;
+            if (_smtc == null)
+                return;
 
             var updater = _smtc.DisplayUpdater;
             updater.Type = MediaPlaybackType.Music;
@@ -159,16 +231,14 @@ namespace LibreSpotUWP.Services
                 if (t.Album?.Images != null && t.Album.Images.Any())
                 {
                     var imageUrl = t.Album.Images[0].Url;
-                    updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromUri(new Uri(imageUrl));
+                    updater.Thumbnail = RandomAccessStreamReference.CreateFromUri(new Uri(imageUrl));
                 }
             }
 
             updater.Update();
         }
 
-        private async void OnSmtcButtonPressed(
-            SystemMediaTransportControls sender,
-            SystemMediaTransportControlsButtonPressedEventArgs args)
+        private async void OnSmtcButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
         {
             switch (args.Button)
             {
@@ -188,6 +258,54 @@ namespace LibreSpotUWP.Services
                     Previous();
                     break;
             }
+        }
+
+        private MediaSource CreateSilentMediaSource()
+        {
+            var props = AudioEncodingProperties.CreatePcm(44100, 2, 16);
+            var descriptor = new AudioStreamDescriptor(props);
+            var mss = new MediaStreamSource(descriptor);
+
+            mss.CanSeek = false;
+            mss.Duration = TimeSpan.FromHours(24);
+            mss.BufferTime = TimeSpan.FromSeconds(0);
+
+            TimeSpan _currentTime = TimeSpan.Zero;
+
+            mss.Starting += (s, e) =>
+            {
+                e.Request.SetActualStartPosition(TimeSpan.Zero);
+                _currentTime = TimeSpan.Zero;
+            };
+
+            byte[] silentBuffer = null;
+            IBuffer silentIBuffer = null;
+            TimeSpan silentDuration = TimeSpan.FromMilliseconds(500);
+
+            mss.SampleRequested += (s, e) =>
+            {
+                if (silentBuffer == null)
+                {
+                    int frameSize = (int)props.ChannelCount * ((int)props.BitsPerSample / 8);
+                    int samples = (int)(props.SampleRate * (silentDuration.TotalMilliseconds / 1000.0));
+                    int bytes = samples * frameSize;
+
+                    silentBuffer = new byte[bytes];
+                    silentIBuffer = silentBuffer.AsBuffer();
+                }
+
+                var sample = MediaStreamSample.CreateFromBuffer(
+                    silentIBuffer,
+                    _currentTime
+                );
+
+                sample.Duration = silentDuration;
+                e.Request.Sample = sample;
+
+                _currentTime += silentDuration;
+            };
+
+            return MediaSource.CreateFromMediaStreamSource(mss);
         }
     }
 }
