@@ -123,17 +123,23 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Controls\NarrowMediaControllerBar.xaml.cs">
+      <DependentUpon>NarrowMediaControllerBar.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\MediaControllerBar.xaml.cs">
       <DependentUpon>MediaControllerBar.xaml</DependentUpon>
     </Compile>
     <Compile Include="Converters\SpotifyConfig.cs" />
     <Compile Include="Helpers\AudioFormatProbe.cs" />
     <Compile Include="Helpers\BarcodeHelper.cs" />
+    <Compile Include="Helpers\NavigationHelper.cs" />
+    <Compile Include="Helpers\OSHelper.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
     <Compile Include="Interfaces\IMetadataCache.cs" />
     <Compile Include="Interfaces\ILibrespotService.cs" />
     <Compile Include="Interfaces\ISpotifyAuthService.cs" />
     <Compile Include="Interfaces\IMediaService.cs" />
+    <Compile Include="Models\Enums.cs" />
     <Compile Include="ScannerPage.xaml.cs">
       <DependentUpon>ScannerPage.xaml</DependentUpon>
     </Compile>
@@ -143,6 +149,7 @@
     <Compile Include="Models\LibrespotSessionState.cs" />
     <Compile Include="Models\AuthState.cs" />
     <Compile Include="Interfaces\ISecureStorage.cs" />
+    <Compile Include="Services\AppearanceService.cs" />
     <Compile Include="Services\BarcodeUIService.cs" />
     <Compile Include="Services\SecureStorage.cs" />
     <Compile Include="Exceptions\SpotifyWebExceptions.cs" />
@@ -161,6 +168,12 @@
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Views\Win10_1507\HomePage_Win10_1507.xaml.cs">
+      <DependentUpon>HomePage_Win10_1507.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1507\PlayerPage_Win10_1507.xaml.cs">
+      <DependentUpon>PlayerPage_Win10_1507.xaml</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest">
@@ -186,6 +199,14 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Page Include="Controls\NarrowMediaControllerBar.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\MediaControllerBar.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="ScannerPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -193,6 +214,14 @@
     <Page Include="MainPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1507\HomePage_Win10_1507.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1507\PlayerPage_Win10_1507.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
   <ItemGroup>

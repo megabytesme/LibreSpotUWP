@@ -6,90 +6,131 @@
     xmlns:converters="using:LibreSpotUWP.Converters"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <Page.Resources>
-        <converters:TimeConverter x:Key="TimeConverter" />
-        <converters:BoolToVisibility x:Key="BoolToVisibility" />
-        <converters:InverseBoolToVisibility x:Key="InverseBoolToVisibility" />
-        <converters:VolumeToPercentConverter x:Key="VolumeToPercentConverter" />
-    </Page.Resources>
+    <SplitView
+        x:Name="RootSplitView"
+        CompactPaneLength="48"
+        DisplayMode="CompactOverlay"
+        IsPaneOpen="False"
+        OpenPaneLength="200">
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        <SplitView.Pane>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <ScrollViewer Grid.Row="0" Padding="24">
-            <StackPanel MaxWidth="800" HorizontalAlignment="Left">
-                <TextBlock
-                    Margin="0,0,0,20"
-                    Style="{StaticResource HeaderTextBlockStyle}"
-                    Text="Spotify" />
-
-                <StackPanel>
-                    <TextBlock
-                        Margin="0,0,0,8"
-                        FontWeight="SemiBold"
-                        Style="{StaticResource BaseTextBlockStyle}"
-                        Text="Stream Configuration" />
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox
-                            x:Name="TrackUriTextBox"
-                            Margin="0,0,12,0"
-                            PlaceholderText="Enter Spotify URI"
-                            Text="spotify:track:3AJwUDP919kvQ9QcozQPxg" />
-                        <Button
-                            Grid.Column="1"
-                            Width="100"
-                            Click="PlayButton_Click"
-                            Content="Load"
-                            Style="{StaticResource AccentButtonStyle}" />
-                    </Grid>
-                </StackPanel>
-
-                <StackPanel Margin="0,20,0,0">
-                    <TextBlock
-                        x:Name="LibrespotStatusText"
-                        Margin="0,0,0,4"
-                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}" />
-                    <TextBlock
-                        x:Name="SpotifyApiStatusText"
-                        Margin="0,0,0,4"
-                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}" />
+                <StackPanel Grid.Row="0">
                     <Button
-                        x:Name="AccountButton"
-                        Margin="0,10,0,0"
-                        Click="AccountButton_Click"
-                        Content="Manage Account" />
+                        x:Name="HamburgerButton"
+                        Width="48"
+                        Height="48"
+                        Background="Transparent"
+                        Click="HamburgerButton_Click">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="16"
+                            Text="&#xE700;" />
+                    </Button>
+
+                    <ListBox
+                        x:Name="NavListBox"
+                        Background="Transparent"
+                        SelectionChanged="NavListBox_SelectionChanged">
+                        <ListBoxItem Tag="Home">
+                            <StackPanel Padding="2" Orientation="Horizontal">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="18"
+                                    Text="&#xE80F;" />
+                                <TextBlock
+                                    Margin="16,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Text="Home" />
+                            </StackPanel>
+                        </ListBoxItem>
+                        <ListBoxItem Tag="Player">
+                            <StackPanel Padding="2" Orientation="Horizontal">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="18"
+                                    Text="&#xF5B0;" />
+                                <TextBlock
+                                    Margin="16,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Text="Currently Playing" />
+                            </StackPanel>
+                        </ListBoxItem>
+                    </ListBox>
                 </StackPanel>
-            </StackPanel>
-        </ScrollViewer>
 
-        <controls:MediaControllerBar Grid.Row="1" />
+                <ListBox
+                    x:Name="BottomNavListBox"
+                    Grid.Row="2"
+                    VerticalAlignment="Bottom"
+                    Background="Transparent"
+                    SelectionChanged="NavListBox_SelectionChanged">
+                    <ListBoxItem x:Name="AccountItem" Tag="Account">
+                        <FlyoutBase.AttachedFlyout>
+                            <Flyout x:Name="AccountFlyout">
+                                <!--  Account Control  -->
+                            </Flyout>
+                        </FlyoutBase.AttachedFlyout>
 
-        <Grid
-            x:Name="LoadingOverlay"
-            Grid.RowSpan="2"
-            Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
-            Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <ProgressRing
-                    x:Name="LoadingProgressRing"
-                    Width="60"
-                    Height="60"
-                    Margin="0,0,0,12"
-                    IsActive="False" />
-                <TextBlock
-                    HorizontalAlignment="Center"
-                    Style="{StaticResource BodyTextBlockStyle}"
-                    Text="Processing..." />
-            </StackPanel>
-        </Grid>
-    </Grid>
+                        <StackPanel Padding="2" Orientation="Horizontal">
+                            <Grid Width="20" Height="20">
+                                <TextBlock
+                                    x:Name="DefaultAccountIcon"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    FontSize="18"
+                                    Text="&#xE77B;" />
+
+                                <Ellipse x:Name="AccountProfileEllipse" Visibility="Collapsed">
+                                    <Ellipse.Fill>
+                                        <ImageBrush x:Name="AccountProfileBrush" Stretch="UniformToFill" />
+                                    </Ellipse.Fill>
+                                </Ellipse>
+
+                                <ProgressRing
+                                    x:Name="AccountLoadingRing"
+                                    Width="16"
+                                    Height="16"
+                                    Foreground="{ThemeResource SystemControlHighlightAccentBrush}"
+                                    IsActive="False" />
+                            </Grid>
+                            <TextBlock
+                                x:Name="AccountNameText"
+                                Margin="16,0,0,0"
+                                VerticalAlignment="Center"
+                                Text="Account" />
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="Settings">
+                        <StackPanel Padding="2" Orientation="Horizontal">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="18"
+                                Text="&#xE713;" />
+                            <TextBlock
+                                Margin="16,0,0,0"
+                                VerticalAlignment="Center"
+                                Text="Settings" />
+                        </StackPanel>
+                    </ListBoxItem>
+                </ListBox>
+            </Grid>
+        </SplitView.Pane>
+
+        <SplitView.Content>
+            <Frame x:Name="ContentFrame" />
+        </SplitView.Content>
+    </SplitView>
 </Page>

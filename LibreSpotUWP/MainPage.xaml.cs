@@ -1,244 +1,93 @@
-﻿using LibreSpotUWP.Interfaces;
+﻿using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using System;
-using System.Diagnostics;
-using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Controls.Primitives;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
 
 namespace LibreSpotUWP
 {
     public sealed partial class MainPage : Page
     {
-        private IMediaService _media;
-        private ISpotifyAuthService _auth;
-
         public MainPage()
         {
-            InitializeComponent();
-            Loaded += MainPage_Loaded;
+            this.InitializeComponent();
+            ApplyAppearanceStyling();
+            NavListBox.SelectedIndex = 0;
         }
 
-        private void MainPage_Loaded(object sender, RoutedEventArgs e)
+        protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
-            _media = App.Media;
-            _auth = App.SpotifyAuth;
-
-            if (_auth != null)
-                _auth.AuthStateChanged += (s, state) => RunOnUI(() => UpdateSpotifyApiStatus(state));
-
-            UpdateSpotifyApiStatus(_auth?.Current);
+            base.OnNavigatedTo(e);
         }
 
-        private async void PlayButton_Click(object sender, RoutedEventArgs e)
+        private void ApplyAppearanceStyling()
         {
-            if (!string.IsNullOrWhiteSpace(TrackUriTextBox.Text))
-                await _media.PlayTrackAsync(TrackUriTextBox.Text);
-        }
+            var mode = AppearanceService.Current;
 
-        private void RunOnUI(Action action)
-            => _ = Dispatcher.RunAsync(
-                Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () => action());
 
-        private void UpdateLibrespotStatus(LibrespotSessionState state)
-        {
-            if (state == null) LibrespotStatusText.Text = "Not Initialized";
-            else LibrespotStatusText.Text = state.IsConnected ? $"Connected as {state.UserName}" : "Disconnected";
-        }
-
-        private void UpdateSpotifyApiStatus(AuthState state)
-        {
-            SpotifyApiStatusText.Text = (state == null || state.IsExpired) ? "Web API: Logged Out" : "Web API: Authenticated";
-        }
-
-        private async void AccountButton_Click(object sender, RoutedEventArgs e)
-        {
-            var stackPanel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-
-            var dialog = new ContentDialog
+            if (mode == AppearanceMode.Win10_1709)
             {
-                Title = "Account Management",
-                Content = stackPanel,
-                PrimaryButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary
-            };
-
-            bool isAuthenticated = !string.IsNullOrEmpty(await _auth.GetAccessToken());
-
-            if (!isAuthenticated)
-            {
-                var btnLogin = new Button
+#if UWP1709
+                try
                 {
-                    Content = "Sign in with Spotify",
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Margin = new Thickness(0, 0, 0, 10)
-                };
-                btnLogin.Click += async (s, args) => { dialog.Hide(); await _auth.BeginPkceLoginAsync(); };
-
-                var btnScan = new Button
+                    this.Background = (Brush)Application.Current.Resources["AppBackgroundAcrylic"];
+                }
+                catch
                 {
-                    Content = "Scan QR to Sign in",
-                    HorizontalAlignment = HorizontalAlignment.Stretch
-                };
-                btnScan.Click += (s, args) => { dialog.Hide(); Frame.Navigate(typeof(ScannerPage)); };
+                }
 
-                stackPanel.Children.Add(btnLogin);
-                stackPanel.Children.Add(btnScan);
+                try
+                {
+                    RootSplitView.PaneBackground =
+                        (Brush)Application.Current.Resources["SystemControlAcrylicWindowBrush"];
+                }
+                catch
+                {
+                }
+#endif
             }
             else
             {
-                var btnShare = new Button
-                {
-                    Content = "Share My Session (QR)",
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Margin = new Thickness(0, 0, 0, 10)
-                };
-                btnShare.Click += async (s, args) => { dialog.Hide(); await ShareCurrentAccountQrAsync(); };
-
-                var btnLogout = new Button
-                {
-                    Content = "Log Out",
-                    HorizontalAlignment = HorizontalAlignment.Stretch
-                };
-                btnLogout.Click += (s, args) => { dialog.Hide(); };
-
-                stackPanel.Children.Add(btnShare);
-                stackPanel.Children.Add(btnLogout);
-            }
-
-            await dialog.ShowAsync();
-        }
-
-        private async Task ShareCurrentAccountQrAsync()
-        {
-            if (_auth.Current == null) return;
-
-            string json = Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
-            var qrBitmap = await BarcodeUIService.GenerateQrCodeBitmapAsync(json);
-
-            if (qrBitmap != null)
-            {
-                var image = new Image
-                {
-                    Source = qrBitmap,
-                    Width = 300,
-                    Height = 300,
-                    Margin = new Thickness(0, 20, 0, 20)
-                };
-
-                var text = new TextBlock
-                {
-                    Text = "Scan this on your other device to sync immediately. WARNING: This QR code contains your login session. Only share this with your own devices or trusted users.",
-                    TextWrapping = TextWrapping.Wrap,
-                    HorizontalAlignment = HorizontalAlignment.Center
-                };
-
-                var container = new StackPanel();
-                container.Children.Add(image);
-                container.Children.Add(text);
-
-                var qrDialog = new ContentDialog
-                {
-                    Title = "Share Login Access",
-                    Content = container,
-                    PrimaryButtonText = "Close"
-                };
-
-                await qrDialog.ShowAsync();
+                this.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+                RootSplitView.PaneBackground = (Brush)Application.Current.Resources["SystemControlBackgroundChromeMediumLowBrush"];
             }
         }
 
-        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        private void HamburgerButton_Click(object sender, RoutedEventArgs e)
         {
-            base.OnNavigatedTo(e);
-
-            if (ScannerPage.LastScanResult != null)
-            {
-                var rawData = ScannerPage.LastScanResult.Text;
-                ScannerPage.LastScanResult = null;
-
-                await ProcessQrLoginAsync(rawData);
-            }
+            RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
         }
 
-        private async Task ProcessQrLoginAsync(string json)
+        private async void NavListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            try
+            var listBox = sender as ListBox;
+            if (listBox == null || listBox.SelectedItem == null) return;
+
+            if (listBox.SelectedItem is ListBoxItem item)
             {
-                var importedState = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                string tag = item.Tag?.ToString();
 
-                if (importedState != null)
+                if (tag == "Account")
                 {
-                    var stackPanel = new StackPanel();
-                    stackPanel.Children.Add(new TextBlock
-                    {
-                        Text = "A Spotify session was found in the QR code. Would you like to import it and sign in?",
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(0, 0, 0, 12)
-                    });
+                    FlyoutBase.ShowAttachedFlyout(item);
 
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Import Session",
-                        Content = stackPanel,
-                        PrimaryButtonText = "Cancel",
-                        DefaultButton = ContentDialogButton.Primary
-                    };
-
-                    var btnImport = new Button
-                    {
-                        Content = "Confirm Import",
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        Style = (Style)Application.Current.Resources["AccentButtonStyle"]
-                    };
-
-                    bool userConfirmed = false;
-                    btnImport.Click += (s, args) => { userConfirmed = true; dialog.Hide(); };
-                    stackPanel.Children.Add(btnImport);
-
-                    await dialog.ShowAsync();
-
-                    if (userConfirmed)
-                    {
-                        RunOnUI(() =>
-                        {
-                            LoadingProgressRing.IsActive = true;
-                            LoadingOverlay.Visibility = Visibility.Visible;
-                        });
-                        await _auth.ImportAuthStateAsync(importedState);
-
-                        var successDialog = new ContentDialog
-                        {
-                            Title = "Success",
-                            Content = new TextBlock { Text = "Session imported successfully via QR!" },
-                            PrimaryButtonText = "OK"
-                        };
-                        await successDialog.ShowAsync();
-                    }
+                    listBox.SelectedIndex = -1;
+                    return;
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"QR Import Error: {ex}");
+                if (listBox == NavListBox)
+                    BottomNavListBox.SelectedIndex = -1;
+                else
+                    NavListBox.SelectedIndex = -1;
 
-                var errorDialog = new ContentDialog
+                Type pageType = NavigationHelper.GetPageType(tag);
+                if (pageType != null && ContentFrame.CurrentSourcePageType != pageType)
                 {
-                    Title = "Import Failed",
-                    Content = new TextBlock { Text = "Failed to read Login QR Code. It may be corrupted or in an invalid format." },
-                    PrimaryButtonText = "Close"
-                };
-                await errorDialog.ShowAsync();
-            }
-            finally
-            {
-                RunOnUI(() =>
-                {
-                    LoadingProgressRing.IsActive = false;
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                });
+                    ContentFrame.Navigate(pageType);
+                }
             }
         }
     }
