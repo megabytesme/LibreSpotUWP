@@ -30,11 +30,19 @@ namespace LibreSpotUWP.Services
 
         private bool _initialized;
         private bool _disposed;
+        private bool _shuffle;
+        private uint _repeatMode;
 
         public LibrespotSessionState Session => _session;
         public LibrespotPlaybackState PlaybackState => _playbackState;
         public LibrespotTrackInfo CurrentTrack => _currentTrack;
         public ushort Volume => _volume;
+        public bool Shuffle => _shuffle;
+        public uint RepeatMode => _repeatMode;
+        public string ConnectedUser { get; private set; }
+        public string ActiveClientName { get; private set; }
+        public bool IsAutoPlayEnabled { get; private set; }
+        public bool IsExplicitFilterEnabled { get; private set; }
 
         public event EventHandler<LibrespotSessionState> SessionStateChanged;
         public event EventHandler<LibrespotTrackInfo> TrackChanged;
@@ -42,6 +50,9 @@ namespace LibreSpotUWP.Services
         public event EventHandler<ushort> VolumeChanged;
         public event EventHandler<string> LogMessage;
         public event EventHandler<string> Panic;
+        public event EventHandler<bool> ShuffleChanged;
+        public event EventHandler<uint> RepeatChanged;
+        public event EventHandler<uint> Seeked;
 
         public async Task InitializeAsync()
         {
@@ -195,96 +206,143 @@ namespace LibreSpotUWP.Services
         private void HandleEvent(LibrespotEvent evt)
         {
             string ts = DateTime.Now.ToString("HH:mm:ss");
+            string logPrefix = $"{ts} [LibreSpot Event:{evt.event_type}]";
 
             switch (evt.event_type)
             {
                 case EventType.LogMessage:
                     string msg = Marshal.PtrToStringAnsi(evt.data.log_msg);
-
-                    Debug.WriteLine($"{ts} [LibreSpot] {msg}");
-
-                    if (LogMessage != null)
-                    {
-                        LogMessage.Invoke(this, msg);
-                    }
-                    break;
-
-                case EventType.SessionConnected:
-                    string user = Marshal.PtrToStringAnsi(evt.data.session_user);
-                    Debug.WriteLine($"{ts} [LibreSpot] [Auth] Connected as {user}");
-                    UpdateSession(true, user, false);
-                    break;
-
-                case EventType.SessionDisconnected:
-                    string discUser = Marshal.PtrToStringAnsi(evt.data.session_user);
-                    Debug.WriteLine($"{ts} [LibreSpot] [Auth] Disconnected: {discUser}");
-                    UpdateSession(false, discUser, _session.AuthNeeded);
+                    Debug.WriteLine($"{ts} [LibreSpot Internal] {msg}");
+                    LogMessage?.Invoke(this, msg);
                     break;
 
                 case EventType.TrackChanged:
                     var t = evt.data.track;
+                    string trackUri = Marshal.PtrToStringAnsi(t.uri);
+                    string trackName = Marshal.PtrToStringAnsi(t.name);
+                    string artistName = Marshal.PtrToStringAnsi(t.artist);
+
+                    Debug.WriteLine($"{logPrefix} Track: {trackName} by {artistName} ({trackUri})");
+
                     var track = new LibrespotTrackInfo
                     {
-                        Uri = Marshal.PtrToStringAnsi(t.uri),
-                        Name = Marshal.PtrToStringAnsi(t.name),
-                        Artist = Marshal.PtrToStringAnsi(t.artist),
+                        Uri = trackUri,
+                        Name = trackName,
+                        Artist = artistName,
                         Album = Marshal.PtrToStringAnsi(t.album),
                         CoverUrl = Marshal.PtrToStringAnsi(t.cover_url),
                         Duration = TimeSpan.FromMilliseconds(t.duration_ms)
                     };
-                    Debug.WriteLine($"{ts} [LibreSpot] [Track] {track.Name} – {track.Artist} ({track.Album})");
                     UpdateTrack(track);
-                    break;
-
-                case EventType.VolumeChanged:
-                    Debug.WriteLine($"{ts} [LibreSpot] [Volume] {evt.data.volume}");
-                    UpdateVolume(evt.data.volume);
-                    break;
-
-                case EventType.Panic:
-                    string panic = Marshal.PtrToStringAnsi(evt.data.log_msg);
-                    Debug.WriteLine($"{ts} [LibreSpot] [Panic] {panic}");
-                    RaisePanic(panic);
+                    UpdatePosition(0);
                     break;
 
                 case EventType.PlaybackPaused:
-                    Debug.WriteLine($"{ts} [LibreSpot] [Playback] Paused");
+                    Debug.WriteLine($"{logPrefix} State -> Paused at {evt.data.position_ms}ms");
                     UpdatePlaybackState(LibrespotPlaybackState.Paused);
                     break;
+
                 case EventType.PlaybackResumed:
-                    Debug.WriteLine($"{ts} [LibreSpot] [Playback] Resumed");
+                    Debug.WriteLine($"{logPrefix} State -> Playing from {evt.data.position_ms}ms");
                     UpdatePlaybackState(LibrespotPlaybackState.Playing);
                     break;
+
+                case EventType.PlaybackLoading:
+                    Debug.WriteLine($"{logPrefix} Buffering/Loading track...");
+                    UpdatePlaybackState(LibrespotPlaybackState.Loading);
+                    break;
+
                 case EventType.PlaybackStopped:
-                    Debug.WriteLine($"{ts} [LibreSpot] [Playback] Stopped");
+                    Debug.WriteLine($"{logPrefix} Playback Stopped.");
                     UpdatePlaybackState(LibrespotPlaybackState.Stopped);
+                    break;
+
+                case EventType.EndOfTrack:
+                    Debug.WriteLine($"{logPrefix} Reached end of track URI: {Marshal.PtrToStringAnsi(evt.data.track_uri)}");
+                    OnEndOfTrack();
+                    break;
+
+                case EventType.VolumeChanged:
+                    Debug.WriteLine($"{logPrefix} Volume: {evt.data.volume}");
+                    UpdateVolume(evt.data.volume);
+                    break;
+
+                case EventType.ShuffleChanged:
+                    Debug.WriteLine($"{logPrefix} Shuffle: {evt.data.shuffle}");
+                    UpdateShuffle(evt.data.shuffle);
+                    break;
+
+                case EventType.RepeatChanged:
+                    Debug.WriteLine($"{logPrefix} Repeat Mode: {evt.data.repeat_mode}");
+                    UpdateRepeat(evt.data.repeat_mode);
+                    break;
+
+                case EventType.Seeked:
+                case EventType.PositionCorrection:
+                case EventType.PositionChanged:
+                    if (evt.event_type != EventType.PositionChanged)
+                        Debug.WriteLine($"{logPrefix} Syncing position to {evt.data.position_ms}ms");
+
+                    UpdatePosition(evt.data.position_ms);
+                    break;
+
+                case EventType.SessionConnected:
+                    string user = Marshal.PtrToStringAnsi(evt.data.session_user);
+                    Debug.WriteLine($"{logPrefix} Connected as user: {user}");
+                    OnSessionChanged(true, user);
+                    break;
+
+                case EventType.SessionDisconnected:
+                    Debug.WriteLine($"{logPrefix} Session Disconnected");
+                    OnSessionChanged(false, null);
+                    break;
+
+                case EventType.ClientChanged:
+                    string client = Marshal.PtrToStringAnsi(evt.data.client_name);
+                    Debug.WriteLine($"{logPrefix} Active Client switched to: {client}");
+                    UpdateClientInfo(client);
+                    break;
+
+                case EventType.AutoPlayChanged:
+                    Debug.WriteLine($"{logPrefix} AutoPlay: {evt.data.auto_play}");
+                    UpdateAutoPlay(evt.data.auto_play);
+                    break;
+
+                case EventType.ExplicitFilterChanged:
+                    Debug.WriteLine($"{logPrefix} Explicit Filter: {evt.data.filter_explicit}");
+                    UpdateExplicitFilter(evt.data.filter_explicit);
+                    break;
+
+                case EventType.AddedToQueue:
+                    Debug.WriteLine($"{logPrefix} Track added to queue: {Marshal.PtrToStringAnsi(evt.data.track_uri)}");
+                    break;
+
+                case EventType.Panic:
+                    string panicMsg = Marshal.PtrToStringAnsi(evt.data.log_msg);
+                    Debug.WriteLine($"{ts} [CRITICAL PANIC] {panicMsg}");
+                    RaisePanic(panicMsg);
+                    break;
+
+                default:
+                    Debug.WriteLine($"{logPrefix} No specific handler for this event.");
                     break;
             }
         }
 
-        private void UpdateSession(bool isConnected, string userName, bool authNeeded)
+        private void OnSessionChanged(bool connected, string username)
         {
             LibrespotSessionState snapshot;
             lock (_stateLock)
             {
                 _session = new LibrespotSessionState
                 {
-                    IsConnected = isConnected,
-                    UserName = userName,
-                    AuthNeeded = authNeeded
+                    IsConnected = connected,
+                    UserName = username,
+                    AuthNeeded = !connected
                 };
                 snapshot = _session;
             }
             SessionStateChanged?.Invoke(this, snapshot);
-        }
-
-        private void UpdateTrack(LibrespotTrackInfo track)
-        {
-            lock (_stateLock)
-            {
-                _currentTrack = track;
-            }
-            TrackChanged?.Invoke(this, track);
         }
 
         private void UpdatePlaybackState(LibrespotPlaybackState state)
@@ -296,6 +354,15 @@ namespace LibreSpotUWP.Services
             PlaybackStateChanged?.Invoke(this, state);
         }
 
+        private void UpdateTrack(LibrespotTrackInfo track)
+        {
+            lock (_stateLock)
+            {
+                _currentTrack = track;
+            }
+            TrackChanged?.Invoke(this, track);
+        }
+
         private void UpdateVolume(ushort volume)
         {
             lock (_stateLock)
@@ -305,10 +372,46 @@ namespace LibreSpotUWP.Services
             VolumeChanged?.Invoke(this, volume);
         }
 
-        private void RaiseLog(string message)
+        private void OnEndOfTrack()
         {
-            if (message == null) return;
-            LogMessage?.Invoke(this, message);
+            Debug.WriteLine("[LibreSpot] End of track reached.");
+        }
+
+        private void UpdateClientInfo(string clientName)
+        {
+            ActiveClientName = clientName;
+            Debug.WriteLine($"[LibreSpot] Active Client: {clientName}");
+        }
+
+        private void UpdateAutoPlay(bool enabled)
+        {
+            IsAutoPlayEnabled = enabled;
+            Debug.WriteLine($"[LibreSpot] AutoPlay updated: {enabled}");
+        }
+
+        private void UpdateExplicitFilter(bool enabled)
+        {
+            IsExplicitFilterEnabled = enabled;
+            Debug.WriteLine($"[LibreSpot] Explicit Filter updated: {enabled}");
+        }
+
+        private void UpdatePosition(uint positionMs)
+        {
+            Seeked?.Invoke(this, positionMs);
+        }
+
+        private void UpdateShuffle(bool enabled)
+        {
+            Debug.WriteLine($"[LibreSpot] Shuffle updated: {enabled}");
+            lock (_stateLock) { _shuffle = enabled; }
+            ShuffleChanged?.Invoke(this, enabled);
+        }
+
+        private void UpdateRepeat(uint mode)
+        {
+            Debug.WriteLine($"[LibreSpot] Repeat mode updated: {mode}");
+            lock (_stateLock) { _repeatMode = mode; }
+            RepeatChanged?.Invoke(this, mode);
         }
 
         private void RaisePanic(string message)

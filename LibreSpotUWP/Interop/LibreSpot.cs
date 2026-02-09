@@ -57,7 +57,22 @@ namespace LibreSpotUWP.Interop
             PlaybackResumed = 6,
             PlaybackStopped = 7,
             VolumeChanged = 8,
-            Panic = 9
+            Panic = 9,
+            ShuffleChanged = 10,
+            RepeatChanged = 11,
+            AutoPlayChanged = 12,
+            Seeked = 13,
+            PositionCorrection = 14,
+            PlaybackLoading = 15,
+            PlaybackUnavailable = 16,
+            EndOfTrack = 17,
+            ClientChanged = 18,
+            ExplicitFilterChanged = 19,
+            PlayRequestIdChanged = 20,
+            AddedToQueue = 21,
+            Preloading = 22,
+            TimeToPreloadNextTrack = 23,
+            PositionChanged = 24,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -71,20 +86,34 @@ namespace LibreSpotUWP.Interop
             public uint duration_ms;
         }
 
-        [StructLayout(LayoutKind.Explicit)]
+        [StructLayout(LayoutKind.Sequential)]
         public struct EventData
         {
-            [FieldOffset(0)]
-            public IntPtr log_msg;
-
-            [FieldOffset(0)]
-            public TrackMetadata track;
-
-            [FieldOffset(0)]
+            public ulong play_request_id;
+            public IntPtr track_uri;
+            public uint position_ms;
+            public uint duration_ms;
             public ushort volume;
 
-            [FieldOffset(0)]
+            [MarshalAs(UnmanagedType.U1)]
+            public bool is_playing;
+
+            [MarshalAs(UnmanagedType.U1)]
+            public bool shuffle;
+
+            public uint repeat_mode;
+
+            [MarshalAs(UnmanagedType.U1)]
+            public bool auto_play;
+
+            [MarshalAs(UnmanagedType.U1)]
+            public bool filter_explicit;
+
+            public TrackMetadata track;
+
             public IntPtr session_user;
+            public IntPtr client_name;
+            public IntPtr log_msg;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -108,6 +137,9 @@ namespace LibreSpotUWP.Interop
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_pause(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_stop(IntPtr inst);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_next(IntPtr inst);
