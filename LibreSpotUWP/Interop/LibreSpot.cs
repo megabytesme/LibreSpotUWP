@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
-namespace LibreSpotUWP
+namespace LibreSpotUWP.Interop
 {
     public static class Librespot
     {
@@ -95,16 +95,46 @@ namespace LibreSpotUWP
         }
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr librespot_new(
-            LibrespotConfig config,
-            LibrespotCallback cb,
-            IntPtr userData);
+        public static extern IntPtr librespot_new(LibrespotConfig config, LibrespotCallback cb, IntPtr userData);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_free(IntPtr inst);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_load(IntPtr inst, IntPtr uri, bool play);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_play(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_pause(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_next(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_prev(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_seek(IntPtr inst, uint posMs);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_set_volume(IntPtr inst, ushort volume);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_set_shuffle(IntPtr inst, bool enabled);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_set_repeat(IntPtr inst, uint mode);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint librespot_get_position_ms(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint librespot_get_duration_ms(IntPtr inst);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern TrackMetadata librespot_get_current_track_info(IntPtr inst);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr librespot_audio_get_buffer();

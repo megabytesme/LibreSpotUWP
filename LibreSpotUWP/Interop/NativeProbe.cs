@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace LibreSpotUWP
+namespace LibreSpotUWP.Interop
 {
     public static class NativeProbe
     {

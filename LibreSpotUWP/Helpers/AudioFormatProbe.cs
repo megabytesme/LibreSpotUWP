@@ -3,9 +3,9 @@ using System.Threading.Tasks;
 using Windows.Media.Audio;
 using Windows.Media.MediaProperties;
 using Windows.Media.Render;
-using static LibreSpotUWP.Librespot;
+using static LibreSpotUWP.Interop.Librespot;
 
-namespace LibreSpotUWP
+namespace LibreSpotUWP.Helpers
 {
     public sealed class AudioFormatProbeResult
     {
