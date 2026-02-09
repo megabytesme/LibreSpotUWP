@@ -180,7 +180,8 @@
                     <Slider
                         x:Name="VolumeSlider"
                         Width="120"
-                        Maximum="65535"
+                        VerticalAlignment="Center"
+                        Maximum="100"
                         Minimum="0"
                         ValueChanged="VolumeSlider_ValueChanged" />
                 </StackPanel>

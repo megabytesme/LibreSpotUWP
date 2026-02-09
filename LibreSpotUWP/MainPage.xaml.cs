@@ -32,7 +32,11 @@ namespace LibreSpotUWP
                 _librespot.SessionStateChanged += (s, state) => RunOnUI(() => UpdateLibrespotStatus(state));
                 _librespot.TrackChanged += (s, track) => RunOnUI(() => UpdateTrackUI(track));
                 _librespot.PlaybackStateChanged += (s, state) => RunOnUI(() => UpdatePlaybackButtons(state));
-                _librespot.VolumeChanged += (s, vol) => RunOnUI(() => VolumeSlider.Value = vol);
+                _librespot.VolumeChanged += (s, vol) => RunOnUI(() =>
+                {
+                    double uiValue = (vol * 100.0) / 65535.0;
+                    VolumeSlider.Value = uiValue;
+                });
             }
 
             if (media != null)
@@ -107,7 +111,10 @@ namespace LibreSpotUWP
 
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            _librespot?.SetVolumeAsync((ushort)e.NewValue);
+            if (_librespot == null) return;
+
+            ushort rawVolume = (ushort)(e.NewValue * 65535 / 100);
+            _librespot.SetVolumeAsync(rawVolume);
         }
 
         private async void SpotifyLoginButton_Click(object sender, RoutedEventArgs e) => await _auth.BeginPkceLoginAsync();
