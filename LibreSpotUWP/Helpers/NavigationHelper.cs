@@ -36,7 +36,7 @@ namespace LibreSpotUWP.Helpers
             {
                 //if (mode == AppearanceMode.Win11) return typeof(SettingsPage_Win11);
                 //if (mode == AppearanceMode.Win10_1709) return typeof(SettingsPage_Win10_1709);
-                //return typeof(SettingsPage_Win10_1507);
+                return typeof(SettingsPage_Win10_1507);
             }
 
             if (pageKey == "Player")
