@@ -2,7 +2,9 @@
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -13,11 +15,17 @@ namespace LibreSpotUWP
 {
     public sealed partial class MainPage : Page
     {
+        private readonly List<string> _history = new List<string>();
+        private bool _isPlayerOpen = false;
+
         public MainPage()
         {
             this.InitializeComponent();
             ApplyAppearanceStyling();
             NavListBox.SelectedIndex = 0;
+            SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+            SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
+                AppViewBackButtonVisibility.Disabled;
         }
 
         protected async override void OnNavigatedTo(NavigationEventArgs e)
@@ -78,9 +86,13 @@ namespace LibreSpotUWP
 
         public async void NavigateTo(string pageTag)
         {
+            if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
+                _history.Add(pageTag);
+
             if (pageTag == "Player")
             {
                 ShowPlayer();
+                UpdateBackButton();
                 return;
             }
 
@@ -95,6 +107,8 @@ namespace LibreSpotUWP
                     var settingsType = NavigationHelper.GetPageType("Settings");
                     if (ContentFrame.CurrentSourcePageType != settingsType)
                         ContentFrame.Navigate(settingsType);
+
+                    UpdateBackButton();
                     return;
                 }
             }
@@ -120,6 +134,8 @@ namespace LibreSpotUWP
             var pageType = NavigationHelper.GetPageType(pageTag);
             if (ContentFrame.CurrentSourcePageType != pageType)
                 ContentFrame.Navigate(pageType);
+
+            UpdateBackButton();
         }
 
         private void HamburgerButton_Click(object sender, RoutedEventArgs e)
@@ -161,11 +177,66 @@ namespace LibreSpotUWP
                 PlayerOverlay.Navigate(pageType);
 
             PlayerOverlay.Visibility = Visibility.Visible;
+            _isPlayerOpen = true;
         }
 
         public void HidePlayer()
         {
             PlayerOverlay.Visibility = Visibility.Collapsed;
+            _isPlayerOpen = false;
+        }
+
+        private void OnBackRequested(object sender, BackRequestedEventArgs e)
+        {
+            if (_history.Count <= 1)
+                return;
+
+            e.Handled = true;
+
+            _history.RemoveAt(_history.Count - 1);
+
+            string previous = _history[_history.Count - 1];
+
+            if (previous == "Player")
+            {
+                ShowPlayer();
+                UpdateBackButton();
+                return;
+            }
+
+            HidePlayer();
+
+            var pageType = NavigationHelper.GetPageType(previous);
+            if (ContentFrame.CurrentSourcePageType != pageType)
+                ContentFrame.Navigate(pageType);
+
+            foreach (var item in NavListBox.Items)
+            {
+                if (item is ListBoxItem lbi && (string)lbi.Tag == previous)
+                {
+                    NavListBox.SelectedItem = lbi;
+                    break;
+                }
+            }
+
+            foreach (var item in BottomNavListBox.Items)
+            {
+                if (item is ListBoxItem lbi && (string)lbi.Tag == previous)
+                {
+                    BottomNavListBox.SelectedItem = lbi;
+                    break;
+                }
+            }
+
+            UpdateBackButton();
+        }
+
+        private void UpdateBackButton()
+        {
+            SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
+                _history.Count > 1
+                ? AppViewBackButtonVisibility.Visible
+                : AppViewBackButtonVisibility.Disabled;
         }
     }
 }
