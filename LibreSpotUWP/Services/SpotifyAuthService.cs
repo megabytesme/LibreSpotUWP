@@ -43,7 +43,13 @@ namespace LibreSpotUWP.Services
                     Scopes.UserReadPrivate,
                     Scopes.PlaylistReadPrivate,
                     Scopes.PlaylistReadCollaborative,
-                    Scopes.Streaming
+                    Scopes.Streaming,
+                    Scopes.UserReadRecentlyPlayed,
+                    Scopes.UserTopRead,
+                    Scopes.UserLibraryRead,
+                    Scopes.UserReadPlaybackState,
+                    Scopes.UserReadCurrentlyPlaying,
+                    Scopes.UserFollowRead
                 }
             };
 
