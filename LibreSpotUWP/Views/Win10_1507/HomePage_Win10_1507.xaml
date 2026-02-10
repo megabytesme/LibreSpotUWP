@@ -4,6 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:LibreSpotUWP.Controls"
     xmlns:converters="using:LibreSpotUWP.Converters"
+    xmlns:spotify="using:SpotifyAPI.Web"
+    xmlns:viewmodels="using:LibreSpotUWP.ViewModels"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Page.Resources>
@@ -19,77 +21,136 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ScrollViewer Grid.Row="0" Padding="24">
-            <StackPanel MaxWidth="800" HorizontalAlignment="Left">
-                <TextBlock
-                    Margin="0,0,0,20"
-                    Style="{StaticResource HeaderTextBlockStyle}"
-                    Text="Spotify" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Padding="16" Spacing="24">
 
                 <StackPanel>
                     <TextBlock
-                        Margin="0,0,0,8"
+                        FontSize="20"
                         FontWeight="SemiBold"
-                        Style="{StaticResource BaseTextBlockStyle}"
-                        Text="Stream Configuration" />
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox
-                            x:Name="TrackUriTextBox"
-                            Margin="0,0,12,0"
-                            PlaceholderText="Enter Spotify URI"
-                            Text="spotify:track:3AJwUDP919kvQ9QcozQPxg" />
-                        <Button
-                            Grid.Column="1"
-                            Width="100"
-                            Click="PlayButton_Click"
-                            Content="Load"
-                            Style="{StaticResource AccentButtonStyle}" />
-                    </Grid>
+                        Text="Recently Played" />
+                    <ListView
+                        ItemsSource="{x:Bind ViewModel.RecentlyPlayed}"
+                        ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                        ScrollViewer.HorizontalScrollMode="Enabled"
+                        ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="spotify:PlayHistoryItem">
+                                <StackPanel Width="140" Margin="0,0,12,0">
+                                    <Image
+                                        Width="140"
+                                        Height="140"
+                                        Source="{x:Bind Track.Album.Images[0].Url}" />
+                                    <TextBlock Text="{x:Bind Track.Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="Gray"
+                                        Text="{x:Bind Track.Artists[0].Name}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
                 </StackPanel>
 
-                <StackPanel Margin="0,20,0,0">
+                <StackPanel>
                     <TextBlock
-                        x:Name="LibrespotStatusText"
-                        Margin="0,0,0,4"
-                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}" />
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Text="Your Playlists" />
+                    <ListView
+                        ItemsSource="{x:Bind ViewModel.UserPlaylists}"
+                        ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                        ScrollViewer.HorizontalScrollMode="Enabled"
+                        ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="spotify:FullPlaylist">
+                                <StackPanel Width="140" Margin="0,0,12,0">
+                                    <Image
+                                        Width="140"
+                                        Height="140"
+                                        Source="{x:Bind Images[0].Url}" />
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <StackPanel>
                     <TextBlock
-                        x:Name="SpotifyApiStatusText"
-                        Margin="0,0,0,4"
-                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Button
-                        x:Name="AccountButton"
-                        Margin="0,10,0,0"
-                        Click="AccountButton_Click"
-                        Content="Manage Account" />
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Text="Top Artists" />
+                    <ListView
+                        ItemsSource="{x:Bind ViewModel.TopArtists}"
+                        ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                        ScrollViewer.HorizontalScrollMode="Enabled"
+                        ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="spotify:FullArtist">
+                                <StackPanel Width="140" Margin="0,0,12,0">
+                                    <Ellipse Width="140" Height="140">
+                                        <Ellipse.Fill>
+                                            <ImageBrush ImageSource="{x:Bind Images[0].Url}" />
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <StackPanel>
+                    <TextBlock
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Text="Top Tracks" />
+                    <ListView
+                        ItemsSource="{x:Bind ViewModel.TopTracks}"
+                        ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                        ScrollViewer.HorizontalScrollMode="Enabled"
+                        ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="spotify:FullTrack">
+                                <StackPanel Width="140" Margin="0,0,12,0">
+                                    <Image
+                                        Width="140"
+                                        Height="140"
+                                        Source="{x:Bind Album.Images[0].Url}" />
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="Gray"
+                                        Text="{x:Bind Artists[0].Name}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
 
         <controls:NarrowMediaControllerBar Grid.Row="1" />
-
-        <Grid
-            x:Name="LoadingOverlay"
-            Grid.RowSpan="2"
-            Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
-            Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <ProgressRing
-                    x:Name="LoadingProgressRing"
-                    Width="60"
-                    Height="60"
-                    Margin="0,0,0,12"
-                    IsActive="False" />
-                <TextBlock
-                    HorizontalAlignment="Center"
-                    Style="{StaticResource BodyTextBlockStyle}"
-                    Text="Processing..." />
-            </StackPanel>
-        </Grid>
     </Grid>
 </Page>
