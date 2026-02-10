@@ -134,6 +134,7 @@
     <Compile Include="Helpers\BarcodeHelper.cs" />
     <Compile Include="Helpers\NavigationHelper.cs" />
     <Compile Include="Helpers\OSHelper.cs" />
+    <Compile Include="Models\CacheResponse.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
     <Compile Include="Interfaces\IMetadataCache.cs" />
     <Compile Include="Interfaces\ILibrespotService.cs" />

@@ -1,82 +1,115 @@
-﻿using System;
-using System.Security.Cryptography;
-using System.Text;
+﻿using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Models;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
-using LibreSpotUWP.Interfaces;
-using Newtonsoft.Json.Linq;
 
-namespace LibreSpotUWP.Services
+public sealed class FileMetadataCache : IMetadataCache
 {
-    public sealed class FileMetadataCache : IMetadataCache
+    private readonly IFileSystem _fileSystem;
+    private readonly string _root;
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _locks =
+        new ConcurrentDictionary<string, SemaphoreSlim>();
+
+    private sealed class CacheEnvelope<T>
     {
-        private readonly IFileSystem _fs;
-        private readonly string _folder;
+        public DateTimeOffset Timestamp { get; set; }
+        public T Data { get; set; }
+    }
 
-        public FileMetadataCache(IFileSystem fs)
+    public FileMetadataCache(IFileSystem fileSystem)
+    {
+        _fileSystem = fileSystem;
+        _root = _fileSystem.Combine(_fileSystem.AppDataDirectory, "cache");
+    }
+
+    private SemaphoreSlim GetLock(string path)
+        => _locks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
+
+    public async Task<CacheResponse<T>> GetOrAddAsync<T>(
+        string key,
+        Func<Task<T>> factory,
+        TimeSpan ttl,
+        bool forceRefresh = false)
+    {
+        var path = GetPathForKey(key);
+        var fileLock = GetLock(path);
+
+        await fileLock.WaitAsync();
+        try
         {
-            _fs = fs;
-            _folder = _fs.Combine(_fs.AppDataDirectory, "Cache");
-        }
-
-        public async Task<T> GetOrAddAsync<T>(string key, Func<Task<T>> factory, TimeSpan ttl)
-        {
-            await _fs.CreateFolderAsync(_folder);
-
-            var path = _fs.Combine(_folder, HashKey(key));
-
-            if (await _fs.FileExistsAsync(path))
+            if (!forceRefresh && await _fileSystem.FileExistsAsync(path))
             {
                 try
                 {
-                    var text = await _fs.ReadTextAsync(path);
-                    if (!string.IsNullOrWhiteSpace(text))
+                    var json = await _fileSystem.ReadTextAsync(path);
+                    var envelope = JsonConvert.DeserializeObject<CacheEnvelope<T>>(json);
+
+                    if (envelope != null)
                     {
-                        var json = JObject.Parse(text);
+                        if (ttl == TimeSpan.Zero || ttl == TimeSpan.MaxValue)
+                            return new CacheResponse<T>(envelope.Data, envelope.Timestamp, true);
 
-                        long expires = json["expires"] != null ? json["expires"].ToObject<long>() : 0;
-                        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-                        if (now < expires)
-                        {
-                            return json["payload"].ToObject<T>();
-                        }
+                        if (DateTimeOffset.UtcNow - envelope.Timestamp < ttl)
+                            return new CacheResponse<T>(envelope.Data, envelope.Timestamp, true);
                     }
                 }
                 catch
                 {
                 }
-
-                await _fs.DeleteFileAsync(path);
             }
 
-            var value = await factory();
+            var fresh = await factory();
 
-            var envelope = new JObject
+            var newEnvelope = new CacheEnvelope<T>
             {
-                ["expires"] = DateTimeOffset.UtcNow.Add(ttl).ToUnixTimeMilliseconds(),
-                ["payload"] = JToken.FromObject(value)
+                Timestamp = DateTimeOffset.UtcNow,
+                Data = fresh
             };
 
-            await _fs.WriteTextAsync(path, envelope.ToString());
+            var jsonOut = JsonConvert.SerializeObject(newEnvelope);
 
-            return value;
+            var folder = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(folder))
+                await _fileSystem.CreateFolderAsync(folder);
+
+            await _fileSystem.WriteTextAsync(path, jsonOut);
+
+            return new CacheResponse<T>(fresh, newEnvelope.Timestamp, false);
         }
-
-        public Task InvalidateAsync(string key)
+        finally
         {
-            var path = _fs.Combine(_folder, HashKey(key));
-            return _fs.DeleteFileAsync(path);
+            fileLock.Release();
         }
+    }
 
-        private static string HashKey(string key)
+    public async Task InvalidateAsync(string key)
+    {
+        var path = GetPathForKey(key);
+        var fileLock = GetLock(path);
+
+        await fileLock.WaitAsync();
+        try
         {
-            using (var sha = SHA256.Create())
-            {
-                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
-                return BitConverter.ToString(bytes, 0, 16)
-                    .Replace("-", "")
-                    .ToLowerInvariant() + ".json";
-            }
+            if (await _fileSystem.FileExistsAsync(path))
+                await _fileSystem.DeleteFileAsync(path);
         }
+        finally
+        {
+            fileLock.Release();
+        }
+    }
+
+    private string GetPathForKey(string key)
+    {
+        var relative = key.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? key
+            : key + ".json";
+
+        return _fileSystem.Combine(_root, relative);
     }
 }
