@@ -106,7 +106,18 @@ namespace LibreSpotUWP.Services
                     Current.RefreshToken);
 
                 var oauth = new OAuthClient();
-                var response = await oauth.RequestToken(refresh);
+
+                PKCETokenResponse response;
+
+                try
+                {
+                    response = await oauth.RequestToken(refresh);
+                }
+                catch (APIException apiEx) when (apiEx.Message.Contains("invalid_grant"))
+                {
+                    await ResetAuthStateAsync();
+                    return;
+                }
 
                 Current.AccessToken = response.AccessToken;
                 Current.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn);
@@ -119,6 +130,16 @@ namespace LibreSpotUWP.Services
             {
                 _isRefreshing = false;
             }
+        }
+
+        private async Task ResetAuthStateAsync()
+        {
+            Current = null;
+            await _storage.DeleteAsync(StorageKey);
+
+            App.AuthToken = null;
+
+            AuthStateChanged?.Invoke(this, null);
         }
 
         public async Task<string> GetAccessToken()
