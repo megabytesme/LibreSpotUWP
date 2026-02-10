@@ -55,11 +55,7 @@
                         </ListBoxItem>
                         <ListBoxItem Tag="Player">
                             <StackPanel Padding="2" Orientation="Horizontal">
-                                <TextBlock
-                                    VerticalAlignment="Center"
-                                    FontFamily="Segoe MDL2 Assets"
-                                    FontSize="18"
-                                    Text="&#xF5B0;" />
+                                <SymbolIcon x:Name="PlayPauseIcon" Symbol="MusicInfo" />
                                 <TextBlock
                                     Margin="16,0,0,0"
                                     VerticalAlignment="Center"
