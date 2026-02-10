@@ -175,7 +175,8 @@ namespace LibreSpotUWP.Services
             if (!string.IsNullOrWhiteSpace(track.Uri))
             {
                 var id = track.Uri.Replace("spotify:track:", "");
-                metadata = await _web.GetTrackAsync(id);
+                var resp = await _web.GetTrackAsync(id, false);
+                metadata = resp.Value;
             }
 
             UpdateState(state =>
