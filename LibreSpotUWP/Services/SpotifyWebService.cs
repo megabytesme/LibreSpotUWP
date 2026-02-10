@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Exceptions;
 using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
 using System;
 using System.Threading;
@@ -14,9 +15,12 @@ namespace LibreSpotUWP.Services
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(4);
         private SpotifyClient _client;
 
-        private static readonly TimeSpan MetadataTtl = TimeSpan.FromHours(24);
-        private static readonly TimeSpan PersonalDataTtl = TimeSpan.FromMinutes(5);
-        private static readonly TimeSpan LibraryTtl = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan TtlImmutable = TimeSpan.MaxValue;
+        private static readonly TimeSpan TtlArtist = TimeSpan.FromDays(7);
+        private static readonly TimeSpan TtlSession = TimeSpan.Zero;
+
+        private string _userId;
+        private string _userCountry;
 
         public SpotifyWebService(ISpotifyAuthService auth, IMetadataCache cache)
         {
@@ -25,8 +29,10 @@ namespace LibreSpotUWP.Services
 
             _auth.AuthStateChanged += (_, state) =>
             {
-                if (!state.IsExpired)
+                if (state != null && !state.IsExpired)
                     _client = new SpotifyClient(state.AccessToken);
+                else
+                    _client = null;
             };
 
             if (_auth.Current != null && !_auth.Current.IsExpired)
@@ -45,7 +51,12 @@ namespace LibreSpotUWP.Services
             }
             catch (APIException apiEx)
             {
-                throw new SpotifyWebException($"Spotify API Error: {apiEx.Response?.StatusCode}", apiEx);
+                var method = action.Method.Name;
+                System.Diagnostics.Debug.WriteLine(
+                    $"Spotify API Error in {method}: {apiEx.Response?.StatusCode} - {apiEx.Message}");
+
+                throw new SpotifyWebException(
+                    $"Spotify API Error: {apiEx.Response?.StatusCode}", apiEx);
             }
             finally
             {
@@ -53,66 +64,255 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        public async Task<FullTrack> GetTrackAsync(string trackId, CancellationToken ct = default)
+        private async Task EnsureUserContextAsync(CancellationToken ct)
         {
-            var user = await GetCurrentUserAsync(ct);
-            return await _cache.GetOrAddAsync($"track_{trackId}_{user.Country}",
-                () => ExecuteAsync(c => c.Tracks.Get(trackId, new TrackRequest { Market = user.Country }, ct), ct),
-                TimeSpan.FromHours(24));
+            if (_userId != null && _userCountry != null)
+                return;
+
+            var me = await ExecuteAsync(c => c.UserProfile.Current(ct), ct);
+
+            _userId = me.Id;
+            _userCountry = me.Country;
+
+            await _cache.GetOrAddAsync(
+                $"users/{_userId}/profile",
+                () => Task.FromResult(me),
+                TtlSession,
+                false);
         }
 
-        public async Task<FullAlbum> GetAlbumAsync(string albumId, CancellationToken ct = default)
+        public async Task<CacheResponse<FullTrack>> GetTrackAsync(
+            string trackId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
         {
-            var user = await GetCurrentUserAsync(ct);
-            return await _cache.GetOrAddAsync($"album_{albumId}_{user.Country}",
-                () => ExecuteAsync(c => c.Albums.Get(albumId, new AlbumRequest { Market = user.Country }, ct), ct),
-                TimeSpan.FromHours(24));
+            await EnsureUserContextAsync(ct);
+
+            var key = $"global/tracks/{trackId}_{_userCountry}";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c =>
+                    c.Tracks.Get(trackId, new TrackRequest { Market = _userCountry }, ct),
+                    ct),
+                TtlImmutable,
+                forceRefresh);
         }
 
-        public async Task<FullArtist> GetArtistAsync(string artistId, CancellationToken ct = default)
+        public async Task<CacheResponse<FullAlbum>> GetAlbumAsync(
+            string albumId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
         {
-            return await _cache.GetOrAddAsync($"artist_{artistId}",
+            await EnsureUserContextAsync(ct);
+
+            var key = $"global/albums/{albumId}_{_userCountry}";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c =>
+                    c.Albums.Get(albumId, new AlbumRequest { Market = _userCountry }, ct),
+                    ct),
+                TtlImmutable,
+                forceRefresh);
+        }
+
+        public Task<CacheResponse<Paging<SimpleTrack>>> GetAlbumTracksAsync(
+            string albumId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var key = $"global/album_tracks/{albumId}";
+            return _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Albums.GetTracks(albumId, ct), ct),
+                TtlImmutable,
+                forceRefresh);
+        }
+
+        public Task<CacheResponse<Paging<SimpleAlbum>>> GetArtistAlbumsAsync(
+            string artistId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var key = $"global/artist_albums/{artistId}";
+            return _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Artists.GetAlbums(artistId, ct), ct),
+                TtlImmutable,
+                forceRefresh);
+        }
+
+        public Task<CacheResponse<FullArtist>> GetArtistAsync(
+            string artistId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var key = $"global/artists/{artistId}";
+            return _cache.GetOrAddAsync(
+                key,
                 () => ExecuteAsync(c => c.Artists.Get(artistId, ct), ct),
-                TimeSpan.FromHours(24));
+                TtlArtist,
+                forceRefresh);
         }
 
-        public Task<FullPlaylist> GetPlaylistAsync(string playlistId, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"playlist_{playlistId}", () => ExecuteAsync(c => c.Playlists.Get(playlistId, ct), ct), LibraryTtl);
+        public async Task<CacheResponse<PrivateUser>> GetCurrentUserAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
 
-        public Task<Paging<SimpleTrack>> GetAlbumTracksAsync(string albumId, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"album_tracks_{albumId}", () => ExecuteAsync(c => c.Albums.GetTracks(albumId, ct), ct), MetadataTtl);
+            var key = $"users/{_userId}/profile";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.UserProfile.Current(ct), ct),
+                TtlSession,
+                forceRefresh);
+        }
 
-        public Task<Paging<SimpleAlbum>> GetArtistAlbumsAsync(string artistId, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"artist_albums_{artistId}", () => ExecuteAsync(c => c.Artists.GetAlbums(artistId, ct), ct), MetadataTtl);
+        public async Task<CacheResponse<Paging<FullTrack>>> GetUserTopTracksAsync(
+            int limit = 20,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
 
-        public Task<Paging<PlaylistTrack<IPlayableItem>>> GetPlaylistItemsAsync(string playlistId, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"playlist_items_{playlistId}", () => ExecuteAsync(c => c.Playlists.GetItems(playlistId, ct), ct), LibraryTtl);
+            var key = $"users/{_userId}/top_tracks_{limit}";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c =>
+                    c.Personalization.GetTopTracks(new PersonalizationTopRequest { Limit = limit }, ct),
+                    ct),
+                TtlSession,
+                forceRefresh);
+        }
 
-        public Task<SearchResponse> SearchAsync(string query, SearchRequest.Types type, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"search_{type}_{query}", () => ExecuteAsync(c => c.Search.Item(new SearchRequest(type, query), ct), ct), PersonalDataTtl);
+        public async Task<CacheResponse<Paging<FullArtist>>> GetUserTopArtistsAsync(
+            int limit = 20,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
 
-        public Task<PrivateUser> GetCurrentUserAsync(CancellationToken ct = default)
-            => _cache.GetOrAddAsync("me_profile", () => ExecuteAsync(c => c.UserProfile.Current(ct), ct), MetadataTtl);
+            var key = $"users/{_userId}/top_artists_{limit}";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c =>
+                    c.Personalization.GetTopArtists(new PersonalizationTopRequest { Limit = limit }, ct),
+                    ct),
+                TtlSession,
+                forceRefresh);
+        }
 
-        public Task<Paging<FullTrack>> GetUserTopTracksAsync(int limit = 20, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"top_tracks_{limit}", () => ExecuteAsync(c => c.Personalization.GetTopTracks(new PersonalizationTopRequest { Limit = limit }, ct), ct), PersonalDataTtl);
+        public async Task<CacheResponse<CursorPaging<PlayHistoryItem>>> GetRecentlyPlayedAsync(
+            int limit = 20,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
 
-        public Task<Paging<FullArtist>> GetUserTopArtistsAsync(int limit = 20, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"top_artists_{limit}", () => ExecuteAsync(c => c.Personalization.GetTopArtists(new PersonalizationTopRequest { Limit = limit }, ct), ct), PersonalDataTtl);
+            var key = $"users/{_userId}/recently_played_{limit}";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c =>
+                    c.Player.GetRecentlyPlayed(new PlayerRecentlyPlayedRequest { Limit = limit }, ct),
+                    ct),
+                TtlSession,
+                forceRefresh);
+        }
 
-        public Task<CursorPaging<PlayHistoryItem>> GetRecentlyPlayedAsync(int limit = 20, CancellationToken ct = default)
-            => _cache.GetOrAddAsync($"recently_played_{limit}", () => ExecuteAsync(c => c.Player.GetRecentlyPlayed(new PlayerRecentlyPlayedRequest { Limit = limit }, ct), ct), PersonalDataTtl);
+        public async Task<CacheResponse<Paging<FullPlaylist>>> GetCurrentUserPlaylistsAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
 
-        public Task<Paging<SavedTrack>> GetSavedTracksAsync(CancellationToken ct = default)
-            => _cache.GetOrAddAsync("saved_tracks", () => ExecuteAsync(c => c.Library.GetTracks(ct), ct), LibraryTtl);
+            var key = $"users/{_userId}/playlists";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Playlists.CurrentUsers(ct), ct),
+                TtlSession,
+                forceRefresh);
+        }
 
-        public Task<Paging<SavedAlbum>> GetSavedAlbumsAsync(CancellationToken ct = default)
-            => _cache.GetOrAddAsync("saved_albums", () => ExecuteAsync(c => c.Library.GetAlbums(ct), ct), LibraryTtl);
+        public async Task<CacheResponse<Paging<SavedTrack>>> GetSavedTracksAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
 
-        public Task<Paging<FullPlaylist>> GetCurrentUserPlaylistsAsync(CancellationToken ct = default)
-            => _cache.GetOrAddAsync("me_playlists", () => ExecuteAsync(c => c.Playlists.CurrentUsers(ct), ct), LibraryTtl);
+            var key = $"users/{_userId}/saved_tracks";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Library.GetTracks(ct), ct),
+                TtlSession,
+                forceRefresh);
+        }
 
-        public Task<FollowedArtistsResponse> GetFollowedArtistsAsync(CancellationToken ct = default)
-            => _cache.GetOrAddAsync("followed_artists", () => ExecuteAsync(c => c.Follow.OfCurrentUser(new FollowOfCurrentUserRequest(), ct), ct), LibraryTtl);
+        public async Task<CacheResponse<Paging<SavedAlbum>>> GetSavedAlbumsAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
+
+            var key = $"users/{_userId}/saved_albums";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Library.GetAlbums(ct), ct),
+                TtlSession,
+                forceRefresh);
+        }
+
+        public async Task<CacheResponse<FollowedArtistsResponse>> GetFollowedArtistsAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct);
+
+            var key = $"users/{_userId}/followed_artists";
+            return await _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Follow.OfCurrentUser(new FollowOfCurrentUserRequest(), ct), ct),
+                TtlSession,
+                forceRefresh);
+        }
+
+        public Task<CacheResponse<FullPlaylist>> GetPlaylistAsync(
+            string playlistId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var key = $"global/playlists/{playlistId}";
+            return _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Playlists.Get(playlistId, ct), ct),
+                TtlImmutable,
+                forceRefresh);
+        }
+
+        public Task<CacheResponse<Paging<PlaylistTrack<IPlayableItem>>>> GetPlaylistItemsAsync(
+            string playlistId,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var key = $"global/playlist_items/{playlistId}";
+            return _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Playlists.GetItems(playlistId, ct), ct),
+                TtlImmutable,
+                forceRefresh);
+        }
+
+        public Task<CacheResponse<SearchResponse>> SearchAsync(
+            string query,
+            SearchRequest.Types type,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var key = $"global/search/{type}_{query}";
+            return _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.Search.Item(new SearchRequest(type, query), ct), ct),
+                TtlSession,
+                forceRefresh);
+        }
     }
 }
