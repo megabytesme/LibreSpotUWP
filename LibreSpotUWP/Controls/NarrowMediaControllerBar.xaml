@@ -78,8 +78,7 @@
                 Height="40"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                Click="PlayPauseButton_Click"
-                Style="{StaticResource ButtonRevealStyle}">
+                Click="PlayPauseButton_Click">
                 <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
             </Button>
 
