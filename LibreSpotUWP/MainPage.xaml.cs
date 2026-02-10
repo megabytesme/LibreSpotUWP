@@ -78,6 +78,14 @@ namespace LibreSpotUWP
 
         public async void NavigateTo(string pageTag)
         {
+            if (pageTag == "Player")
+            {
+                ShowPlayer();
+                return;
+            }
+
+            HidePlayer();
+
             bool requiresAuth = pageTag == "Home";
 
             if (requiresAuth)
@@ -144,6 +152,20 @@ namespace LibreSpotUWP
                 await Task.Yield();
                 NavigateTo(tag);
             }
+        }
+        public void ShowPlayer()
+        {
+            var pageType = NavigationHelper.GetPageType("Player");
+
+            if (PlayerOverlay.Content?.GetType() != pageType)
+                PlayerOverlay.Navigate(pageType);
+
+            PlayerOverlay.Visibility = Visibility.Visible;
+        }
+
+        public void HidePlayer()
+        {
+            PlayerOverlay.Visibility = Visibility.Collapsed;
         }
     }
 }
