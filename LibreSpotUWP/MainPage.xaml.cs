@@ -2,6 +2,7 @@
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using System;
+using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -57,8 +58,39 @@ namespace LibreSpotUWP
             }
         }
 
-        public void NavigateTo(string pageTag)
+        private async Task<bool> EnsureAuthenticatedAsync()
         {
+            var auth = App.SpotifyAuth;
+
+            if (auth.Current == null)
+                return false;
+
+            if (auth.Current.IsExpired)
+            {
+                await auth.RefreshAsync();
+
+                if (auth.Current.IsExpired)
+                    return false;
+            }
+
+            return true;
+        }
+
+        public async void NavigateTo(string pageTag)
+        {
+            bool requiresAuth = pageTag == "Home";
+
+            if (requiresAuth)
+            {
+                if (!await EnsureAuthenticatedAsync())
+                {
+                    var settingsType = NavigationHelper.GetPageType("Settings");
+                    if (ContentFrame.CurrentSourcePageType != settingsType)
+                        ContentFrame.Navigate(settingsType);
+                    return;
+                }
+            }
+
             foreach (var item in NavListBox.Items)
             {
                 if (item is ListBoxItem lbi && (string)lbi.Tag == pageTag)
@@ -90,7 +122,8 @@ namespace LibreSpotUWP
         private async void NavListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var listBox = sender as ListBox;
-            if (listBox == null || listBox.SelectedItem == null) return;
+            if (listBox == null || listBox.SelectedItem == null)
+                return;
 
             if (listBox.SelectedItem is ListBoxItem item)
             {
@@ -99,20 +132,17 @@ namespace LibreSpotUWP
                 if (tag == "Account")
                 {
                     FlyoutBase.ShowAttachedFlyout(item);
-
                     listBox.SelectedIndex = -1;
                     return;
                 }
+
                 if (listBox == NavListBox)
                     BottomNavListBox.SelectedIndex = -1;
                 else
                     NavListBox.SelectedIndex = -1;
 
-                Type pageType = NavigationHelper.GetPageType(tag);
-                if (pageType != null && ContentFrame.CurrentSourcePageType != pageType)
-                {
-                    ContentFrame.Navigate(pageType);
-                }
+                await Task.Yield();
+                NavigateTo(tag);
             }
         }
     }
