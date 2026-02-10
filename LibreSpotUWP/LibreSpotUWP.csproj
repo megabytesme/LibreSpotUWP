@@ -123,6 +123,7 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Selectors\HomeItemTemplateSelector.cs" />
     <Compile Include="Controls\NarrowMediaControllerBar.xaml.cs">
       <DependentUpon>NarrowMediaControllerBar.xaml</DependentUpon>
     </Compile>
