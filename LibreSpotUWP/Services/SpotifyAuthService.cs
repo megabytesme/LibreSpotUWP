@@ -132,7 +132,7 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async Task ResetAuthStateAsync()
+        public async Task ResetAuthStateAsync()
         {
             Current = null;
             await _storage.DeleteAsync(StorageKey);
