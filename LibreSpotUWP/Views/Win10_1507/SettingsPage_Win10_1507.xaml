@@ -4,9 +4,20 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:LibreSpotUWP.Controls"
     xmlns:converters="using:LibreSpotUWP.Converters"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    mc:Ignorable="d">
 
     <Page.Resources>
+        <Style x:Key="GroupPanelStyle" TargetType="StackPanel">
+            <Setter Property="Background" Value="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}" />
+            <Setter Property="Padding" Value="15" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{ThemeResource SystemControlForegroundBaseLowBrush}" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+
         <converters:TimeConverter x:Key="TimeConverter" />
         <converters:BoolToVisibility x:Key="BoolToVisibility" />
         <converters:InverseBoolToVisibility x:Key="InverseBoolToVisibility" />
@@ -20,28 +31,60 @@
         </Grid.RowDefinitions>
 
         <ScrollViewer Grid.Row="0" Padding="24">
-            <StackPanel MaxWidth="800" HorizontalAlignment="Left">
+            <StackPanel MaxWidth="800" HorizontalAlignment="Center">
                 <TextBlock
-                    Margin="0,0,0,20"
-                    Style="{StaticResource HeaderTextBlockStyle}"
-                    Text="Spotify" />
+                    Margin="0,0,0,15"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    Text="Settings" />
 
-                <StackPanel>
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <controls:SpotifyAccountControl x:Name="AccountControl" />
+                </StackPanel>
+
+                <StackPanel x:Name="AppearanceStackPanel" Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Appearance" />
+
+                    <RadioButton
+                        Checked="AppearanceRadio_Checked"
+                        Content="Windows 10 (1507)"
+                        GroupName="AppearanceGroup"
+                        Tag="1507" />
+
+                    <RadioButton
+                        Checked="AppearanceRadio_Checked"
+                        Content="Windows 10 (1709)"
+                        GroupName="AppearanceGroup"
+                        Tag="1709" />
+
+                    <RadioButton
+                        Checked="AppearanceRadio_Checked"
+                        Content="Windows 11"
+                        GroupName="AppearanceGroup"
+                        Tag="11" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
                     <TextBlock
                         Margin="0,0,0,8"
                         FontWeight="SemiBold"
                         Style="{StaticResource BaseTextBlockStyle}"
                         Text="Stream Configuration" />
+
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+
                         <TextBox
                             x:Name="TrackUriTextBox"
                             Margin="0,0,12,0"
                             PlaceholderText="Enter Spotify URI"
                             Text="spotify:track:3AJwUDP919kvQ9QcozQPxg" />
+
                         <Button
                             Grid.Column="1"
                             Width="100"
@@ -51,23 +94,54 @@
                     </Grid>
                 </StackPanel>
 
-                <StackPanel Margin="0,20,0,0">
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
                     <TextBlock
                         x:Name="LibrespotStatusText"
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />
+
                     <TextBlock
                         x:Name="SpotifyApiStatusText"
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Button
-                        x:Name="AccountButton"
-                        Margin="0,10,0,0"
-                        Click="AccountButton_Click"
-                        Content="Manage Account" />
                 </StackPanel>
+
+                <StackPanel BorderBrush="Red" Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Foreground="Red"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Advanced" />
+
+                    <Button
+                        x:Name="BtnResetAllSettings"
+                        HorizontalAlignment="Stretch"
+                        Background="DarkRed"
+                        Click="BtnResetAllSettings_Click"
+                        Content="Reset All App Data"
+                        Foreground="White" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Information" />
+
+                    <Button
+                        Margin="0,0,0,8"
+                        HorizontalAlignment="Stretch"
+                        Click="AboutButton_Click"
+                        Content="About LibreSpotUWP" />
+
+                    <Button
+                        HorizontalAlignment="Stretch"
+                        Click="DisclaimerButton_Click"
+                        Content="Disclaimer &amp; Legal" />
+                </StackPanel>
+
             </StackPanel>
         </ScrollViewer>
 
@@ -78,6 +152,7 @@
             Grid.RowSpan="2"
             Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
             Visibility="Collapsed">
+
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <ProgressRing
                     x:Name="LoadingProgressRing"
@@ -85,6 +160,7 @@
                     Height="60"
                     Margin="0,0,0,12"
                     IsActive="False" />
+
                 <TextBlock
                     HorizontalAlignment="Center"
                     Style="{StaticResource BodyTextBlockStyle}"

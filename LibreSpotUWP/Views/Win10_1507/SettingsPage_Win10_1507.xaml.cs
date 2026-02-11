@@ -1,11 +1,15 @@
-﻿using LibreSpotUWP.Interfaces;
+﻿using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Core;
+using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Documents;
 using Windows.UI.Xaml.Navigation;
 
 namespace LibreSpotUWP.Views.Win10_1507
@@ -14,6 +18,9 @@ namespace LibreSpotUWP.Views.Win10_1507
     {
         private IMediaService _media;
         private ISpotifyAuthService _auth;
+
+        protected bool _loading = true;
+        protected bool _suppressAppearanceChange;
 
         public SettingsPage_Win10_1507()
         {
@@ -30,6 +37,210 @@ namespace LibreSpotUWP.Views.Win10_1507
                 _auth.AuthStateChanged += (s, state) => RunOnUI(() => UpdateSpotifyApiStatus(state));
 
             UpdateSpotifyApiStatus(_auth?.Current);
+        }
+
+        protected async void AppearanceRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_suppressAppearanceChange || _loading) return;
+
+            if (sender is RadioButton rb && rb.Tag is string tag)
+            {
+                var selectedMode = SettingsPage_Win10_1507.TagToMode(tag);
+
+                SetAppearance(selectedMode);
+            }
+        }
+
+        protected void SetAppearance(AppearanceMode mode)
+        {
+            AppearanceService.Set(mode);
+            ApplyAppearanceWithoutRestart();
+        }
+
+        protected void ApplyAppearanceWithoutRestart()
+        {
+            var window = Window.Current;
+            window.Content = null;
+            var appResources = Application.Current.Resources;
+            appResources.MergedDictionaries.Clear();
+
+            switch (AppearanceService.Current)
+            {
+                case AppearanceMode.Win11:
+                    appResources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("ms-appx:///Themes/Win11.xaml") });
+                    break;
+                case AppearanceMode.Win10_1709:
+                    appResources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("ms-appx:///Themes/Win10_1709.xaml") });
+                    break;
+                default:
+                    appResources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("ms-appx:///Themes/Win10_1507.xaml") });
+                    break;
+            }
+
+            var frame = new Frame();
+            window.Content = frame;
+            frame.Navigate(NavigationHelper.GetPageType("Shell"), null);
+            window.Activate();
+        }
+
+        public static AppearanceMode TagToMode(string tag)
+        {
+            if (tag == "1709") return AppearanceMode.Win10_1709;
+            if (tag == "11") return AppearanceMode.Win11;
+            return AppearanceMode.Win10_1507;
+        }
+
+        public static string ModeToTag(AppearanceMode mode)
+        {
+            if (mode == AppearanceMode.Win10_1709) return "1709";
+            if (mode == AppearanceMode.Win11) return "11";
+            return "1507";
+        }
+
+        protected async void BtnResetAllSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = CreateDialog();
+            dialog.Title = "Reset All Settings";
+            dialog.Content = "This will delete all LibreSpotUWP configuration and cached data. Continue?";
+            dialog.PrimaryButtonText = "Yes";
+            dialog.SecondaryButtonText = "No";
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+            try
+            {
+                // todo: reset
+#if UWP1507
+                await ShowSimpleDialogAsync("Restart Required", "The app will now close. Please restart it to apply the reset.");
+                Application.Current.Exit();
+#else
+                
+                await ShowSimpleDialogAsync("Restarting", "The app will now restart to apply the reset.");
+                await CoreApplication.RequestRestartAsync("");
+#endif
+            }
+            catch (Exception ex) { await ShowSimpleDialogAsync("Error", ex.Message); }
+        }
+
+        protected ContentDialog CreateDialog() => new ContentDialog();
+
+        protected async Task ShowSimpleDialogAsync(string title, string content)
+        {
+            var dialog = CreateDialog();
+            dialog.Title = title;
+            dialog.Content = content;
+            dialog.PrimaryButtonText = "OK";
+            await dialog.ShowAsync();
+        }
+
+        protected async void AboutButton_Click(object sender, RoutedEventArgs e)
+        {
+            var scrollContent = new ScrollViewer
+            {
+                Content = new TextBlock
+                {
+                    Inlines =
+                    {
+                        new Run { Text = "LibreSpotUWP", FontWeight = FontWeights.Bold, FontSize = 18 },
+                        new LineBreak(),
+                        new Run { Text = $"Version {OSHelper.AppVersion} ({OSHelper.PlatformFamily}) {OSHelper.Architecture}" },
+                        new LineBreak(),
+
+                        new Run { Text = $"LibreSpot 0.8.0 (MegaBytesMe fork - FFI)" },
+                        new LineBreak(),
+
+                        new Run { Text = "LibreSpot Commit: " },
+                        new Hyperlink
+                        {
+                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/ad7e58284499914ccda9b3c872589f0363263b2a"),
+                            Inlines = { new Run { Text = "ad7e58284499914ccda9b3c872589f0363263b2a" } }
+                        },
+                        new LineBreak(),
+                        new LineBreak(),
+
+                        new Run { Text = "Copyright © 2026 MegaBytesMe" },
+                        new LineBreak(),
+                        new LineBreak(),
+
+                        new Run { Text = "LibreSpotUWP is a Spotify client designed with UWP in mind, powered by LibreSpot." },
+                        new LineBreak(),
+                        new LineBreak(),
+
+                        new Run { Text = "Source code available on " },
+                        new Hyperlink
+                        {
+                            NavigateUri = new Uri("https://github.com/megabytesme/LibreSpotUWP"),
+                            Inlines = { new Run { Text = "GitHub" } }
+                        },
+                        new LineBreak(),
+
+                        new Run { Text = "Found a bug? Report it here: " },
+                        new Hyperlink
+                        {
+                            NavigateUri = new Uri("https://github.com/megabytesme/LibreSpotUWP/issues"),
+                            Inlines = { new Run { Text = "Issue Tracker" } }
+                        },
+                        new LineBreak(),
+                        new LineBreak(),
+
+                        new Run { Text = "Like what you see? Consider supporting me on " },
+                        new Hyperlink
+                        {
+                            NavigateUri = new Uri("https://ko-fi.com/megabytesme"),
+                            Inlines = { new Run { Text = "Ko-fi!" } }
+                        },
+                        new LineBreak(),
+                        new LineBreak(),
+
+                        new Hyperlink
+                        {
+                            NavigateUri = new Uri("https://github.com/megabytesme/LibreSpotUWP/blob/master/LICENSE.md"),
+                            Inlines = { new Run { Text = "License:" } }
+                        },
+                        new LineBreak(),
+                        new Run { Text = "• App (Client): CC BY-NC-SA 4.0" },
+                        new LineBreak(),
+                        new Run { Text = "• LibreSpot (Core): MIT License" }
+                    },
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+
+            var dialog = CreateDialog();
+            dialog.Title = "About";
+            dialog.Content = scrollContent;
+            dialog.PrimaryButtonText = "OK";
+            await dialog.ShowAsync();
+        }
+
+        protected async void DisclaimerButton_Click(object sender, RoutedEventArgs e)
+        {
+            var textBlock = new TextBlock { TextWrapping = TextWrapping.Wrap };
+
+            textBlock.Inlines.Add(new Run
+            {
+                Text = "This is an unofficial, third-party Spotify client. This project is "
+            });
+            textBlock.Inlines.Add(new Run
+            {
+                Text = "not affiliated with, endorsed, or sponsored by Spotify AB.",
+                FontWeight = FontWeights.Bold
+            });
+            textBlock.Inlines.Add(new LineBreak());
+            textBlock.Inlines.Add(new LineBreak());
+            textBlock.Inlines.Add(new Run { Text = "\"Spotify\" is a trademark of Spotify AB." });
+            textBlock.Inlines.Add(new LineBreak());
+            textBlock.Inlines.Add(new LineBreak());
+            textBlock.Inlines.Add(new Run
+            {
+                Text = "The author (MegaBytesMe) claims no responsibility for any issues that may arise from using this app."
+            });
+
+            var dialog = CreateDialog();
+            dialog.Title = "Disclaimer";
+            dialog.Content = new ScrollViewer { Content = textBlock };
+            dialog.PrimaryButtonText = "I Understand";
+            await dialog.ShowAsync();
         }
 
         private async void PlayButton_Click(object sender, RoutedEventArgs e)
@@ -52,103 +263,6 @@ namespace LibreSpotUWP.Views.Win10_1507
         private void UpdateSpotifyApiStatus(AuthState state)
         {
             SpotifyApiStatusText.Text = (state == null || state.IsExpired) ? "Web API: Logged Out" : "Web API: Authenticated";
-        }
-
-        private async void AccountButton_Click(object sender, RoutedEventArgs e)
-        {
-            var stackPanel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-
-            var dialog = new ContentDialog
-            {
-                Title = "Account Management",
-                Content = stackPanel,
-                PrimaryButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary
-            };
-
-            bool isAuthenticated = !string.IsNullOrEmpty(await _auth.GetAccessToken());
-
-            if (!isAuthenticated)
-            {
-                var btnLogin = new Button
-                {
-                    Content = "Sign in with Spotify",
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Margin = new Thickness(0, 0, 0, 10)
-                };
-                btnLogin.Click += async (s, args) => { dialog.Hide(); await _auth.BeginPkceLoginAsync(); };
-
-                var btnScan = new Button
-                {
-                    Content = "Scan QR to Sign in",
-                    HorizontalAlignment = HorizontalAlignment.Stretch
-                };
-                btnScan.Click += (s, args) => { dialog.Hide(); Frame.Navigate(typeof(ScannerPage)); };
-
-                stackPanel.Children.Add(btnLogin);
-                stackPanel.Children.Add(btnScan);
-            }
-            else
-            {
-                var btnShare = new Button
-                {
-                    Content = "Share My Session (QR)",
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Margin = new Thickness(0, 0, 0, 10)
-                };
-                btnShare.Click += async (s, args) => { dialog.Hide(); await ShareCurrentAccountQrAsync(); };
-
-                var btnLogout = new Button
-                {
-                    Content = "Log Out",
-                    HorizontalAlignment = HorizontalAlignment.Stretch
-                };
-                btnLogout.Click += (s, args) => { dialog.Hide(); };
-
-                stackPanel.Children.Add(btnShare);
-                stackPanel.Children.Add(btnLogout);
-            }
-
-            await dialog.ShowAsync();
-        }
-
-        private async Task ShareCurrentAccountQrAsync()
-        {
-            if (_auth.Current == null) return;
-
-            string json = Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
-            var qrBitmap = await BarcodeUIService.GenerateQrCodeBitmapAsync(json);
-
-            if (qrBitmap != null)
-            {
-                var image = new Image
-                {
-                    Source = qrBitmap,
-                    Width = 300,
-                    Height = 300,
-                    Margin = new Thickness(0, 20, 0, 20)
-                };
-
-                var text = new TextBlock
-                {
-                    Text = "Scan this on your other device to sync immediately. WARNING: This QR code contains your login session. Only share this with your own devices or trusted users.",
-                    TextWrapping = TextWrapping.Wrap,
-                    HorizontalAlignment = HorizontalAlignment.Center
-                };
-
-                var container = new StackPanel();
-                container.Children.Add(image);
-                container.Children.Add(text);
-
-                var qrDialog = new ContentDialog
-                {
-                    Title = "Share Login Access",
-                    Content = container,
-                    PrimaryButtonText = "Close"
-                };
-
-                await qrDialog.ShowAsync();
-            }
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
