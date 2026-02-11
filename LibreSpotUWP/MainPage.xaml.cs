@@ -9,7 +9,9 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
+using static LibreSpotUWP.Controls.SpotifyAccountControl;
 
 namespace LibreSpotUWP
 {
@@ -31,6 +33,8 @@ namespace LibreSpotUWP
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
+
+            await HeaderAccountControl.Initialize();
         }
 
         private void ApplyAppearanceStyling()
@@ -237,6 +241,48 @@ namespace LibreSpotUWP
                 _history.Count > 1
                 ? AppViewBackButtonVisibility.Visible
                 : AppViewBackButtonVisibility.Disabled;
+        }
+
+        private void HeaderAccountControl_UserChanged(object sender, UserChangedEventArgs e)
+        {
+            AccountLoadingRing.IsActive = false;
+
+            var user = e.User;
+
+            if (user != null)
+            {
+                DefaultAccountIcon.Visibility = Visibility.Collapsed;
+                AccountProfileEllipse.Visibility = Visibility.Visible;
+
+                var img = user.Images != null && user.Images.Count > 0
+                    ? user.Images[0].Url
+                    : null;
+
+                AccountProfileBrush.ImageSource =
+                    img != null ? new BitmapImage(new Uri(img)) : null;
+
+                AccountNameText.Text =
+                    !string.IsNullOrEmpty(user.DisplayName)
+                        ? user.DisplayName
+                        : user.Id;
+            }
+            else
+            {
+                DefaultAccountIcon.Visibility = Visibility.Visible;
+                AccountProfileEllipse.Visibility = Visibility.Collapsed;
+                AccountNameText.Text = "Account";
+            }
+        }
+
+        private void HeaderAccountControl_LoadingStateChanged(object sender, bool isLoading)
+        {
+            AccountLoadingRing.IsActive = isLoading;
+
+            if (isLoading)
+            {
+                DefaultAccountIcon.Visibility = Visibility.Collapsed;
+                AccountProfileEllipse.Visibility = Visibility.Collapsed;
+            }
         }
     }
 }

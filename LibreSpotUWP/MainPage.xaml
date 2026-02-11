@@ -75,7 +75,10 @@
                         <ListBoxItem x:Name="AccountItem" Tag="Account">
                             <FlyoutBase.AttachedFlyout>
                                 <Flyout x:Name="AccountFlyout">
-                                    <!--  Account Control  -->
+                                    <controls:SpotifyAccountControl
+                                        x:Name="HeaderAccountControl"
+                                        LoadingStateChanged="HeaderAccountControl_LoadingStateChanged"
+                                        UserChanged="HeaderAccountControl_UserChanged" />
                                 </Flyout>
                             </FlyoutBase.AttachedFlyout>
 
