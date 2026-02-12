@@ -146,6 +146,26 @@ namespace LibreSpotUWP.Services
             return Task.CompletedTask;
         }
 
+        public Task SetShuffleAsync(bool enabled)
+        {
+            ThrowIfDisposed();
+            if (_instance != IntPtr.Zero)
+            {
+                Librespot.librespot_set_shuffle(_instance, enabled);
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task SetRepeatAsync(uint mode)
+        {
+            ThrowIfDisposed();
+            if (_instance != IntPtr.Zero)
+            {
+                Librespot.librespot_set_repeat(_instance, mode);
+            }
+            return Task.CompletedTask;
+        }
+
         public void Seek(uint posMs)
         {
             if (_instance != IntPtr.Zero) Librespot.librespot_seek(_instance, posMs);

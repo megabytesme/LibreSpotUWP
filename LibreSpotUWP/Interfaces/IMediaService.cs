@@ -13,7 +13,8 @@ namespace LibreSpotUWP.Interfaces
         Task StopAsync();
         Task SetVolumeAsync(ushort v);
         void SetVolumeDebounced(double v);
-
+        Task SetShuffleAsync(bool enabled);
+        Task SetRepeatAsync(int mode);
         void Next();
         void Previous();
         void Seek(uint posMs);
