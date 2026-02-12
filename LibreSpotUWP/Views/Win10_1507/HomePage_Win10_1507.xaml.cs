@@ -1,7 +1,9 @@
 ﻿using LibreSpotUWP.Exceptions;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.ViewModels;
+using SpotifyAPI.Web;
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
@@ -67,6 +69,48 @@ namespace LibreSpotUWP.Views.Win10_1507
             catch (SpotifyWebException ex)
             {
                 System.Diagnostics.Debug.WriteLine("Homepage Load Failed: " + ex.Message);
+            }
+        }
+
+        private void HomeItem_Click(object sender, ItemClickEventArgs e)
+        {
+            var item = e.ClickedItem;
+
+            var frame = (Window.Current.Content as Frame);
+            var mainPage = frame?.Content as MainPage;
+            if (mainPage == null)
+                return;
+
+            switch (item)
+            {
+                case FullAlbum album:
+                    mainPage.NavigateToAlbum(album.Id);
+                    Debug.WriteLine($"Navigating to album: {album.Name}");
+                    break;
+
+                case SavedAlbum saved:
+                    mainPage.NavigateToAlbum(saved.Album.Id);
+                    Debug.WriteLine($"Navigating to saved album: {saved.Album.Name}");
+                    break;
+
+                case FullArtist artist:
+                    mainPage.NavigateToArtist(artist.Id);
+                    Debug.WriteLine($"Navigating to artist: {artist.Name}");
+                    break;
+
+                case FullPlaylist playlist:
+                    mainPage.NavigateToPlaylist(playlist.Id);
+                    Debug.WriteLine($"Navigating to playlist: {playlist.Name}");
+                    break;
+
+                case FullTrack track:
+                    mainPage.NavigateToAlbum(track.Album.Id);
+                    Debug.WriteLine($"Navigating to track: {track.Name}");
+                    break;
+
+                default:
+                    Debug.WriteLine("Unknown item type clicked: " + item.GetType().Name);
+                    break;
             }
         }
     }

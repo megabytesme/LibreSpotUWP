@@ -123,6 +123,19 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Controls\AlbumGridControl.xaml.cs">
+      <DependentUpon>AlbumGridControl.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\UniformWrapPanel.cs" />
+    <Compile Include="Controls\TrackListControl.xaml.cs">
+      <DependentUpon>TrackListControl.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\PlayActionsControl.xaml.cs">
+      <DependentUpon>PlayActionsControl.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\HeaderImageControl.xaml.cs">
+      <DependentUpon>HeaderImageControl.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\SpotifyAccountControl.xaml.cs">
       <DependentUpon>SpotifyAccountControl.xaml</DependentUpon>
     </Compile>
@@ -173,7 +186,19 @@
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ViewModels\PlaylistPageViewModel.cs" />
+    <Compile Include="ViewModels\ArtistPageViewModel.cs" />
+    <Compile Include="ViewModels\AlbumPageViewModel.cs" />
     <Compile Include="ViewModels\HomePageViewModel.cs" />
+    <Compile Include="Views\Win10_1507\PlaylistPage.xaml.cs">
+      <DependentUpon>PlaylistPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1507\ArtistPage.xaml.cs">
+      <DependentUpon>ArtistPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1507\AlbumPage.xaml.cs">
+      <DependentUpon>AlbumPage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Views\Win10_1507\SettingsPage_Win10_1507.xaml.cs">
       <DependentUpon>SettingsPage_Win10_1507.xaml</DependentUpon>
     </Compile>
@@ -208,6 +233,22 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Page Include="Controls\AlbumGridControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\TrackListControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\PlayActionsControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\HeaderImageControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Controls\SpotifyAccountControl.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -225,6 +266,18 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="MainPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1507\PlaylistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1507\ArtistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1507\AlbumPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

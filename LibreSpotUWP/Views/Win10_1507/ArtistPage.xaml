@@ -1,0 +1,25 @@
+﻿<Page
+    x:Class="LibreSpotUWP.Views.ArtistPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0">
+            <StackPanel Padding="24" Spacing="24">
+                <controls:HeaderImageControl x:Name="HeaderControl" />
+                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Top Tracks" />
+                <controls:TrackListControl x:Name="TrackList" />
+                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Albums" />
+                <controls:AlbumGridControl x:Name="AlbumsGrid" />
+            </StackPanel>
+        </ScrollViewer>
+        <controls:NarrowMediaControllerBar Grid.Row="1" />
+    </Grid>
+</Page>

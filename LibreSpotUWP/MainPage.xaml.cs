@@ -1,6 +1,7 @@
 ﻿using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
+using LibreSpotUWP.Views;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -88,6 +89,12 @@ namespace LibreSpotUWP
             return true;
         }
 
+        public void NavigateToAlbum(string id) => NavigateTo("Album:" + id);
+
+        public void NavigateToArtist(string id) => NavigateTo("Artist:" + id);
+
+        public void NavigateToPlaylist(string id) => NavigateTo("Playlist:" + id);
+
         public async void NavigateTo(string pageTag)
         {
             if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
@@ -115,6 +122,27 @@ namespace LibreSpotUWP
                     UpdateBackButton();
                     return;
                 }
+            }
+
+            if (pageTag.StartsWith("Album:"))
+            {
+                ContentFrame.Navigate(typeof(AlbumPage), pageTag.Substring(6));
+                UpdateBackButton();
+                return;
+            }
+
+            if (pageTag.StartsWith("Artist:"))
+            {
+                ContentFrame.Navigate(typeof(ArtistPage), pageTag.Substring(7));
+                UpdateBackButton();
+                return;
+            }
+
+            if (pageTag.StartsWith("Playlist:"))
+            {
+                ContentFrame.Navigate(typeof(PlaylistPage), pageTag.Substring(9));
+                UpdateBackButton();
+                return;
             }
 
             foreach (var item in NavListBox.Items)
@@ -209,6 +237,27 @@ namespace LibreSpotUWP
             }
 
             HidePlayer();
+
+            if (previous.StartsWith("Album:"))
+            {
+                ContentFrame.Navigate(typeof(AlbumPage), previous.Substring(6));
+                UpdateBackButton();
+                return;
+            }
+
+            if (previous.StartsWith("Artist:"))
+            {
+                ContentFrame.Navigate(typeof(ArtistPage), previous.Substring(7));
+                UpdateBackButton();
+                return;
+            }
+
+            if (previous.StartsWith("Playlist:"))
+            {
+                ContentFrame.Navigate(typeof(PlaylistPage), previous.Substring(9));
+                UpdateBackButton();
+                return;
+            }
 
             var pageType = NavigationHelper.GetPageType(previous);
             if (ContentFrame.CurrentSourcePageType != pageType)

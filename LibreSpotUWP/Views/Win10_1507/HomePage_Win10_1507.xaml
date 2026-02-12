@@ -90,6 +90,8 @@
             <SemanticZoom.ZoomedInView>
                 <GridView
                     Padding="16"
+                    IsItemClickEnabled="True"
+                    ItemClick="HomeItem_Click"
                     ItemTemplateSelector="{StaticResource HomeSelector}"
                     ItemsSource="{x:Bind HomeGroupedSource.View, Mode=OneWay}"
                     SelectionMode="None">
