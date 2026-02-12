@@ -68,34 +68,6 @@
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">
                     <TextBlock
-                        Margin="0,0,0,8"
-                        FontWeight="SemiBold"
-                        Style="{StaticResource BaseTextBlockStyle}"
-                        Text="Stream Configuration" />
-
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-
-                        <TextBox
-                            x:Name="TrackUriTextBox"
-                            Margin="0,0,12,0"
-                            PlaceholderText="Enter Spotify URI"
-                            Text="spotify:track:3AJwUDP919kvQ9QcozQPxg" />
-
-                        <Button
-                            Grid.Column="1"
-                            Width="100"
-                            Click="PlayButton_Click"
-                            Content="Load"
-                            Style="{StaticResource AccentButtonStyle}" />
-                    </Grid>
-                </StackPanel>
-
-                <StackPanel Style="{StaticResource GroupPanelStyle}">
-                    <TextBlock
                         x:Name="LibrespotStatusText"
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"

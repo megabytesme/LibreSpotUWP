@@ -243,12 +243,6 @@ namespace LibreSpotUWP.Views.Win10_1507
             await dialog.ShowAsync();
         }
 
-        private async void PlayButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (!string.IsNullOrWhiteSpace(TrackUriTextBox.Text))
-                await _media.PlayTrackAsync(TrackUriTextBox.Text);
-        }
-
         private void RunOnUI(Action action)
             => _ = Dispatcher.RunAsync(
                 Windows.UI.Core.CoreDispatcherPriority.Normal,
