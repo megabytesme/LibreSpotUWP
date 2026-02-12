@@ -96,7 +96,27 @@ namespace LibreSpotUWP.Services
 
             uint pos = _librespot.GetPositionMs();
 
-            UpdateState(s => s.PositionMs = pos);
+            UpdateState(s => {
+                s.PositionMs = pos;
+            });
+
+            UpdateSmtcTimeline(pos);
+        }
+
+        private void UpdateSmtcTimeline(uint positionMs)
+        {
+            if (_smtc == null) return;
+
+            var timelineProperties = new SystemMediaTransportControlsTimelineProperties
+            {
+                StartTime = TimeSpan.Zero,
+                MinSeekTime = TimeSpan.Zero,
+                MaxSeekTime = TimeSpan.FromMilliseconds(_state.DurationMs),
+                EndTime = TimeSpan.FromMilliseconds(_state.DurationMs),
+                Position = TimeSpan.FromMilliseconds(positionMs)
+            };
+
+            _smtc.UpdateTimelineProperties(timelineProperties);
         }
 
         public async Task PlayAsync(string contextUri, string startUri = null)
@@ -118,22 +138,16 @@ namespace LibreSpotUWP.Services
         public async Task PauseAsync()
         {
             await _librespot.PauseAsync();
-            _mediaPlayer.Pause();
-            _ringPlayer?.Stop();
         }
 
         public async Task ResumeAsync()
         {
             await _librespot.ResumeAsync();
-            _mediaPlayer.Play();
-            _ringPlayer?.Start();
         }
 
         public async Task StopAsync()
         {
             await _librespot.StopAsync();
-            _mediaPlayer.Pause();
-            _ringPlayer?.Stop();
         }
 
         private void VolumeDebounceTimer_Tick(object sender, object e)
@@ -150,6 +164,16 @@ namespace LibreSpotUWP.Services
             ushort raw = (ushort)(percent * 65535 / 100);
             _pendingVolume = raw;
             _volumeDirty = true;
+        }
+
+        public Task SetShuffleAsync(bool enabled)
+        {
+            return _librespot.SetShuffleAsync(enabled);
+        }
+
+        public Task SetRepeatAsync(int mode)
+        {
+            return _librespot.SetRepeatAsync((uint)mode);
         }
 
         public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
@@ -202,21 +226,41 @@ namespace LibreSpotUWP.Services
         {
             UpdateState(s => s.PlaybackState = state);
 
-            if (state == LibrespotPlaybackState.Playing)
+            uint currentPos = _librespot.GetPositionMs();
+            UpdateState(s => s.PositionMs = currentPos);
+            UpdateSmtcTimeline(currentPos);
+
+            switch (state)
             {
-                await EnsureRingPlayerAsync();
+                case LibrespotPlaybackState.Playing:
+                    await EnsureRingPlayerAsync();
 
-                if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
-                    _mediaPlayer.Play();
+                    if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+                    {
+                        _mediaPlayer.Play();
+                    }
 
-                _ringPlayer.Start();
-            }
-            else
-            {
-                _ringPlayer?.Stop();
+                    _ringPlayer.Start();
 
-                if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Paused)
+                    _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
+                    break;
+
+                case LibrespotPlaybackState.Paused:
+                    _ringPlayer?.Stop();
+
+                    if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Paused)
+                    {
+                        _mediaPlayer.Pause();
+                    }
+
+                    _smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
+                    break;
+
+                case LibrespotPlaybackState.Stopped:
+                    _ringPlayer?.Stop();
                     _mediaPlayer.Pause();
+                    _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
+                    break;
             }
         }
 
