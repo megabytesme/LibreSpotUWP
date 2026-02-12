@@ -99,7 +99,7 @@ namespace LibreSpotUWP.Services
             UpdateState(s => s.PositionMs = pos);
         }
 
-        public async Task PlayTrackAsync(string spotifyUri)
+        public async Task PlayAsync(string spotifyUri)
         {
             var auth = _auth.Current;
             if (auth == null || auth.IsExpired)

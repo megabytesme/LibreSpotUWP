@@ -7,7 +7,7 @@ namespace LibreSpotUWP.Interfaces
     public interface IMediaService
     {
         Task InitializeAsync();
-        Task PlayTrackAsync(string spotifyUri);
+        Task PlayAsync(string spotifyUri);
         Task PauseAsync();
         Task ResumeAsync();
         Task StopAsync();
