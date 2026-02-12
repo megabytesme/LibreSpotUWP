@@ -39,7 +39,7 @@
         DisplayName="LibreSpotUWP"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
-        Description="LibreSpotUWP"
+        Description="LibreSpotUWP is a Spotify client designed with UWP in mind, powered by LibreSpot."
         BackgroundColor="transparent">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"/>
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
