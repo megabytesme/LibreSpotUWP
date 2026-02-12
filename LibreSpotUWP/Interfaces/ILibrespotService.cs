@@ -13,7 +13,7 @@ namespace LibreSpotUWP.Interfaces
         ushort Volume { get; }
 
         Task ConnectWithAccessTokenAsync(string accessToken);
-        Task LoadAndPlayAsync(string spotifyUri);
+        Task LoadAndPlayAsync(string spotifyUri, string startUri);
         Task PauseAsync();
         Task ResumeAsync();
         Task StopAsync();

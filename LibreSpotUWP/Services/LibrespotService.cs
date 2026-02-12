@@ -83,21 +83,26 @@ namespace LibreSpotUWP.Services
             await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
         }
 
-        public async Task LoadAndPlayAsync(string spotifyUri)
+        public async Task LoadAndPlayAsync(string contextUri, string startUri = null)
         {
             ThrowIfDisposed();
             if (!_initialized) throw new InvalidOperationException("Not initialized.");
             if (_instance == IntPtr.Zero) throw new InvalidOperationException("Not connected.");
 
-            IntPtr uriPtr = Marshal.StringToHGlobalAnsi(spotifyUri);
+            IntPtr contextPtr = Marshal.StringToHGlobalAnsi(contextUri);
+            IntPtr startPtr = startUri != null ? Marshal.StringToHGlobalAnsi(startUri) : IntPtr.Zero;
+
             try
             {
-                Librespot.librespot_load(_instance, uriPtr, true);
+                Librespot.librespot_load(_instance, contextPtr, startPtr, true);
             }
             finally
             {
-                Marshal.FreeHGlobal(uriPtr);
+                Marshal.FreeHGlobal(contextPtr);
+                if (startPtr != IntPtr.Zero) Marshal.FreeHGlobal(startPtr);
             }
+
+            await Task.CompletedTask;
         }
 
         public uint GetPositionMs()

@@ -99,7 +99,7 @@ namespace LibreSpotUWP.Services
             UpdateState(s => s.PositionMs = pos);
         }
 
-        public async Task PlayAsync(string spotifyUri)
+        public async Task PlayAsync(string contextUri, string startUri = null)
         {
             var auth = _auth.Current;
             if (auth == null || auth.IsExpired)
@@ -108,13 +108,9 @@ namespace LibreSpotUWP.Services
                 return;
             }
 
-            await _librespot.ConnectWithAccessTokenAsync(auth.AccessToken);
-            await _librespot.LoadAndPlayAsync(spotifyUri);
+            await _librespot.LoadAndPlayAsync(contextUri, startUri);
 
             await EnsureRingPlayerAsync();
-
-            if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
-                _mediaPlayer.Play();
 
             _ringPlayer.Start();
         }
