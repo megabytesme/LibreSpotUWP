@@ -75,7 +75,7 @@
                             x:Name="NavListBox"
                             Background="Transparent"
                             SelectionChanged="NavListBox_SelectionChanged">
-                            <ListBoxItem Tag="Home">
+                            <ListBoxItem Tag="Home" Tapped="HomeItem_Tapped">
                                 <StackPanel Padding="2" Orientation="Horizontal">
                                     <TextBlock
                                         VerticalAlignment="Center"

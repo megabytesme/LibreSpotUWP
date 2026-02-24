@@ -215,6 +215,14 @@ namespace LibreSpotUWP
                     return;
                 }
 
+                if (tag == "Home")
+                {
+                    if (ContentFrame.CurrentSourcePageType != NavigationHelper.GetPageType("Home"))
+                        NavigateTo("Home");
+
+                    return;
+                }
+
                 if (listBox == NavListBox)
                     BottomNavListBox.SelectedIndex = -1;
                 else
@@ -445,6 +453,34 @@ namespace LibreSpotUWP
                     SearchFlyout.Hide();
                 }
             }
+        }
+
+        private void HomeItem_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (ContentFrame.CurrentSourcePageType == NavigationHelper.GetPageType("Home"))
+            {
+                ForceNavigateHome();
+            }
+            else
+            {
+                NavigateTo("Home");
+            }
+        }
+
+        private void ForceNavigateHome()
+        {
+            _history.Clear();
+            _history.Add("Home");
+
+            HidePlayer();
+
+            var homeType = NavigationHelper.GetPageType("Home");
+            ContentFrame.Navigate(homeType);
+
+            NavListBox.SelectedIndex = 0;
+            BottomNavListBox.SelectedIndex = -1;
+
+            UpdateBackButton();
         }
     }
 }
