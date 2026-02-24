@@ -13,6 +13,8 @@ namespace LibreSpotUWP.Controls
     {
         private IMediaService Media => App.Media;
 
+        private string _currentTrackUri = null;
+
         private bool _gestureTriggered = false;
         private double _gestureStartX = 0;
         private const double SwipeThreshold = 40;
@@ -44,17 +46,31 @@ namespace LibreSpotUWP.Controls
 
         private void UpdateUI(MediaState state)
         {
-            if (state == null)
-                return;
+            if (state == null) return;
 
-            TrackTitle.Text = state.Track?.Name ?? "";
-            TrackArtist.Text = state.Track?.Artist ?? "";
+            if (state.Track?.Uri != _currentTrackUri)
+            {
+                _currentTrackUri = state.Track?.Uri;
 
-            if (state.Metadata?.Album?.Images?.Count > 0)
-                AlbumArt.Source = new BitmapImage(new Uri(state.Metadata.Album.Images[0].Url));
+                TrackTitle.Text = state.Track?.Name ?? "";
+                TrackArtist.Text = state.Track?.Artist ?? "";
+
+                if (state.Metadata?.Album?.Images?.Count > 0)
+                {
+                    var newUri = new Uri(state.Metadata.Album.Images[0].Url);
+
+                    if (!(AlbumArt.Source is BitmapImage existing && existing.UriSource == newUri))
+                    {
+                        AlbumArt.Source = new BitmapImage(newUri);
+                    }
+                }
+                else
+                {
+                    AlbumArt.Source = null;
+                }
+            }
 
             UpdateProgress(state);
-
             PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
         }
 
