@@ -44,11 +44,36 @@ namespace LibreSpotUWP
 
             SearchBox.Visibility = Visibility.Collapsed;
             SearchIconButton.Visibility = Visibility.Visible;
+
+            UpdateMediaBarVisibility();
+
+            Window.Current.SizeChanged += (s, e) =>
+            {
+                UpdateMediaBarVisibility();
+            };
+        }
+
+        private void UpdateMediaBarVisibility()
+        {
+            double currentWidth = Window.Current.Bounds.Width;
+
+            if (currentWidth < 612)
+            {
+                WideMediaBar.Visibility = Visibility.Collapsed;
+                NarrowMediaBar.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                WideMediaBar.Visibility = Visibility.Visible;
+                NarrowMediaBar.Visibility = Visibility.Collapsed;
+            }
         }
 
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
+
+            UpdateMediaBarVisibility();
 
             await HeaderAccountControl.Initialize();
         }

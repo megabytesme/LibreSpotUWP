@@ -18,8 +18,13 @@
     </Page.Resources>
 
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
         <SplitView
             x:Name="RootSplitView"
+            Grid.Row="0"
             CompactPaneLength="48"
             DisplayMode="CompactOverlay"
             IsPaneOpen="False"
@@ -168,8 +173,14 @@
             </SplitView.Content>
         </SplitView>
 
+        <Grid Grid.Row="1" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+            <controls:MediaControllerBar x:Name="WideMediaBar" Visibility="Collapsed" />
+            <controls:NarrowMediaControllerBar x:Name="NarrowMediaBar" Visibility="Collapsed" />
+        </Grid>
+
         <Frame
             x:Name="PlayerOverlay"
+            Grid.RowSpan="2"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
             Visibility="Collapsed" />
