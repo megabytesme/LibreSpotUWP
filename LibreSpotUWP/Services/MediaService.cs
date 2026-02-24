@@ -11,6 +11,7 @@ using Windows.Media.MediaProperties;
 using Windows.Media.Playback;
 using Windows.Storage.Streams;
 using Windows.UI.Xaml;
+using static LibreSpotUWP.Interop.Librespot;
 
 namespace LibreSpotUWP.Services
 {
@@ -70,6 +71,7 @@ namespace LibreSpotUWP.Services
 
             _librespot.TrackChanged += OnTrackChanged;
             _librespot.PlaybackStateChanged += OnPlaybackChanged;
+            _librespot.SessionStateChanged += OnSessionStateChanged;
             _librespot.VolumeChanged += OnVolumeChanged;
             _auth.AuthStateChanged += OnAuthChanged;
 
@@ -260,6 +262,20 @@ namespace LibreSpotUWP.Services
                     _ringPlayer?.Stop();
                     _mediaPlayer.Pause();
                     _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
+                    break;
+            }
+        }
+
+        private async void OnSessionStateChanged(object sender, LibrespotSessionState ev)
+        {
+            switch (ev.IsConnected)
+            {
+                case true:
+                    await App.BackgroundExecution.RequestKeepAliveAsync();
+                    break;
+
+                case false:
+                    App.BackgroundExecution.StopKeepAlive();
                     break;
             }
         }
