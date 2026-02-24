@@ -169,7 +169,7 @@ namespace LibreSpotUWP.Controls
 
             switch (mode)
             {
-                case 0: RepeatIcon.Glyph = "\uF5E7"; break;
+                case 0: RepeatIcon.Glyph = "\uE8EE"; break;
                 case 1: RepeatIcon.Glyph = "\uE8EE"; break;
                 case 2: RepeatIcon.Glyph = "\uE8ED"; break;
             }
