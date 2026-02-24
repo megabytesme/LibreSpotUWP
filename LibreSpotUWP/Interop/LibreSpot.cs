@@ -179,14 +179,5 @@ namespace LibreSpotUWP.Interop
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_audio_set_read_cursor(UIntPtr pos);
-
-        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
-        public static extern uint librespot_audio_get_format();
-
-        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
-        public static extern uint librespot_audio_get_sample_rate();
-
-        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
-        public static extern uint librespot_audio_get_channels();
     }
 }
