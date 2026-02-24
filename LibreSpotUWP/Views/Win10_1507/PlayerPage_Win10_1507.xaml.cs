@@ -5,6 +5,7 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 
 namespace LibreSpotUWP.Views.Win10_1507
@@ -76,7 +77,16 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
 
             PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
-            
+
+            UpdateShuffleVisual(state.Shuffle);
+            UpdateRepeatVisual(state.RepeatMode);
+
+            VolumeSlider.ValueChanged -= VolumeSlider_ValueChanged;
+            double volPercent = state.Volume * 100.0 / 65535.0;
+            VolumeSlider.Value = volPercent;
+            UpdateVolumeVisual(volPercent);
+            VolumeSlider.ValueChanged += VolumeSlider_ValueChanged;
+
             uint currentSec = state.PositionMs / 1000;
             if (currentSec != _lastUpdateSec || _dragging)
             {
@@ -141,6 +151,45 @@ namespace LibreSpotUWP.Views.Win10_1507
         private void NextButton_Click(object sender, RoutedEventArgs e)
         {
             Media.Next();
+        }
+
+        private async void ShuffleButton_Click(object sender, RoutedEventArgs e) => await Media.SetShuffleAsync(!Media.Current.Shuffle);
+
+        private async void RepeatButton_Click(object sender, RoutedEventArgs e)
+        {
+            int mode = (Media.Current.RepeatMode + 1) % 3;
+            await Media.SetRepeatAsync(mode);
+        }
+
+        private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            Media?.SetVolumeDebounced(e.NewValue);
+            UpdateVolumeVisual(e.NewValue);
+        }
+
+        private void UpdateShuffleVisual(bool enabled)
+        {
+            ShuffleIcon.Foreground = (Brush)Application.Current.Resources[enabled ? "SystemControlHighlightAccentBrush" : "SystemControlForegroundBaseMediumBrush"];
+        }
+
+        private void UpdateRepeatVisual(int mode)
+        {
+            bool active = mode > 0;
+            RepeatIcon.Foreground = (Brush)Application.Current.Resources[active ? "SystemControlHighlightAccentBrush" : "SystemControlForegroundBaseMediumBrush"];
+            switch (mode)
+            {
+                case 0: RepeatIcon.Glyph = "\uF5E7"; break;
+                case 1: RepeatIcon.Glyph = "\uE8EE"; break;
+                case 2: RepeatIcon.Glyph = "\uE8ED"; break;
+            }
+        }
+
+        private void UpdateVolumeVisual(double value)
+        {
+            if (value <= 0) VolumeIcon.Glyph = "\uE992";
+            else if (value < 33) VolumeIcon.Glyph = "\uE993";
+            else if (value < 66) VolumeIcon.Glyph = "\uE994";
+            else VolumeIcon.Glyph = "\uE995";
         }
     }
 }

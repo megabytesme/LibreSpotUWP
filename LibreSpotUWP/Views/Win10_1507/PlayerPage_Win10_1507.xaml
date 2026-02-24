@@ -8,7 +8,7 @@
         <converters:TimeConverter x:Key="TimeConverter" />
     </Page.Resources>
 
-    <Grid Padding="24" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+    <Grid Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -16,18 +16,52 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <Button
+            x:Name="MenuButton"
+            Width="48"
+            Height="48"
+            Margin="8"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Background="Transparent">
+            <SymbolIcon Symbol="More" />
+            <Button.Flyout>
+                <Flyout>
+                    <StackPanel Width="200">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontWeight="SemiBold"
+                            Text="Volume" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon
+                                x:Name="VolumeIcon"
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="16"
+                                Glyph="&#xE994;" />
+                            <Slider
+                                x:Name="VolumeSlider"
+                                Width="140"
+                                Maximum="100"
+                                Minimum="0"
+                                ValueChanged="VolumeSlider_ValueChanged" />
+                        </StackPanel>
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+        </Button>
+
         <Image
             x:Name="AlbumArt"
             Grid.Row="0"
-            Width="300"
-            Height="300"
+            Margin="60,60,60,20"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
-            Stretch="UniformToFill" />
+            Stretch="Uniform" />
 
         <StackPanel
             Grid.Row="1"
-            Margin="0,24,0,12"
+            Margin="8"
             HorizontalAlignment="Center">
             <TextBlock
                 x:Name="TrackTitle"
@@ -46,7 +80,7 @@
                 TextTrimming="CharacterEllipsis" />
         </StackPanel>
 
-        <Grid Grid.Row="2" Margin="0,12,0,12">
+        <Grid Grid.Row="2" Margin="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -79,15 +113,29 @@
 
         <StackPanel
             Grid.Row="3"
-            Margin="0,24,0,0"
+            Margin="0,0,0,24"
             HorizontalAlignment="Center"
-            Orientation="Horizontal"
-            Spacing="32">
+            VerticalAlignment="Center"
+            Orientation="Horizontal">
+
+            <Button
+                x:Name="ShuffleButton"
+                Width="40"
+                Height="40"
+                Margin="0,0,20,0"
+                Click="ShuffleButton_Click">
+                <FontIcon
+                    x:Name="ShuffleIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="14"
+                    Glyph="&#xE8B1;" />
+            </Button>
 
             <Button
                 x:Name="PrevButton"
                 Width="48"
                 Height="48"
+                Margin="0,0,20,0"
                 Click="PrevButton_Click">
                 <SymbolIcon Symbol="Previous" />
             </Button>
@@ -96,6 +144,7 @@
                 x:Name="PlayPauseButton"
                 Width="64"
                 Height="64"
+                Margin="0,0,20,0"
                 Click="PlayPauseButton_Click">
                 <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
             </Button>
@@ -104,8 +153,21 @@
                 x:Name="NextButton"
                 Width="48"
                 Height="48"
+                Margin="0,0,20,0"
                 Click="NextButton_Click">
                 <SymbolIcon Symbol="Next" />
+            </Button>
+
+            <Button
+                x:Name="RepeatButton"
+                Width="40"
+                Height="40"
+                Click="RepeatButton_Click">
+                <FontIcon
+                    x:Name="RepeatIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="14"
+                    Glyph="&#xF5E7;" />
             </Button>
         </StackPanel>
     </Grid>
