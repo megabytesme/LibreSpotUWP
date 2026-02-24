@@ -1,4 +1,5 @@
-﻿using LibreSpotUWP.Interfaces;
+﻿using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Services;
 using System;
 using System.Collections.Generic;
@@ -29,6 +30,7 @@ namespace LibreSpotUWP
         public static ISpotifyAuthService SpotifyAuth { get; private set; }
         public static ISpotifyWebService SpotifyWeb { get; private set; }
         public static IMediaService Media { get; private set; }
+        public static IBackgroundExecutionManager BackgroundExecution { get; private set; }
         private ISecureStorage _secureStorage;
         private IFileSystem _fileSystem;
         private IMetadataCache _metadataCache;
@@ -86,6 +88,7 @@ namespace LibreSpotUWP
             SpotifyAuth = new SpotifyAuthService(_secureStorage);
             SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache);
             Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
+            BackgroundExecution = new UwpBackgroundExecutionManager();
 
             await Librespot.InitializeAsync();
             if (!string.IsNullOrEmpty(await SpotifyAuth.GetAccessToken()))
