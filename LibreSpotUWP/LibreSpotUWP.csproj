@@ -157,7 +157,7 @@
     <Compile Include="Controls\MediaControllerBar.xaml.cs">
       <DependentUpon>MediaControllerBar.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Converters\SpotifyConfig.cs" />
+    <Compile Include="Converters\Converters.cs" />
     <Compile Include="Helpers\AudioFormatProbe.cs" />
     <Compile Include="Helpers\BarcodeHelper.cs" />
     <Compile Include="Helpers\NavigationHelper.cs" />
