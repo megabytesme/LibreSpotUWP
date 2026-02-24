@@ -31,6 +31,8 @@ namespace LibreSpotUWP.Interfaces
         event EventHandler<LibrespotTrackInfo> TrackChanged;
         event EventHandler<LibrespotPlaybackState> PlaybackStateChanged;
         event EventHandler<ushort> VolumeChanged;
+        event EventHandler<bool> ShuffleChanged;
+        event EventHandler<uint> RepeatChanged;
         event EventHandler<string> LogMessage;
         event EventHandler<string> Panic;
     }
