@@ -37,6 +37,8 @@ namespace LibreSpotUWP.Services
         public MediaState Current => _state;
         public event EventHandler<MediaState> MediaStateChanged;
 
+        private const string VolumeKey = "UserVolume";
+
         public MediaService(
             ILibrespotService librespot,
             ISpotifyAuthService auth,
@@ -52,6 +54,22 @@ namespace LibreSpotUWP.Services
             _mediaPlayer = new MediaPlayer();
             _mediaPlayer.AutoPlay = false;
             _mediaPlayer.AudioCategory = MediaPlayerAudioCategory.Media;
+
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+
+            if (settings.Values.TryGetValue(VolumeKey, out object saved))
+            {
+                ushort raw = (ushort)(saved);
+                UpdateState(s => s.Volume = raw);
+                await _librespot.SetVolumeAsync(raw);
+            }
+            else
+            {
+                ushort max = 65535;
+                UpdateState(s => s.Volume = max);
+                await _librespot.SetVolumeAsync(max);
+                settings.Values[VolumeKey] = max;
+            }
 
             var commandManager = _mediaPlayer.CommandManager;
             commandManager.IsEnabled = true;
@@ -166,6 +184,9 @@ namespace LibreSpotUWP.Services
             ushort raw = (ushort)(percent * 65535 / 100);
             _pendingVolume = raw;
             _volumeDirty = true;
+
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            settings.Values[VolumeKey] = raw;
         }
 
         public Task SetShuffleAsync(bool enabled)
@@ -283,6 +304,9 @@ namespace LibreSpotUWP.Services
         private void OnVolumeChanged(object sender, ushort volume)
         {
             UpdateState(s => s.Volume = volume);
+
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            settings.Values[VolumeKey] = volume;
         }
 
         private void OnAuthChanged(object sender, AuthState auth)
