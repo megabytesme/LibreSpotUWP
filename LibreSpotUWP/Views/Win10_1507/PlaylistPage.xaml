@@ -8,7 +8,6 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <ScrollViewer Grid.Row="0">
             <StackPanel Padding="24" Spacing="24">
@@ -17,7 +16,5 @@
                 <controls:TrackListControl x:Name="TrackList" />
             </StackPanel>
         </ScrollViewer>
-
-        <controls:NarrowMediaControllerBar Grid.Row="1" />
     </Grid>
 </Page>

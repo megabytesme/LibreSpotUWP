@@ -117,8 +117,6 @@
             </StackPanel>
         </ScrollViewer>
 
-        <controls:NarrowMediaControllerBar Grid.Row="1" />
-
         <Grid
             x:Name="LoadingOverlay"
             Grid.RowSpan="2"

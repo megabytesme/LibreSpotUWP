@@ -2,7 +2,6 @@
     x:Class="LibreSpotUWP.Views.Win10_1507.HomePage_Win10_1507"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:controls="using:LibreSpotUWP.Controls"
     xmlns:converters="using:LibreSpotUWP.Converters"
     xmlns:selectors="using:LibreSpotUWP.Selectors"
     xmlns:spotify="using:SpotifyAPI.Web"
@@ -124,7 +123,5 @@
                 </ListView>
             </SemanticZoom.ZoomedOutView>
         </SemanticZoom>
-
-        <controls:NarrowMediaControllerBar Grid.Row="1" />
     </Grid>
 </Page>
