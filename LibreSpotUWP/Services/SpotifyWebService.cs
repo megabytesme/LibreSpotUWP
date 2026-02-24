@@ -303,7 +303,7 @@ namespace LibreSpotUWP.Services
 
         public Task<CacheResponse<Paging<T>>> GetNextPageAsync<T>(
             Paging<T> currentPaging,
-            CancellationToken ct = default)
+            CancellationToken ct = new CancellationToken())
         {
             if (currentPaging?.Next == null) return null;
 
