@@ -29,6 +29,14 @@ namespace LibreSpotUWP
         public MainPage()
         {
             InitializeComponent();
+
+            RootSplitView.RegisterPropertyChangedCallback(SplitView.IsPaneOpenProperty, (s, dp) => {
+                if (RootSplitView.IsPaneOpen)
+                    RootSplitView_PaneOpened(RootSplitView, null);
+                else
+                    RootSplitView_PaneClosed(RootSplitView, null);
+            });
+
             ApplyAppearanceStyling();
             NavListBox.SelectedIndex = 0;
 
@@ -421,13 +429,14 @@ namespace LibreSpotUWP
                 NavigateTo($"Search:{_pendingSearchQuery}");
             }
         }
-        private void RootSplitView_PaneOpened(object sender, object e)
+
+        private void RootSplitView_PaneOpened(SplitView sender, object args)
         {
             SearchBox.Visibility = Visibility.Visible;
             SearchIconButton.Visibility = Visibility.Collapsed;
         }
 
-        private void RootSplitView_PaneClosed(object sender, object e)
+        private void RootSplitView_PaneClosed(SplitView sender, object args)
         {
             SearchBox.Visibility = Visibility.Collapsed;
             SearchIconButton.Visibility = Visibility.Visible;

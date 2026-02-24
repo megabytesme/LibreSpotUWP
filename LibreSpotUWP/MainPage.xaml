@@ -28,9 +28,7 @@
             CompactPaneLength="48"
             DisplayMode="CompactOverlay"
             IsPaneOpen="False"
-            OpenPaneLength="200"
-            PaneClosed="RootSplitView_PaneClosed"
-            PaneOpened="RootSplitView_PaneOpened">
+            OpenPaneLength="200">
 
             <SplitView.Pane>
                 <Grid>
