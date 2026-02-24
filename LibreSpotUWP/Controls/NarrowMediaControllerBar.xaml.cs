@@ -32,9 +32,9 @@ namespace LibreSpotUWP.Controls
             SizeChanged += OnSizeChanged;
         }
 
-        private void Media_MediaStateChanged(object sender, MediaState state)
+        private async void Media_MediaStateChanged(object sender, MediaState state)
         {
-            Dispatcher.RunAsync(
+            await Dispatcher.RunAsync(
                 Windows.UI.Core.CoreDispatcherPriority.Normal,
                 () => UpdateUI(state));
         }
