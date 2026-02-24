@@ -3,12 +3,25 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel
-            x:Name="TrackListPanel"
-            Padding="0"
-            Orientation="Vertical"
-            Spacing="0" />
-    </ScrollViewer>
+    <Grid>
+        <ListView
+            x:Name="TrackListView"
+            ScrollViewer.VerticalScrollBarVisibility="Auto"
+            SelectionMode="None"
+            ShowsScrollingPlaceholders="True">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="MinHeight" Value="0" />
+                </Style>
+            </ListView.ItemContainerStyle>
+        </ListView>
 
+        <ProgressBar
+            x:Name="LoadingIndicator"
+            VerticalAlignment="Bottom"
+            IsIndeterminate="True"
+            Visibility="Collapsed" />
+    </Grid>
 </UserControl>

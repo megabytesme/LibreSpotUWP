@@ -47,6 +47,10 @@ namespace LibreSpotUWP.Interfaces
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken());
 
+        Task<CacheResponse<Paging<T>>> GetNextPageAsync<T>(
+            Paging<T> currentPaging,
+            CancellationToken ct = default);
+
         Task<CacheResponse<SearchResponse>> SearchAsync(
             string query,
             SearchRequest.Types type,

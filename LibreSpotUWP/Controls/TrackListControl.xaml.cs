@@ -14,98 +14,99 @@ namespace LibreSpotUWP.Controls
         public event EventHandler<TrackClickedEventArgs> TrackClicked;
         public event EventHandler<string> ArtistClicked;
         public event EventHandler<string> AlbumClicked;
+        public event EventHandler LoadMoreRequested;
+
+        private bool _showAlbum;
+        private bool _isLoadingMore = false;
 
         public TrackListControl()
         {
-            InitializeComponent();
+            this.InitializeComponent();
+            this.TrackListView.Loaded += TrackListView_Loaded;
         }
 
-        public void SetTracks(IEnumerable<SimpleTrack> tracks)
+        private void TrackListView_Loaded(object sender, RoutedEventArgs e)
         {
-            var formatted = tracks.Select((t, i) => new TrackListItem
+            var scrollViewer = FindVisualChild<ScrollViewer>(TrackListView);
+            if (scrollViewer != null)
             {
-                TrackNumber = i + 1,
-                Name = t.Name,
-                ArtistName = string.Join(", ", t.Artists.Select(a => a.Name)),
-                ArtistObjects = t.Artists.ToList(),
-                AlbumName = "",
-                AlbumId = null,
-                AlbumArt = null,
-                Duration = TimeSpan.FromMilliseconds(t.DurationMs).ToString(@"m\:ss"),
-                RawTrack = t
-            }).ToList();
-
-            RenderTrackList(formatted);
+                scrollViewer.ViewChanged += OnScrollViewerViewChanged;
+            }
         }
 
-        public void SetFullTracks(IEnumerable<FullTrack> tracks)
+        private void OnScrollViewerViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            var formatted = tracks.Select((t, i) => new TrackListItem
+            var sv = sender as ScrollViewer;
+            if (sv == null) return;
+
+            if (sv.VerticalOffset >= sv.ScrollableHeight - 200 && sv.ScrollableHeight > 0)
             {
-                TrackNumber = i + 1,
-                Name = t?.Name ?? "",
-                ArtistName = t?.Artists != null
-                    ? string.Join(", ", t.Artists.Select(a => a.Name))
-                    : "",
-                ArtistObjects = t?.Artists?.ToList() ?? new List<SimpleArtist>(),
-                AlbumName = t?.Album?.Name ?? "",
-                AlbumId = t?.Album?.Id,
-                AlbumArt = t?.Album?.Images?.Count > 0
-                    ? new BitmapImage(new Uri(t.Album.Images[0].Url))
-                    : null,
-                Duration = TimeSpan.FromMilliseconds(t?.DurationMs ?? 0).ToString(@"m\:ss"),
-                RawTrack = t
-            }).ToList();
-
-            RenderTrackList(formatted);
-        }
-
-        public void SetPlaylistTracks(IEnumerable<PlaylistTrack<IPlayableItem>> tracks)
-        {
-            var formatted = tracks.Select((t, i) =>
-            {
-                var track = t.Track as FullTrack;
-
-                return new TrackListItem
+                if (!_isLoadingMore)
                 {
-                    TrackNumber = i + 1,
-                    Name = track?.Name ?? "",
-                    ArtistName = string.Join(", ", track?.Artists?.Select(a => a.Name) ?? Enumerable.Empty<string>()),
-                    ArtistObjects = track?.Artists?.ToList() ?? new List<SimpleArtist>(),
-                    AlbumName = track?.Album?.Name ?? "",
-                    AlbumId = track?.Album?.Id,
-                    AlbumArt = track?.Album?.Images?.Count > 0
-                        ? new BitmapImage(new Uri(track.Album.Images[0].Url))
-                        : null,
-                    Duration = track != null
-                        ? TimeSpan.FromMilliseconds(track.DurationMs).ToString(@"m\:ss")
-                        : "",
-                    RawTrack = track
+                    _isLoadingMore = true;
+                    LoadingIndicator.Visibility = Visibility.Visible;
+                    LoadMoreRequested?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public void SetIsLoading(bool loading)
+        {
+            _isLoadingMore = loading;
+            LoadingIndicator.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public void AddTracks(IEnumerable<FullTrack> tracks, bool clearExisting, int startingIndex = 0)
+        {
+            if (clearExisting)
+            {
+                TrackListView.Items.Clear();
+                _showAlbum = tracks.Any(t => t.Album != null);
+                AddHeader();
+            }
+
+            foreach (var t in tracks)
+            {
+                var item = new TrackListItem
+                {
+                    TrackNumber = ++startingIndex,
+                    Name = t?.Name ?? "",
+                    ArtistName = t?.Artists != null ? string.Join(", ", t.Artists.Select(a => a.Name)) : "",
+                    ArtistObjects = t?.Artists?.ToList() ?? new List<SimpleArtist>(),
+                    AlbumName = t?.Album?.Name ?? "",
+                    AlbumId = t?.Album?.Id,
+                    AlbumArt = t?.Album?.Images?.Count > 0 ? new BitmapImage(new Uri(t.Album.Images[0].Url)) : null,
+                    Duration = TimeSpan.FromMilliseconds(t?.DurationMs ?? 0).ToString(@"m\:ss"),
+                    RawTrack = t
                 };
-            }).ToList();
 
-            RenderTrackList(formatted);
+                TrackListView.Items.Add(CreateTrackRow(item));
+            }
+
+            _isLoadingMore = false;
+            LoadingIndicator.Visibility = Visibility.Collapsed;
         }
 
-        private bool _showAlbum;
-
-        private void RenderTrackList(List<TrackListItem> items)
+        private void AddHeader()
         {
-            TrackListPanel.Children.Clear();
+            var grid = new Grid { Padding = new Thickness(8), Background = (Brush)Application.Current.Resources["SystemControlBackgroundChromeMediumLowBrush"] };
+            foreach (var column in CreateColumns(_showAlbum)) grid.ColumnDefinitions.Add(column);
 
-            _showAlbum = ShouldShowAlbumColumn(items);
+            int col = 0;
+            AddHeaderText(grid, "#", col++);
+            if (_showAlbum) AddHeaderText(grid, "", col++);
+            AddHeaderText(grid, "Title", col++);
+            if (_showAlbum) AddHeaderText(grid, "Album", col++);
+            AddHeaderText(grid, "Time", col++);
 
-            AddHeader();
-            foreach (var item in items)
-                AddTrackRow(item);
+            TrackListView.Header = grid;
         }
 
-        private bool ShouldShowAlbumColumn(List<TrackListItem> items)
+        private void AddHeaderText(Grid grid, string text, int col)
         {
-            return items.Any(i =>
-                (!string.IsNullOrWhiteSpace(i.AlbumName)) ||
-                (i.AlbumArt != null)
-            );
+            var tb = new TextBlock { Text = text, Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(tb, col);
+            grid.Children.Add(tb);
         }
 
         private ColumnDefinition[] CreateColumns(bool showAlbum)
@@ -114,53 +115,22 @@ namespace LibreSpotUWP.Controls
             {
                 return new[]
                 {
-                    new ColumnDefinition { Width = new GridLength(40) },   // Track number
-                    new ColumnDefinition { Width = new GridLength(60) },   // Album art
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, // Title and artists
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, // Album name
-                    new ColumnDefinition { Width = GridLength.Auto }       // Duration
+                    new ColumnDefinition { Width = new GridLength(40) },
+                    new ColumnDefinition { Width = new GridLength(60) },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
                 };
             }
-            else
+            return new[]
             {
-                return new[]
-                {
-                    new ColumnDefinition { Width = new GridLength(40) },   // Track number
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, // Title and artists
-                    new ColumnDefinition { Width = GridLength.Auto }       // Duration
-                };
-            }
-        }
-
-        private void AddHeader()
-        {
-            var grid = new Grid { Padding = new Thickness(8) };
-            foreach (var column in CreateColumns(_showAlbum)) grid.ColumnDefinitions.Add(column);
-
-            int col = 0;
-
-            AddHeaderText(grid, "#", col++);
-            if (_showAlbum) AddHeaderText(grid, "", col++);
-            AddHeaderText(grid, "Title", col++);
-            if (_showAlbum) AddHeaderText(grid, "Album", col++);
-            AddHeaderText(grid, "Time", col++);
-
-            TrackListPanel.Children.Add(grid);
-        }
-
-        private void AddHeaderText(Grid grid, string text, int col)
-        {
-            var tb = new TextBlock
-            {
-                Text = text,
-                Opacity = 0.6,
-                VerticalAlignment = VerticalAlignment.Center
+                new ColumnDefinition { Width = new GridLength(40) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto }
             };
-            Grid.SetColumn(tb, col);
-            grid.Children.Add(tb);
         }
 
-        private void AddTrackRow(TrackListItem item)
+        private UIElement CreateTrackRow(TrackListItem item)
         {
             var rowButton = new Button
             {
@@ -168,23 +138,13 @@ namespace LibreSpotUWP.Controls
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
                 MinWidth = 0
             };
 
-            rowButton.PointerEntered += (s, e) =>
-                rowButton.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255));
-            rowButton.PointerExited += (s, e) =>
-                rowButton.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
-            rowButton.PointerPressed += (s, e) =>
-                rowButton.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(60, 255, 255, 255));
-            rowButton.PointerReleased += (s, e) =>
-                rowButton.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255));
-
-            rowButton.Click += (s, e) =>
-                TrackClicked?.Invoke(this, new TrackClickedEventArgs(item.RawTrack));
+            rowButton.PointerEntered += (s, e) => rowButton.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255));
+            rowButton.PointerExited += (s, e) => rowButton.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
+            rowButton.Click += (s, e) => TrackClicked?.Invoke(this, new TrackClickedEventArgs(item.RawTrack));
 
             var grid = new Grid { Padding = new Thickness(8) };
             foreach (var column in CreateColumns(_showAlbum)) grid.ColumnDefinitions.Add(column);
@@ -193,123 +153,67 @@ namespace LibreSpotUWP.Controls
             int col = 0;
 
             // Track number
-            var num = new TextBlock
-            {
-                Text = item.TrackNumber.ToString(),
-                Opacity = 0.6,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var num = new TextBlock { Text = item.TrackNumber.ToString(), Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(num, col++);
             grid.Children.Add(num);
 
             // Album art
             if (_showAlbum)
             {
-                var img = new Windows.UI.Xaml.Controls.Image
-                {
-                    Width = 48,
-                    Height = 48,
-                    Source = item.AlbumArt,
-                    Stretch = Windows.UI.Xaml.Media.Stretch.UniformToFill
-                };
+                var img = new Windows.UI.Xaml.Controls.Image { Width = 48, Height = 48, Source = item.AlbumArt, Stretch = Stretch.UniformToFill };
                 Grid.SetColumn(img, col++);
                 grid.Children.Add(img);
             }
 
-            // Title and artists
+            // Title/Artist
             var titleStack = new StackPanel();
+            titleStack.Children.Add(new TextBlock { Text = item.Name, FontWeight = Windows.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.WordEllipsis });
 
-            // Title
-            titleStack.Children.Add(new TextBlock
-            {
-                Text = item.Name,
-                FontWeight = Windows.UI.Text.FontWeights.SemiBold,
-                TextWrapping = TextWrapping.Wrap,
-                TextTrimming = TextTrimming.WordEllipsis
-            });
-
-            // Artists
-            var artistText = new TextBlock
-            {
-                TextWrapping = TextWrapping.Wrap,
-                TextTrimming = TextTrimming.WordEllipsis
-            };
-
+            var artistText = new TextBlock { TextTrimming = TextTrimming.WordEllipsis, FontSize = 12, Opacity = 0.8 };
             bool first = true;
-
             foreach (var artist in item.ArtistObjects)
             {
-                if (!first)
-                {
-                    artistText.Inlines.Add(new Windows.UI.Xaml.Documents.Run { Text = ", " });
-                }
+                if (!first) artistText.Inlines.Add(new Windows.UI.Xaml.Documents.Run { Text = ", " });
                 first = false;
-
                 var artistLink = new Windows.UI.Xaml.Documents.Hyperlink();
-                artistLink.Inlines.Add(new Windows.UI.Xaml.Documents.Run
-                {
-                    Text = artist.Name
-                });
-
-                artistLink.Click += (s, e) =>
-                {
-                    if (!string.IsNullOrEmpty(artist.Id))
-                        ArtistClicked?.Invoke(this, artist.Id);
-                };
-
+                artistLink.Inlines.Add(new Windows.UI.Xaml.Documents.Run { Text = artist.Name });
+                artistLink.Click += (s, e) => { if (!string.IsNullOrEmpty(artist.Id)) ArtistClicked?.Invoke(this, artist.Id); };
                 artistText.Inlines.Add(artistLink);
             }
-
             titleStack.Children.Add(artistText);
-
             Grid.SetColumn(titleStack, col++);
             grid.Children.Add(titleStack);
 
             // Album name
             if (_showAlbum)
             {
-                var albumContainer = new Grid
-                {
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-
-                var albumText = new TextBlock
-                {
-                    TextWrapping = TextWrapping.Wrap,
-                    TextTrimming = TextTrimming.WordEllipsis
-                };
-
+                var albumText = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.WordEllipsis };
                 var albumHyperlink = new Windows.UI.Xaml.Documents.Hyperlink();
-                albumHyperlink.Inlines.Add(new Windows.UI.Xaml.Documents.Run
-                {
-                    Text = item.AlbumName
-                });
-
-                albumHyperlink.Click += (s, e) =>
-                {
-                    if (!string.IsNullOrEmpty(item.AlbumId))
-                        AlbumClicked?.Invoke(this, item.AlbumId);
-                };
-
+                albumHyperlink.Inlines.Add(new Windows.UI.Xaml.Documents.Run { Text = item.AlbumName });
+                albumHyperlink.Click += (s, e) => { if (!string.IsNullOrEmpty(item.AlbumId)) AlbumClicked?.Invoke(this, item.AlbumId); };
                 albumText.Inlines.Add(albumHyperlink);
-                albumContainer.Children.Add(albumText);
-
-                Grid.SetColumn(albumContainer, col++);
-                grid.Children.Add(albumContainer);
+                Grid.SetColumn(albumText, col++);
+                grid.Children.Add(albumText);
             }
 
             // Duration
-            var dur = new TextBlock
-            {
-                Text = item.Duration,
-                Opacity = 0.7,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var dur = new TextBlock { Text = item.Duration, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(dur, col++);
             grid.Children.Add(dur);
 
-            TrackListPanel.Children.Add(rowButton);
+            return rowButton;
+        }
+
+        private T FindVisualChild<T>(DependencyObject obj) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(obj); i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(obj, i);
+                if (child is T t) return t;
+                T childItem = FindVisualChild<T>(child);
+                if (childItem != null) return childItem;
+            }
+            return null;
         }
     }
 

@@ -5,16 +5,23 @@
     xmlns:controls="using:LibreSpotUWP.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <Grid>
+    <Grid Padding="24">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <ScrollViewer Grid.Row="0">
-            <StackPanel Padding="24" Spacing="24">
-                <controls:HeaderImageControl x:Name="HeaderControl" />
-                <controls:PlayActionsControl x:Name="PlayActions" />
-                <controls:TrackListControl x:Name="TrackList" />
-            </StackPanel>
-        </ScrollViewer>
+
+        <controls:HeaderImageControl
+            x:Name="HeaderControl"
+            Grid.Row="0"
+            Margin="0,0,0,24" />
+
+        <controls:PlayActionsControl
+            x:Name="PlayActions"
+            Grid.Row="1"
+            Margin="0,0,0,24" />
+
+        <controls:TrackListControl x:Name="TrackList" Grid.Row="2" />
     </Grid>
 </Page>

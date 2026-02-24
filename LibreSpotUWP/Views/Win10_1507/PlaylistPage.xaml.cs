@@ -4,6 +4,7 @@ using LibreSpotUWP.Models;
 using LibreSpotUWP.ViewModels;
 using SpotifyAPI.Web;
 using System;
+using System.Linq;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -47,6 +48,29 @@ namespace LibreSpotUWP.Views
             };
 
             TrackList.TrackClicked += OnTrackClicked;
+
+            TrackList.LoadMoreRequested += OnLoadMoreRequested;
+        }
+
+        private async void OnLoadMoreRequested(object sender, EventArgs e)
+        {
+            if (!ViewModel.HasMoreTracks)
+            {
+                TrackList.SetIsLoading(false);
+                return;
+            }
+
+            await ViewModel.LoadMoreTracksAsync();
+
+            if (ViewModel.LastLoadedBatch.Any())
+            {
+                var newTracks = ViewModel.LastLoadedBatch
+                    .Select(t => t.Track as FullTrack)
+                    .Where(t => t != null);
+
+                int offset = ViewModel.TotalTracksLoaded - ViewModel.LastLoadedBatch.Count;
+                TrackList.AddTracks(newTracks, false, offset);
+            }
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -57,7 +81,9 @@ namespace LibreSpotUWP.Views
             await ViewModel.LoadAsync(playlistId);
 
             HeaderControl.SetPlaylist(ViewModel.Playlist);
-            TrackList.SetPlaylistTracks(ViewModel.Tracks.Items);
+
+            var tracks = ViewModel.Tracks.Items.Select(t => t.Track as FullTrack).Where(t => t != null);
+            TrackList.AddTracks(tracks, true, 0);
         }
 
         public async void OnTrackClicked(object sender, TrackClickedEventArgs e)

@@ -41,7 +41,9 @@ namespace LibreSpotUWP.Views
             await ViewModel.LoadAsync(artistId);
 
             HeaderControl.SetArtist(ViewModel.Artist);
-            TrackList.SetFullTracks(ViewModel.TopTracks);
+
+            TrackList.AddTracks(ViewModel.TopTracks, true);
+
             AlbumsGrid.SetAlbums(ViewModel.Albums.Items);
         }
 

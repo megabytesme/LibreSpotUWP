@@ -301,6 +301,21 @@ namespace LibreSpotUWP.Services
                 forceRefresh);
         }
 
+        public Task<CacheResponse<Paging<T>>> GetNextPageAsync<T>(
+            Paging<T> currentPaging,
+            CancellationToken ct = default)
+        {
+            if (currentPaging?.Next == null) return null;
+
+            var key = $"global/paging_next/{currentPaging.Next.GetHashCode()}";
+
+            return _cache.GetOrAddAsync(
+                key,
+                () => ExecuteAsync(c => c.NextPage(currentPaging), ct),
+                TtlImmutable,
+                false);
+        }
+
         public Task<CacheResponse<SearchResponse>> SearchAsync(
             string query,
             SearchRequest.Types type,
