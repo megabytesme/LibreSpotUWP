@@ -94,6 +94,11 @@ namespace LibreSpotUWP.Controls
                 await Media.ResumeAsync();
         }
 
+        private void PlayPauseButton_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+        }
+
         private void Root_Tapped(object sender, TappedRoutedEventArgs e)
         {
             var mainPage = FindMainPage();

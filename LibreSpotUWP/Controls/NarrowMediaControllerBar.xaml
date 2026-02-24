@@ -78,7 +78,8 @@
                 Height="40"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                Click="PlayPauseButton_Click">
+                Click="PlayPauseButton_Click"
+                Tapped="PlayPauseButton_Tapped">
                 <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
             </Button>
 
