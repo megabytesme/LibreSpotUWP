@@ -20,34 +20,40 @@
                 x:Name="ImageBorder"
                 Width="140"
                 Height="140"
+                VerticalAlignment="Top"
                 Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
                 CornerRadius="4">
                 <Image x:Name="MainImage" Stretch="UniformToFill" />
             </Border>
 
-            <StackPanel
+            <ScrollViewer
                 Grid.Column="1"
+                MaxHeight="140"
                 Margin="16,0,0,0"
-                VerticalAlignment="Center">
+                VerticalAlignment="Top"
+                HorizontalScrollMode="Disabled"
+                VerticalScrollBarVisibility="Auto">
 
-                <TextBlock
-                    x:Name="TitleText"
-                    FontSize="24"
-                    FontWeight="SemiBold"
-                    TextWrapping="Wrap" />
+                <StackPanel x:Name="TextContainer">
+                    <TextBlock
+                        x:Name="TitleText"
+                        FontSize="24"
+                        FontWeight="SemiBold"
+                        TextWrapping="Wrap" />
 
-                <TextBlock
-                    x:Name="SubtitleText"
-                    Margin="0,4,0,0"
-                    FontSize="14"
-                    Opacity="0.7"
-                    TextWrapping="Wrap" />
+                    <TextBlock
+                        x:Name="SubtitleText"
+                        Margin="0,4,0,0"
+                        FontSize="14"
+                        Opacity="0.7"
+                        TextWrapping="Wrap" />
 
-                <StackPanel
-                    x:Name="MetadataPanel"
-                    Margin="0,8,0,0"
-                    Spacing="2" />
-            </StackPanel>
+                    <StackPanel
+                        x:Name="MetadataPanel"
+                        Margin="0,8,0,0"
+                        Spacing="2" />
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </UserControl>
