@@ -59,16 +59,16 @@ namespace LibreSpotUWP.Services
 
             if (settings.Values.TryGetValue(VolumeKey, out object saved))
             {
-                ushort raw = (ushort)(saved);
-                UpdateState(s => s.Volume = raw);
+                ushort raw = (ushort)saved;
                 await _librespot.SetVolumeAsync(raw);
+                UpdateState(s => s.Volume = raw);
             }
             else
             {
                 ushort max = 65535;
-                UpdateState(s => s.Volume = max);
                 await _librespot.SetVolumeAsync(max);
                 settings.Values[VolumeKey] = max;
+                UpdateState(s => s.Volume = max);
             }
 
             var commandManager = _mediaPlayer.CommandManager;
@@ -91,6 +91,9 @@ namespace LibreSpotUWP.Services
             _librespot.PlaybackStateChanged += OnPlaybackChanged;
             _librespot.SessionStateChanged += OnSessionStateChanged;
             _librespot.VolumeChanged += OnVolumeChanged;
+            _librespot.ShuffleChanged += OnShuffleChanged;
+            _librespot.RepeatChanged += OnRepeatChanged;
+
             _auth.AuthStateChanged += OnAuthChanged;
 
             _mediaPlayer.Source = CreateSilentMediaSource();
@@ -187,16 +190,22 @@ namespace LibreSpotUWP.Services
 
             var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
             settings.Values[VolumeKey] = raw;
+
+            UpdateState(s => s.Volume = raw);
         }
 
-        public Task SetShuffleAsync(bool enabled)
+        public async Task SetShuffleAsync(bool enabled)
         {
-            return _librespot.SetShuffleAsync(enabled);
+            await _librespot.SetShuffleAsync(enabled);
+
+            UpdateState(s => s.Shuffle = enabled);
         }
 
-        public Task SetRepeatAsync(int mode)
+        public async Task SetRepeatAsync(int mode)
         {
-            return _librespot.SetRepeatAsync((uint)mode);
+            await _librespot.SetRepeatAsync((uint)mode);
+
+            UpdateState(s => s.RepeatMode = mode);
         }
 
         public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
@@ -307,6 +316,16 @@ namespace LibreSpotUWP.Services
 
             var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
             settings.Values[VolumeKey] = volume;
+        }
+
+        private void OnShuffleChanged(object sender, bool enabled)
+        {
+            UpdateState(s => s.Shuffle = enabled);
+        }
+
+        private void OnRepeatChanged(object sender, uint mode)
+        {
+            UpdateState(s => s.RepeatMode = (int)mode);
         }
 
         private void OnAuthChanged(object sender, AuthState auth)

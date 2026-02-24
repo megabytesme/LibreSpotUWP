@@ -13,6 +13,9 @@ namespace LibreSpotUWP.Models
 
         public bool IsPlaying => PlaybackState == LibrespotPlaybackState.Playing;
 
+        public bool Shuffle { get; set; }
+        public int RepeatMode { get; set; }
+
         public MediaState Clone()
         {
             return new MediaState
@@ -22,7 +25,9 @@ namespace LibreSpotUWP.Models
                 Metadata = this.Metadata,
                 Volume = this.Volume,
                 PositionMs = this.PositionMs,
-                DurationMs = this.DurationMs
+                DurationMs = this.DurationMs,
+                Shuffle = this.Shuffle,
+                RepeatMode = this.RepeatMode
             };
         }
     }
