@@ -139,6 +139,10 @@
     <Compile Include="Controls\SpotifyAccountControl.xaml.cs">
       <DependentUpon>SpotifyAccountControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Helpers\UwpBackgroundExecutionManager.cs" />
+    <Compile Include="Helpers\UwpSettingsNavigator.cs" />
+    <Compile Include="Interfaces\IBackgroundExecutionManager.cs" />
+    <Compile Include="Interfaces\ISettingsNavigator.cs" />
     <Compile Include="Selectors\HomeItemTemplateSelector.cs" />
     <Compile Include="Controls\NarrowMediaControllerBar.xaml.cs">
       <DependentUpon>NarrowMediaControllerBar.xaml</DependentUpon>
