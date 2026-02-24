@@ -123,6 +123,12 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Controls\PlaylistGridControl.xaml.cs">
+      <DependentUpon>PlaylistGridControl.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\ArtistGridControl.xaml.cs">
+      <DependentUpon>ArtistGridControl.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\AlbumGridControl.xaml.cs">
       <DependentUpon>AlbumGridControl.xaml</DependentUpon>
     </Compile>
@@ -143,6 +149,7 @@
     <Compile Include="Helpers\UwpSettingsNavigator.cs" />
     <Compile Include="Interfaces\IBackgroundExecutionManager.cs" />
     <Compile Include="Interfaces\ISettingsNavigator.cs" />
+    <Compile Include="Selectors\SearchItemTemplateSelector.cs" />
     <Compile Include="Selectors\HomeItemTemplateSelector.cs" />
     <Compile Include="Controls\NarrowMediaControllerBar.xaml.cs">
       <DependentUpon>NarrowMediaControllerBar.xaml</DependentUpon>
@@ -190,10 +197,14 @@
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ViewModels\SearchPageViewModel.cs" />
     <Compile Include="ViewModels\PlaylistPageViewModel.cs" />
     <Compile Include="ViewModels\ArtistPageViewModel.cs" />
     <Compile Include="ViewModels\AlbumPageViewModel.cs" />
     <Compile Include="ViewModels\HomePageViewModel.cs" />
+    <Compile Include="Views\Win10_1507\SearchPage.xaml.cs">
+      <DependentUpon>SearchPage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Views\Win10_1507\PlaylistPage.xaml.cs">
       <DependentUpon>PlaylistPage.xaml</DependentUpon>
     </Compile>
@@ -237,6 +248,14 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Page Include="Controls\PlaylistGridControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\ArtistGridControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Controls\AlbumGridControl.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -270,6 +289,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="MainPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1507\SearchPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

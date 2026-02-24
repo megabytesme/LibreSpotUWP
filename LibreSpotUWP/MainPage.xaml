@@ -6,13 +6,26 @@
     xmlns:converters="using:LibreSpotUWP.Converters"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
+    <Page.Resources>
+        <Flyout x:Name="SearchFlyout" Placement="Right">
+            <TextBox
+                x:Name="FlyoutSearchBox"
+                Width="200"
+                KeyDown="FlyoutSearchBox_KeyDown"
+                PlaceholderText="Search"
+                TextChanged="FlyoutSearchBox_TextChanged" />
+        </Flyout>
+    </Page.Resources>
+
     <Grid>
         <SplitView
             x:Name="RootSplitView"
             CompactPaneLength="48"
             DisplayMode="CompactOverlay"
             IsPaneOpen="False"
-            OpenPaneLength="200">
+            OpenPaneLength="200"
+            PaneClosed="RootSplitView_PaneClosed"
+            PaneOpened="RootSplitView_PaneOpened">
 
             <SplitView.Pane>
                 <Grid>
@@ -36,6 +49,27 @@
                                 FontSize="16"
                                 Text="&#xE700;" />
                         </Button>
+
+                        <Button
+                            x:Name="SearchIconButton"
+                            Width="48"
+                            Height="48"
+                            Background="Transparent"
+                            Click="SearchIconButton_Click"
+                            Visibility="Collapsed">
+                            <TextBlock
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="18"
+                                Text="&#xE721;" />
+                        </Button>
+
+                        <TextBox
+                            x:Name="SearchBox"
+                            Margin="8,0,8,8"
+                            HorizontalAlignment="Stretch"
+                            KeyDown="SearchBox_KeyDown"
+                            PlaceholderText="Search"
+                            TextChanged="SearchBox_TextChanged" />
 
                         <ListBox
                             x:Name="NavListBox"

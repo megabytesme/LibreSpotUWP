@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
+using LibreSpotUWP.Views;
 using LibreSpotUWP.Views.Win10_1507;
 using System;
 
@@ -44,6 +45,11 @@ namespace LibreSpotUWP.Helpers
                 //if (mode == AppearanceMode.Win11) return typeof(PlayerPage_Win11);
                 //if (mode == AppearanceMode.Win10_1709) return typeof(PlayerPage_Win10_1709);
                 return typeof(PlayerPage_Win10_1507);
+            }
+
+            if (pageKey.StartsWith("Search:", StringComparison.OrdinalIgnoreCase))
+            {
+                return typeof(SearchPage);
             }
 
             throw new ArgumentException($"Unknown page key: {pageKey}");

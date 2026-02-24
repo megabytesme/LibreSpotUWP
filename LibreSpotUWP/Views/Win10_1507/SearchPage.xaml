@@ -1,0 +1,113 @@
+﻿<Page
+    x:Class="LibreSpotUWP.Views.SearchPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:LibreSpotUWP.Converters"
+    xmlns:selectors="using:LibreSpotUWP.Selectors"
+    xmlns:spotify="using:SpotifyAPI.Web"
+    xmlns:viewmodels="using:LibreSpotUWP.ViewModels"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.Resources>
+        <converters:ImageCollectionToUrlConverter x:Key="ImageConverter" />
+
+        <DataTemplate x:Key="ArtistTemplate" x:DataType="spotify:FullArtist">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Ellipse Width="140" Height="140">
+                    <Ellipse.Fill>
+                        <ImageBrush ImageSource="{x:Bind Images, Converter={StaticResource ImageConverter}, Mode=OneWay}" />
+                    </Ellipse.Fill>
+                </Ellipse>
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="AlbumTemplate" x:DataType="spotify:SimpleAlbum">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Image
+                    Width="140"
+                    Height="140"
+                    Source="{x:Bind Images, Converter={StaticResource ImageConverter}, Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="TrackTemplate" x:DataType="spotify:FullTrack">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Image
+                    Width="140"
+                    Height="140"
+                    Source="{x:Bind Album.Images, Converter={StaticResource ImageConverter}, Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    FontSize="12"
+                    Foreground="Gray"
+                    Text="{x:Bind Album.Name}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="PlaylistTemplate" x:DataType="spotify:FullPlaylist">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Image
+                    Width="140"
+                    Height="140"
+                    Source="{x:Bind Images, Converter={StaticResource ImageConverter}, Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </DataTemplate>
+
+        <selectors:SearchItemTemplateSelector
+            x:Key="SearchSelector"
+            AlbumTemplate="{StaticResource AlbumTemplate}"
+            ArtistTemplate="{StaticResource ArtistTemplate}"
+            PlaylistTemplate="{StaticResource PlaylistTemplate}"
+            TrackTemplate="{StaticResource TrackTemplate}" />
+
+        <CollectionViewSource
+            x:Name="SearchGroupedSource"
+            IsSourceGrouped="True"
+            ItemsPath="Items"
+            Source="{x:Bind ViewModel.GroupedSearchContent, Mode=OneWay}" />
+    </Page.Resources>
+
+    <Grid>
+        <SemanticZoom>
+            <SemanticZoom.ZoomedInView>
+                <GridView
+                    Padding="16"
+                    IsItemClickEnabled="True"
+                    ItemClick="OnItemClick"
+                    ItemTemplateSelector="{StaticResource SearchSelector}"
+                    ItemsSource="{x:Bind SearchGroupedSource.View, Mode=OneWay}"
+                    SelectionMode="None">
+                    <GridView.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate x:DataType="viewmodels:SearchSectionGroup">
+                                    <TextBlock
+                                        Margin="0,10"
+                                        FontSize="22"
+                                        FontWeight="Bold"
+                                        Text="{x:Bind Title}" />
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </GridView.GroupStyle>
+                </GridView>
+            </SemanticZoom.ZoomedInView>
+
+            <SemanticZoom.ZoomedOutView>
+                <ListView ItemsSource="{x:Bind SearchGroupedSource.View.CollectionGroups, Mode=OneWay}" SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="ICollectionViewGroup">
+                            <TextBlock
+                                Margin="10"
+                                FontSize="24"
+                                Text="{x:Bind ((viewmodels:SearchSectionGroup)Group).Title}" />
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </SemanticZoom.ZoomedOutView>
+        </SemanticZoom>
+    </Grid>
+</Page>

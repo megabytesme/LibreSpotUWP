@@ -5,10 +5,12 @@ using LibreSpotUWP.Views;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Windows.System;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
+using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
@@ -21,14 +23,27 @@ namespace LibreSpotUWP
         private readonly List<string> _history = new List<string>();
         private bool _isPlayerOpen = false;
 
+        private DispatcherTimer _searchDebounceTimer;
+        private string _pendingSearchQuery;
+
         public MainPage()
         {
-            this.InitializeComponent();
+            InitializeComponent();
             ApplyAppearanceStyling();
             NavListBox.SelectedIndex = 0;
+
+            _searchDebounceTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(300)
+            };
+            _searchDebounceTimer.Tick += SearchDebounceTimer_Tick;
+
             SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
             SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
                 AppViewBackButtonVisibility.Disabled;
+
+            SearchBox.Visibility = Visibility.Collapsed;
+            SearchIconButton.Visibility = Visibility.Visible;
         }
 
         protected async override void OnNavigatedTo(NavigationEventArgs e)
@@ -122,6 +137,14 @@ namespace LibreSpotUWP
                     UpdateBackButton();
                     return;
                 }
+            }
+
+            if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase))
+            {
+                var query = pageTag.Substring(7);
+                ContentFrame.Navigate(typeof(SearchPage), query);
+                UpdateBackButton();
+                return;
             }
 
             if (pageTag.StartsWith("Album:"))
@@ -238,6 +261,14 @@ namespace LibreSpotUWP
 
             HidePlayer();
 
+            if (previous.StartsWith("Search:", StringComparison.OrdinalIgnoreCase))
+            {
+                var query = previous.Substring(7);
+                ContentFrame.Navigate(typeof(SearchPage), query);
+                UpdateBackButton();
+                return;
+            }
+
             if (previous.StartsWith("Album:"))
             {
                 ContentFrame.Navigate(typeof(AlbumPage), previous.Substring(6));
@@ -292,7 +323,9 @@ namespace LibreSpotUWP
                 : AppViewBackButtonVisibility.Disabled;
         }
 
-        private void HeaderAccountControl_UserChanged(object sender, UserChangedEventArgs e)
+        private void HeaderAccountControl_UserChanged(
+            object sender,
+            LibreSpotUWP.Controls.SpotifyAccountControl.UserChangedEventArgs e)
         {
             AccountLoadingRing.IsActive = false;
 
@@ -331,6 +364,86 @@ namespace LibreSpotUWP
             {
                 DefaultAccountIcon.Visibility = Visibility.Collapsed;
                 AccountProfileEllipse.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            var text = SearchBox.Text?.Trim();
+
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            _pendingSearchQuery = text;
+            _searchDebounceTimer.Stop();
+            _searchDebounceTimer.Start();
+        }
+
+        private void SearchDebounceTimer_Tick(object sender, object e)
+        {
+            _searchDebounceTimer.Stop();
+
+            if (!string.IsNullOrEmpty(_pendingSearchQuery))
+            {
+                NavigateTo($"Search:{_pendingSearchQuery}");
+            }
+        }
+        private void RootSplitView_PaneOpened(object sender, object e)
+        {
+            SearchBox.Visibility = Visibility.Visible;
+            SearchIconButton.Visibility = Visibility.Collapsed;
+        }
+
+        private void RootSplitView_PaneClosed(object sender, object e)
+        {
+            SearchBox.Visibility = Visibility.Collapsed;
+            SearchIconButton.Visibility = Visibility.Visible;
+        }
+
+        private void SearchIconButton_Click(object sender, RoutedEventArgs e)
+        {
+            FlyoutSearchBox.Text = SearchBox.Text;
+            SearchFlyout.ShowAt(SearchIconButton);
+            FlyoutSearchBox.Focus(FocusState.Programmatic);
+        }
+
+        private void HandleSearchTextChanged(string text)
+        {
+            var trimmed = text?.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+                return;
+
+            _pendingSearchQuery = trimmed;
+            _searchDebounceTimer.Stop();
+            _searchDebounceTimer.Start();
+        }
+
+        private void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == VirtualKey.Enter)
+            {
+                NavigateTo($"Search:{SearchBox.Text.Trim()}");
+            }
+        }
+
+        private void FlyoutSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (SearchBox.Text != FlyoutSearchBox.Text)
+                SearchBox.Text = FlyoutSearchBox.Text;
+
+            HandleSearchTextChanged(FlyoutSearchBox.Text);
+        }
+
+        private void FlyoutSearchBox_KeyDown(object sender, Windows.UI.Xaml.Input.KeyRoutedEventArgs e)
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                var text = FlyoutSearchBox.Text?.Trim();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    NavigateTo($"Search:{text}");
+                    SearchFlyout.Hide();
+                }
             }
         }
     }
