@@ -5,6 +5,7 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 
 namespace LibreSpotUWP.Controls
@@ -12,8 +13,8 @@ namespace LibreSpotUWP.Controls
     public sealed partial class MediaControllerBar : UserControl
     {
         private IMediaService _media => App.Media;
-
         private bool _draggingPosition = false;
+        private bool _isReady = false;
 
         public MediaControllerBar()
         {
@@ -23,26 +24,36 @@ namespace LibreSpotUWP.Controls
 
         private void MediaControllerBar_Loaded(object sender, RoutedEventArgs e)
         {
-            if (_media == null)
-                return;
+            if (_media == null) return;
 
             _media.MediaStateChanged += (s, state) =>
             {
-                Dispatcher.RunAsync(
+                var ignored = Dispatcher.RunAsync(
                     Windows.UI.Core.CoreDispatcherPriority.Normal,
                     () => UpdateUI(state));
             };
 
             UpdateUI(_media.Current);
+            _isReady = true;
         }
 
         private void UpdateUI(MediaState state)
         {
-            TrackTitle.Text = state.Track?.Name ?? "";
-            TrackArtist.Text = state.Track?.Artist ?? "";
+            if (state == null) return;
+
+            string title = state.Track?.Name ?? "Unknown Track";
+            string artist = state.Track?.Artist ?? "Unknown Artist";
+
+            TrackTitle.Text = title;
+            TrackArtist.Text = artist;
+
+            ToolTipService.SetToolTip(TrackTitle, title);
+            ToolTipService.SetToolTip(TrackArtist, artist);
 
             if (state.Metadata?.Album?.Images?.Count > 0)
+            {
                 AlbumArt.Source = new BitmapImage(new Uri(state.Metadata.Album.Images[0].Url));
+            }
 
             if (!_draggingPosition)
             {
@@ -53,8 +64,17 @@ namespace LibreSpotUWP.Controls
             CurrentTime.Text = Format(state.PositionMs);
             TotalTime.Text = Format(state.DurationMs);
 
-            PlayButton.Visibility = state.IsPlaying ? Visibility.Collapsed : Visibility.Visible;
-            PauseButton.Visibility = state.IsPlaying ? Visibility.Visible : Visibility.Collapsed;
+            PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
+
+            UpdateShuffleVisual(state.Shuffle);
+            UpdateRepeatVisual(state.RepeatMode);
+
+            VolumeSlider.ValueChanged -= VolumeSlider_ValueChanged;
+            double volumePercent = state.Volume * 100.0 / 65535.0;
+            VolumeSlider.Value = volumePercent;
+            VolumeSlider.ValueChanged += VolumeSlider_ValueChanged;
+
+            UpdateVolumeVisual(volumePercent);
         }
 
         private string Format(uint ms)
@@ -65,9 +85,25 @@ namespace LibreSpotUWP.Controls
 
         private void Prev_Click(object sender, RoutedEventArgs e) => _media?.Previous();
         private void Next_Click(object sender, RoutedEventArgs e) => _media?.Next();
-        private async void Play_Click(object sender, RoutedEventArgs e) => await _media?.ResumeAsync();
-        private async void Pause_Click(object sender, RoutedEventArgs e) => await _media?.PauseAsync();
-        private async void Stop_Click(object sender, RoutedEventArgs e) => await _media?.StopAsync();
+
+        private async void PlayPause_Click(object sender, RoutedEventArgs e)
+        {
+            if (_media.Current.IsPlaying)
+                await _media.PauseAsync();
+            else
+                await _media.ResumeAsync();
+        }
+
+        private async void Shuffle_Click(object sender, RoutedEventArgs e)
+        {
+            await _media.SetShuffleAsync(!_media.Current.Shuffle);
+        }
+
+        private async void Repeat_Click(object sender, RoutedEventArgs e)
+        {
+            int mode = (_media.Current.RepeatMode + 1) % 3;
+            await _media.SetRepeatAsync(mode);
+        }
 
         private void PositionSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
             => _draggingPosition = true;
@@ -86,7 +122,57 @@ namespace LibreSpotUWP.Controls
 
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
+            if (!_isReady) return;
+
             _media?.SetVolumeDebounced(e.NewValue);
+
+            UpdateVolumeVisual(e.NewValue);
+        }
+
+        private void UpdateVolumeVisual(double value)
+        {
+            if (value <= 0)
+            {
+                VolumeIcon.Glyph = "\uE74F";
+            }
+            else if (value < 10)
+            {
+                VolumeIcon.Glyph = "\uE992";
+            }
+            else if (value < 33)
+            {
+                VolumeIcon.Glyph = "\uE993";
+            }
+            else if (value < 66)
+            {
+                VolumeIcon.Glyph = "\uE994";
+            }
+            else
+            {
+                VolumeIcon.Glyph = "\uE995";
+            }
+        }
+
+        private void UpdateShuffleVisual(bool enabled)
+        {
+            ShuffleIcon.Foreground = (Brush)Application.Current.Resources[enabled
+                ? "SystemControlHighlightAccentBrush"
+                : "SystemControlForegroundBaseMediumBrush"];
+        }
+
+        private void UpdateRepeatVisual(int mode)
+        {
+            bool active = mode > 0;
+            RepeatIcon.Foreground = (Brush)Application.Current.Resources[active
+                ? "SystemControlHighlightAccentBrush"
+                : "SystemControlForegroundBaseMediumBrush"];
+
+            switch (mode)
+            {
+                case 0: RepeatIcon.Glyph = "\uF5E7"; break;
+                case 1: RepeatIcon.Glyph = "\uE8EE"; break;
+                case 2: RepeatIcon.Glyph = "\uE8ED"; break;
+            }
         }
     }
 }
