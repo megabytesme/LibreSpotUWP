@@ -91,8 +91,9 @@ namespace LibreSpotUWP
             BackgroundExecution = new UwpBackgroundExecutionManager();
 
             await Librespot.InitializeAsync();
-            if (!string.IsNullOrEmpty(await SpotifyAuth.GetAccessToken()))
-                await Librespot.ConnectWithAccessTokenAsync(App.AuthToken);
+            var token = await SpotifyAuth.EnsureValidAccessTokenAsync();
+            if (!string.IsNullOrEmpty(token))
+                await Librespot.ConnectWithAccessTokenAsync(token);
             await Media.InitializeAsync();
 
             Frame rootFrame = Window.Current.Content as Frame;

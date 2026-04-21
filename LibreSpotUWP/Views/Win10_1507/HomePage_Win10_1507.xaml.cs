@@ -40,20 +40,15 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private async Task<bool> EnsureAuthenticatedAsync()
         {
-            if (_auth.Current == null) return false;
-
-            if (_auth.Current.IsExpired)
+            try
             {
-                try
-                {
-                    await _auth.RefreshAsync();
-                }
-                catch
-                {
-                    return false;
-                }
+                var token = await _auth.EnsureValidAccessTokenAsync();
+                return !string.IsNullOrEmpty(token);
             }
-            return !_auth.Current.IsExpired;
+            catch
+            {
+                return false;
+            }
         }
 
         private async Task LoadHomepageAsync()
