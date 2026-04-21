@@ -13,6 +13,7 @@ namespace LibreSpotUWP.Services
         private readonly ISpotifyAuthService _auth;
         private readonly IMetadataCache _cache;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(4);
+        private readonly SemaphoreSlim _clientUpdateGate = new SemaphoreSlim(1, 1);
         private SpotifyClient _client;
 
         private static readonly TimeSpan TtlImmutable = TimeSpan.MaxValue;
@@ -27,13 +28,7 @@ namespace LibreSpotUWP.Services
             _auth = auth;
             _cache = cache;
 
-            _auth.AuthStateChanged += (_, state) =>
-            {
-                if (state != null && !state.IsExpired)
-                    _client = new SpotifyClient(state.AccessToken);
-                else
-                    _client = null;
-            };
+            _auth.AuthStateChanged += OnAuthStateChanged;
 
             if (_auth.Current != null && !_auth.Current.IsExpired)
                 _client = new SpotifyClient(_auth.Current.AccessToken);
@@ -41,13 +36,17 @@ namespace LibreSpotUWP.Services
 
         private async Task<T> ExecuteAsync<T>(Func<SpotifyClient, Task<T>> action, CancellationToken ct)
         {
-            if (_client == null)
-                throw new InvalidOperationException("Spotify client is not authenticated.");
+            await EnsureClientReadyAsync(ct).ConfigureAwait(false);
 
-            await _gate.WaitAsync(ct);
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                return await action(_client);
+                return await action(_client).ConfigureAwait(false);
+            }
+            catch (APIUnauthorizedException apiUnauthorized)
+            {
+                await RecoverFromUnauthorizedAsync(ct).ConfigureAwait(false);
+                return await action(_client).ConfigureAwait(false);
             }
             catch (APIException apiEx)
             {
@@ -62,6 +61,52 @@ namespace LibreSpotUWP.Services
             {
                 _gate.Release();
             }
+        }
+
+        private void OnAuthStateChanged(object sender, AuthState state)
+        {
+            _userId = null;
+            _userCountry = null;
+            _client = state != null && !state.IsExpired
+                ? new SpotifyClient(state.AccessToken)
+                : null;
+        }
+
+        private async Task EnsureClientReadyAsync(CancellationToken ct)
+        {
+            if (_client != null)
+                return;
+
+            await _clientUpdateGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                if (_client != null)
+                    return;
+
+                var token = await _auth.EnsureValidAccessTokenAsync().ConfigureAwait(false);
+                if (string.IsNullOrEmpty(token))
+                    throw new InvalidOperationException("Spotify client is not authenticated.");
+
+                _client = new SpotifyClient(token);
+            }
+            finally
+            {
+                _clientUpdateGate.Release();
+            }
+        }
+
+        private async Task RecoverFromUnauthorizedAsync(CancellationToken ct)
+        {
+            _client = null;
+            _userId = null;
+            _userCountry = null;
+
+            var token = await _auth.EnsureValidAccessTokenAsync().ConfigureAwait(false);
+            if (string.IsNullOrEmpty(token))
+                throw new SpotifyUnauthorizedException(new InvalidOperationException("Unable to refresh Spotify access token."));
+
+            ct.ThrowIfCancellationRequested();
+            _client = new SpotifyClient(token);
         }
 
         private async Task EnsureUserContextAsync(CancellationToken ct)

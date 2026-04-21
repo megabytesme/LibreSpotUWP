@@ -144,10 +144,9 @@ namespace LibreSpotUWP.Services
 
         public async Task PlayAsync(string contextUri, string startUri = null)
         {
-            var auth = _auth.Current;
-            if (auth == null || auth.IsExpired)
+            var accessToken = await _auth.EnsureValidAccessTokenAsync(interactive: true);
+            if (string.IsNullOrEmpty(accessToken))
             {
-                await _auth.BeginPkceLoginAsync();
                 return;
             }
 
@@ -330,7 +329,7 @@ namespace LibreSpotUWP.Services
 
         private void OnAuthChanged(object sender, AuthState auth)
         {
-            if (!auth.IsExpired)
+            if (auth != null && !auth.IsExpired && !string.IsNullOrEmpty(auth.AccessToken))
                 _ = _librespot.ConnectWithAccessTokenAsync(auth.AccessToken);
         }
 

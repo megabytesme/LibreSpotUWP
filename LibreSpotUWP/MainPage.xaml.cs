@@ -121,20 +121,8 @@ namespace LibreSpotUWP
 
         private async Task<bool> EnsureAuthenticatedAsync()
         {
-            var auth = App.SpotifyAuth;
-
-            if (auth.Current == null)
-                return false;
-
-            if (auth.Current.IsExpired)
-            {
-                await auth.RefreshAsync();
-
-                if (auth.Current.IsExpired)
-                    return false;
-            }
-
-            return true;
+            var token = await App.SpotifyAuth.EnsureValidAccessTokenAsync();
+            return !string.IsNullOrEmpty(token);
         }
 
         public void NavigateToAlbum(string id) => NavigateTo("Album:" + id);
