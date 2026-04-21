@@ -3,6 +3,7 @@ using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LibreSpotUWP.Services
@@ -10,6 +11,7 @@ namespace LibreSpotUWP.Services
     public class SpotifyAuthService : ISpotifyAuthService
     {
         private readonly ISecureStorage _storage;
+        private readonly SemaphoreSlim _authGate = new SemaphoreSlim(1, 1);
         private string _codeVerifier;
 
         private const string StorageKey = "spotify_auth_state";
@@ -79,28 +81,22 @@ namespace LibreSpotUWP.Services
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn)
             };
 
-            await SaveStateAsync();
-            await App.Librespot.ConnectWithAccessTokenAsync(Current.AccessToken);
-            AuthStateChanged?.Invoke(this, Current);
+            await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
+            _codeVerifier = null;
         }
-
-        private bool _isRefreshing = false;
 
         public async Task RefreshAsync()
         {
-            if (_isRefreshing)
-                return;
-
-            if (Current == null || string.IsNullOrEmpty(Current.RefreshToken))
-                return;
-
-            if (Current.ExpiresAt > DateTimeOffset.UtcNow.AddMinutes(1))
-                return;
-
-            _isRefreshing = true;
+            await _authGate.WaitAsync().ConfigureAwait(false);
 
             try
             {
+                if (Current == null || string.IsNullOrEmpty(Current.RefreshToken))
+                    return;
+
+                if (!NeedsRefresh(Current))
+                    return;
+
                 var refresh = new PKCETokenRefreshRequest(
                     SpotifyConfig.ClientId,
                     Current.RefreshToken);
@@ -120,15 +116,15 @@ namespace LibreSpotUWP.Services
                 }
 
                 Current.AccessToken = response.AccessToken;
+                if (!string.IsNullOrEmpty(response.RefreshToken))
+                    Current.RefreshToken = response.RefreshToken;
                 Current.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn);
 
-                await SaveStateAsync();
-                await App.Librespot.ConnectWithAccessTokenAsync(Current.AccessToken);
-                AuthStateChanged?.Invoke(this, Current);
+                await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true).ConfigureAwait(false);
             }
             finally
             {
-                _isRefreshing = false;
+                _authGate.Release();
             }
         }
 
@@ -144,28 +140,52 @@ namespace LibreSpotUWP.Services
 
         public async Task<string> GetAccessToken()
         {
-            if (Current != null &&
-                !Current.IsExpired &&
-                !string.IsNullOrEmpty(Current.AccessToken))
+            var state = await GetOrLoadCurrentStateAsync().ConfigureAwait(false);
+            return state != null && !NeedsRefresh(state)
+                ? state.AccessToken
+                : null;
+        }
+
+        public async Task<string> EnsureValidAccessTokenAsync(bool interactive = false)
+        {
+            await _authGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                return Current.AccessToken;
+                var state = await GetOrLoadCurrentStateCoreAsync().ConfigureAwait(false);
+                if (state == null)
+                {
+                    if (interactive)
+                        await BeginPkceLoginAsync();
+
+                    return null;
+                }
+
+                if (!NeedsRefresh(state))
+                    return state.AccessToken;
+
+                if (string.IsNullOrEmpty(state.RefreshToken))
+                {
+                    if (interactive)
+                        await BeginPkceLoginAsync();
+
+                    return null;
+                }
+            }
+            finally
+            {
+                _authGate.Release();
             }
 
-            var json = await _storage.LoadAsync(StorageKey);
-            if (string.IsNullOrEmpty(json))
-                return null;
+            await RefreshAsync().ConfigureAwait(false);
 
-            var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
-            if (loaded == null ||
-                loaded.IsExpired ||
-                string.IsNullOrEmpty(loaded.AccessToken))
-            {
-                return null;
-            }
+            var refreshed = await GetOrLoadCurrentStateAsync().ConfigureAwait(false);
+            if (refreshed != null && NeedsRefresh(refreshed))
+                refreshed = null;
 
-            Current = loaded;
+            if (refreshed == null && interactive)
+                await BeginPkceLoginAsync();
 
-            return loaded.AccessToken;
+            return refreshed?.AccessToken;
         }
 
         private async Task SaveStateAsync()
@@ -186,7 +206,7 @@ namespace LibreSpotUWP.Services
 
                 if (Current != null && !string.IsNullOrEmpty(Current.AccessToken))
                 {
-                    _ = App.AuthToken = Current.AccessToken;
+                    App.AuthToken = Current.AccessToken;
                 }
             }
             catch
@@ -202,13 +222,72 @@ namespace LibreSpotUWP.Services
 
             Current = state;
 
-            await SaveStateAsync();
+            await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
+        }
 
-            App.AuthToken = Current.AccessToken;
+        private static bool NeedsRefresh(AuthState state)
+        {
+            return state == null ||
+                string.IsNullOrEmpty(state.AccessToken) ||
+                state.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(1);
+        }
 
-            await App.Librespot.ConnectWithAccessTokenAsync(Current.AccessToken);
+        private async Task<AuthState> GetOrLoadCurrentStateAsync()
+        {
+            await _authGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                return await GetOrLoadCurrentStateCoreAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _authGate.Release();
+            }
+        }
 
-            AuthStateChanged?.Invoke(this, Current);
+        private async Task<AuthState> GetOrLoadCurrentStateCoreAsync()
+        {
+            if (Current != null && !string.IsNullOrEmpty(Current.AccessToken))
+                return Current;
+
+            var json = await _storage.LoadAsync(StorageKey).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(json))
+                return null;
+
+            try
+            {
+                var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                if (loaded == null || string.IsNullOrEmpty(loaded.AccessToken))
+                    return null;
+
+                Current = loaded;
+                App.AuthToken = loaded.AccessToken;
+                return loaded;
+            }
+            catch
+            {
+                await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
+                return null;
+            }
+        }
+
+        private async Task PersistStateAndNotifyAsync(AuthState state, bool reconnectLibrespot)
+        {
+            Current = state;
+            App.AuthToken = state?.AccessToken;
+
+            if (state == null)
+            {
+                AuthStateChanged?.Invoke(this, null);
+                return;
+            }
+
+            await SaveStateAsync().ConfigureAwait(false);
+
+            if (reconnectLibrespot && !string.IsNullOrEmpty(state.AccessToken))
+                await App.Librespot.ConnectWithAccessTokenAsync(state.AccessToken).ConfigureAwait(false);
+
+            AuthStateChanged?.Invoke(this, state);
         }
     }
 }

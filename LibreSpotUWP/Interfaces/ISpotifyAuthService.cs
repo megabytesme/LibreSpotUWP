@@ -14,6 +14,7 @@ namespace LibreSpotUWP.Interfaces
         Task RefreshAsync();
         Task ResetAuthStateAsync();
         Task<string> GetAccessToken();
+        Task<string> EnsureValidAccessTokenAsync(bool interactive = false);
         Task ImportAuthStateAsync(AuthState state);
     }
 }
