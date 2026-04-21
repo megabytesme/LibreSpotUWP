@@ -1,4 +1,7 @@
-# LibreSpotUWP
+| <h1>LibreSpotUWP</h1> | <img src="https://github.com/user-attachments/assets/b53f3efe-a089-4e68-8caa-57a0bf2693a9" width="60" height="60"> |
+| --- | --- |
+
+
 
 **LibreSpotUWP** is a Spotify client designed with UWP in mind, powered by LibreSpot. It supports Spotify Premium-based accounts, and works with Spotfiy Connect.
 
