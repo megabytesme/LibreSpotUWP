@@ -441,9 +441,16 @@ namespace LibreSpotUWP.Services
             }
 
             var cfg = BuildConfig(accessToken);
-            _instance = Librespot.librespot_new(cfg, _callbackDelegate, IntPtr.Zero);
-            if (_instance == IntPtr.Zero)
-                throw new InvalidOperationException("librespot_new (with token) returned NULL.");
+            try
+            {
+                _instance = Librespot.librespot_new(cfg, _callbackDelegate, IntPtr.Zero);
+                if (_instance == IntPtr.Zero)
+                    throw new InvalidOperationException("librespot_new (with token) returned NULL.");
+            }
+            finally
+            {
+                FreeConfig(cfg);
+            }
 
             await Task.CompletedTask;
         }
@@ -483,6 +490,23 @@ namespace LibreSpotUWP.Services
                 auth_blob = IntPtr.Zero,
                 access_token = Marshal.StringToHGlobalAnsi(accessToken)
             };
+        }
+
+        private static void FreeConfig(LibrespotConfig cfg)
+        {
+            FreeHGlobalIfNeeded(cfg.device_name);
+            FreeHGlobalIfNeeded(cfg.device_type);
+            FreeHGlobalIfNeeded(cfg.cache_dir);
+            FreeHGlobalIfNeeded(cfg.username);
+            FreeHGlobalIfNeeded(cfg.password);
+            FreeHGlobalIfNeeded(cfg.auth_blob);
+            FreeHGlobalIfNeeded(cfg.access_token);
+        }
+
+        private static void FreeHGlobalIfNeeded(IntPtr ptr)
+        {
+            if (ptr != IntPtr.Zero)
+                Marshal.FreeHGlobal(ptr);
         }
     }
 }

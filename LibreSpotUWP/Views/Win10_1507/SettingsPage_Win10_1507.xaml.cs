@@ -18,6 +18,7 @@ namespace LibreSpotUWP.Views.Win10_1507
     {
         private IMediaService _media;
         private ISpotifyAuthService _auth;
+        private EventHandler<AuthState> _authStateChangedHandler;
 
         protected bool _loading = true;
         protected bool _suppressAppearanceChange;
@@ -34,9 +35,23 @@ namespace LibreSpotUWP.Views.Win10_1507
             _auth = App.SpotifyAuth;
 
             if (_auth != null)
-                _auth.AuthStateChanged += (s, state) => RunOnUI(() => UpdateSpotifyApiStatus(state));
+            {
+                if (_authStateChangedHandler == null)
+                    _authStateChangedHandler = (s, state) => RunOnUI(() => UpdateSpotifyApiStatus(state));
+
+                _auth.AuthStateChanged -= _authStateChangedHandler;
+                _auth.AuthStateChanged += _authStateChangedHandler;
+            }
 
             UpdateSpotifyApiStatus(_auth?.Current);
+        }
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            base.OnNavigatedFrom(e);
+
+            if (_auth != null && _authStateChangedHandler != null)
+                _auth.AuthStateChanged -= _authStateChangedHandler;
         }
 
         protected async void AppearanceRadio_Checked(object sender, RoutedEventArgs e)

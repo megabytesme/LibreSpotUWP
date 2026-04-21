@@ -47,6 +47,7 @@ namespace LibreSpotUWP.Controls
 
             SpotifyAccountManager.Instance.UserChanged += OnGlobalUserChanged;
             _auth.AuthStateChanged += OnAuthStateChanged;
+            Unloaded += OnUnloaded;
         }
 
         public async Task Initialize()
@@ -73,11 +74,19 @@ namespace LibreSpotUWP.Controls
         {
             if (state == null)
             {
+                _user = null;
                 UpdateUserUI(null);
                 return;
             }
 
             await RefreshUserProfileAsync();
+        }
+
+        private void OnUnloaded(object sender, RoutedEventArgs e)
+        {
+            SpotifyAccountManager.Instance.UserChanged -= OnGlobalUserChanged;
+            _auth.AuthStateChanged -= OnAuthStateChanged;
+            Unloaded -= OnUnloaded;
         }
 
         private void OnGlobalUserChanged(object sender, PrivateUser user)
