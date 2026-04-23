@@ -34,6 +34,7 @@ namespace LibreSpotUWP
         private ISecureStorage _secureStorage;
         private IFileSystem _fileSystem;
         private IMetadataCache _metadataCache;
+        public static AudioKeyCache KeyCache { get; private set; }
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
@@ -84,7 +85,9 @@ namespace LibreSpotUWP
             _fileSystem = new FileSystem();
             _metadataCache = new FileMetadataCache(_fileSystem);
             _secureStorage = new SecureStorage();
-            Librespot = new LibrespotService();
+            KeyCache = new AudioKeyCache();
+            await KeyCache.InitializeAsync();
+            Librespot = new LibrespotService(KeyCache);
             SpotifyAuth = new SpotifyAuthService(_secureStorage);
             SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache);
             Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);

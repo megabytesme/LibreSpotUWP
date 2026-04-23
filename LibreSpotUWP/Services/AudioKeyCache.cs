@@ -1,27 +1,39 @@
+using SQLite;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Data.Sqlite;
 using Windows.Security.Cryptography.DataProtection;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace LibreSpotUWP.Services
 {
+    public class CachedKey
+    {
+        [PrimaryKey]
+        public string TrackId { get; set; }
+        public byte[] ProtectedKey { get; set; }
+    }
+
     public sealed class AudioKeyCache
     {
-        private readonly ConcurrentDictionary<string, byte[]> _hotCache =
-            new ConcurrentDictionary<string, byte[]>();
-        private readonly DataProtectionProvider _protector = new DataProtectionProvider(
-            "LOCAL=user"
-        );
-        private readonly string _dbPath = Path.Combine(
-            ApplicationData.Current.LocalCacheFolder.Path,
-            "keys.db"
-        );
+        private readonly ConcurrentDictionary<string, byte[]> _hotCache = new ConcurrentDictionary<string, byte[]>();
+        private readonly DataProtectionProvider _protector = new DataProtectionProvider("LOCAL=user");
+        private readonly string _dbPath = Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "keys.db");
+
+        private readonly SQLiteAsyncConnection _db;
+        private readonly SemaphoreSlim _initLock = new SemaphoreSlim(0, 1);
+        private bool _isInitialized = false;
+
+        public AudioKeyCache()
+        {
+            _db = new SQLiteAsyncConnection(_dbPath);
+        }
 
         public byte[] GetKeySync(string trackId)
         {
@@ -30,32 +42,26 @@ namespace LibreSpotUWP.Services
 
         public async Task InitializeAsync()
         {
-            using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+            if (_isInitialized) return;
+
+            try
             {
-                await connection.OpenAsync();
+                await _db.CreateTableAsync<CachedKey>();
+                var allKeys = await _db.Table<CachedKey>().ToListAsync();
 
-                var createTable = connection.CreateCommand();
-                createTable.CommandText =
-                    "CREATE TABLE IF NOT EXISTS AudioKeys (TrackId TEXT PRIMARY KEY, ProtectedKey BLOB)";
-                await createTable.ExecuteNonQueryAsync();
-
-                var selectCmd = connection.CreateCommand();
-                selectCmd.CommandText = "SELECT TrackId, ProtectedKey FROM AudioKeys";
-
-                using (var reader = await selectCmd.ExecuteReaderAsync())
+                if (allKeys.Any())
                 {
-                    var decryptionTasks = new List<Task>();
-
-                    while (await reader.ReadAsync())
-                    {
-                        string trackId = reader.GetString(0);
-                        byte[] protectedKey = (byte[])reader.GetValue(1);
-
-                        decryptionTasks.Add(DecryptAndCacheAsync(trackId, protectedKey));
-                    }
-
+                    var decryptionTasks = allKeys.Select(k => DecryptAndCacheAsync(k.TrackId, k.ProtectedKey));
                     await Task.WhenAll(decryptionTasks);
                 }
+
+                _isInitialized = true;
+                _initLock.Release();
+                System.Diagnostics.Debug.WriteLine("[KeyCache] Database and HotCache Ready.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[KeyCache] Init Error: {ex.Message}");
             }
         }
 
@@ -63,47 +69,35 @@ namespace LibreSpotUWP.Services
         {
             try
             {
-                IBuffer unprotectedBuffer = await _protector.UnprotectAsync(
-                    protectedData.AsBuffer()
-                );
+                IBuffer unprotectedBuffer = await _protector.UnprotectAsync(protectedData.AsBuffer());
                 _hotCache.TryAdd(trackId, unprotectedBuffer.ToArray());
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[KeyCache] Failed to decrypt key for {trackId}: {ex.Message}"
-                );
+                System.Diagnostics.Debug.WriteLine($"[KeyCache] Decryption failed for {trackId}: {ex.Message}");
             }
         }
 
         public async Task AddKeyAsync(string trackId, byte[] rawKey)
         {
-            if (string.IsNullOrEmpty(trackId) || rawKey == null || rawKey.Length != 16)
-                return;
-            if (_hotCache.ContainsKey(trackId))
-                return;
+            if (!_hotCache.TryAdd(trackId, rawKey)) return;
 
-            _hotCache.TryAdd(trackId, rawKey);
+            if (!_isInitialized)
+            {
+                await _initLock.WaitAsync();
+                _initLock.Release();
+            }
 
             try
             {
                 IBuffer protectedBuffer = await _protector.ProtectAsync(rawKey.AsBuffer());
-                byte[] protectedBytes = protectedBuffer.ToArray();
-
-                using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-                    var upsertCmd = connection.CreateCommand();
-                    upsertCmd.CommandText =
-                        "INSERT OR REPLACE INTO AudioKeys (TrackId, ProtectedKey) VALUES (@id, @key)";
-                    upsertCmd.Parameters.AddWithValue("@id", trackId);
-                    upsertCmd.Parameters.AddWithValue("@key", protectedBytes);
-                    await upsertCmd.ExecuteNonQueryAsync();
-                }
+                var entry = new CachedKey { TrackId = trackId, ProtectedKey = protectedBuffer.ToArray() };
+                await _db.InsertOrReplaceAsync(entry);
+                System.Diagnostics.Debug.WriteLine($"[KeyCache] Persisted key for {trackId}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[KeyCache] Error saving key: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[KeyCache] DB Save Error: {ex.Message}");
             }
         }
     }
