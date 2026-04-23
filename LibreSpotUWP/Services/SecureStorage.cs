@@ -1,5 +1,5 @@
-﻿using LibreSpotUWP.Interfaces;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
+using LibreSpotUWP.Interfaces;
 using Windows.Security.Credentials;
 
 namespace LibreSpotUWP.Services
@@ -7,7 +7,7 @@ namespace LibreSpotUWP.Services
     public class SecureStorage : ISecureStorage
     {
         private readonly PasswordVault _vault = new PasswordVault();
-        private const string ResourceName = "DriveRPC";
+        private const string ResourceName = "LibreSpotUWP";
 
         public Task SaveAsync(string key, string value)
         {
