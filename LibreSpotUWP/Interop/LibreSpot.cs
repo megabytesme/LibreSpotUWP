@@ -15,8 +15,16 @@ namespace LibreSpotUWP.Interop
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void LibrespotKeySaveCallback(
+            IntPtr trackIdPtr,
+            IntPtr keyPtr,
+            IntPtr userData
+        );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LibrespotCallback(IntPtr evt, IntPtr userData);
 
+        [StructLayout(LayoutKind.Sequential)]
         public struct LibrespotConfig
         {
             public IntPtr device_name;
@@ -38,6 +46,7 @@ namespace LibreSpotUWP.Interop
             public IntPtr access_token;
 
             public LibrespotKeyCallback key_callback;
+            public LibrespotKeySaveCallback key_save_callback;
         }
 
         public enum Bitrate : int
