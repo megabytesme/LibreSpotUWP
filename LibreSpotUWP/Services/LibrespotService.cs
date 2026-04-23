@@ -20,6 +20,9 @@ namespace LibreSpotUWP.Services
         private IntPtr _dllHandle = IntPtr.Zero;
         private IntPtr _instance = IntPtr.Zero;
         private LibrespotCallback _callbackDelegate;
+        private LibrespotKeyCallback _keyCallbackDelegate;
+
+        private AudioKeyCache _audioKeyCache = new AudioKeyCache();
 
         private AudioFormatProbeResult _audioFormat;
 
@@ -67,8 +70,34 @@ namespace LibreSpotUWP.Services
             _audioFormat = await AudioFormatProbe.ProbeAsync().ConfigureAwait(false);
 
             _callbackDelegate = OnLibrespotEvent;
+            _keyCallbackDelegate = OnKeyRequested;
 
             _initialized = true;
+        }
+
+        private bool OnKeyRequested(
+            IntPtr trackIdPtr,
+            IntPtr fileIdPtr,
+            IntPtr keyOutPtr,
+            IntPtr userData
+        )
+        {
+            byte[] trackId = new byte[16];
+            Marshal.Copy(trackIdPtr, trackId, 0, 16);
+            string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLower();
+
+            byte[] key = _audioKeyCache.GetKeySync(trackIdHex);
+
+            if (key != null)
+            {
+                Marshal.Copy(key, 0, keyOutPtr, 16);
+
+                Debug.WriteLine($"{ts} [KeyCache] Provided key for track {trackIdHex} from cache.");
+                return true;
+            }
+
+            Debug.WriteLine($"{ts} [KeyCache] No key found in cache for track {trackIdHex}.");
+            return false;
         }
 
         public async Task ConnectWithAccessTokenAsync(string accessToken)
@@ -488,7 +517,8 @@ namespace LibreSpotUWP.Services
                 username = IntPtr.Zero,
                 password = IntPtr.Zero,
                 auth_blob = IntPtr.Zero,
-                access_token = Marshal.StringToHGlobalAnsi(accessToken)
+                access_token = Marshal.StringToHGlobalAnsi(accessToken),
+                key_callback = _keyCallbackDelegate,
             };
         }
 
