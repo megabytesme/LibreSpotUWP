@@ -24,7 +24,7 @@ namespace LibreSpotUWP.Services
     {
         private readonly ConcurrentDictionary<string, byte[]> _hotCache = new ConcurrentDictionary<string, byte[]>();
         private readonly DataProtectionProvider _protector = new DataProtectionProvider("LOCAL=user");
-        private readonly string _dbPath = Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "keys.db");
+        private readonly string _dbPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "keys.db");
 
         private readonly SQLiteAsyncConnection _db;
         private readonly SemaphoreSlim _initLock = new SemaphoreSlim(0, 1);
@@ -98,6 +98,21 @@ namespace LibreSpotUWP.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] DB Save Error: {ex.Message}");
+            }
+        }
+
+        public async Task RemoveKeyAsync(string trackId)
+        {
+            _hotCache.TryRemove(trackId, out _);
+
+            try
+            {
+                await _db.DeleteAsync<CachedKey>(trackId);
+                System.Diagnostics.Debug.WriteLine($"[KeyCache] Evicted key for {trackId}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[KeyCache] DB Delete Error: {ex.Message}");
             }
         }
     }

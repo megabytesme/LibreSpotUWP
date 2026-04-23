@@ -22,6 +22,7 @@ namespace LibreSpotUWP.Services
         private LibrespotCallback _callbackDelegate;
         private readonly Librespot.LibrespotKeyCallback _keyCallbackDelegate;
         private readonly Librespot.LibrespotKeySaveCallback _keySaveDelegate;
+        private readonly Librespot.LibrespotKeyRemoveCallback _keyRemoveDelegate;
 
         private readonly AudioKeyCache _audioKeyCache;
 
@@ -67,6 +68,7 @@ namespace LibreSpotUWP.Services
 
             _keyCallbackDelegate = OnKeyRequested;
             _keySaveDelegate = OnKeyReceived;
+            _keyRemoveDelegate = OnKeyRemoved;
         }
 
         public async Task InitializeAsync()
@@ -112,6 +114,15 @@ namespace LibreSpotUWP.Services
             string trackIdHex = BitConverter.ToString(trackIdBytes).Replace("-", "").ToLower();
 
             _ = _audioKeyCache.AddKeyAsync(trackIdHex, keyBytes);
+        }
+
+        private void OnKeyRemoved(IntPtr trackIdPtr, IntPtr userData)
+        {
+            byte[] trackId = new byte[16];
+            Marshal.Copy(trackIdPtr, trackId, 0, 16);
+            string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLower();
+
+            _ = _audioKeyCache.RemoveKeyAsync(trackIdHex);
         }
 
         public async Task ConnectWithAccessTokenAsync(string accessToken)
@@ -532,7 +543,8 @@ namespace LibreSpotUWP.Services
                 auth_blob = IntPtr.Zero,
                 access_token = Marshal.StringToHGlobalAnsi(accessToken),
                 key_callback = _keyCallbackDelegate,
-                key_save_callback = _keySaveDelegate
+                key_save_callback = _keySaveDelegate,
+                key_remove_callback = _keyRemoveDelegate,
             };
         }
 

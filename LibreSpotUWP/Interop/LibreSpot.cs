@@ -22,6 +22,9 @@ namespace LibreSpotUWP.Interop
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void LibrespotKeyRemoveCallback(IntPtr trackIdPtr, IntPtr userData);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LibrespotCallback(IntPtr evt, IntPtr userData);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -47,6 +50,7 @@ namespace LibreSpotUWP.Interop
 
             public LibrespotKeyCallback key_callback;
             public LibrespotKeySaveCallback key_save_callback;
+            public LibrespotKeyRemoveCallback key_remove_callback;
         }
 
         public enum Bitrate : int
