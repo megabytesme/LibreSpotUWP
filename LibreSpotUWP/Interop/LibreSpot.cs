@@ -6,6 +6,15 @@ namespace LibreSpotUWP.Interop
     public static class Librespot
     {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        public delegate bool LibrespotKeyCallback(
+            IntPtr trackIdPtr,
+            IntPtr fileIdPtr,
+            IntPtr keyOutPtr,
+            IntPtr userData
+        );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void LibrespotCallback(IntPtr evt, IntPtr userData);
 
         public struct LibrespotConfig
@@ -27,6 +36,8 @@ namespace LibreSpotUWP.Interop
             public IntPtr password;
             public IntPtr auth_blob;
             public IntPtr access_token;
+
+            public LibrespotKeyCallback key_callback;
         }
 
         public enum Bitrate : int
