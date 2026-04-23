@@ -80,6 +80,8 @@ namespace LibreSpotUWP.Services
             if (_dllHandle == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to load librespot.dll");
 
+            await _audioKeyCache.InitializeAsync().ConfigureAwait(false);
+
             _audioFormat = await AudioFormatProbe.ProbeAsync().ConfigureAwait(false);
 
             _callbackDelegate = OnLibrespotEvent;
@@ -91,7 +93,7 @@ namespace LibreSpotUWP.Services
         {
             byte[] trackId = new byte[16];
             Marshal.Copy(trackIdPtr, trackId, 0, 16);
-            string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLower();
+            string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLowerInvariant();
 
             byte[] key = _audioKeyCache.GetKeySync(trackIdHex);
 
@@ -100,6 +102,7 @@ namespace LibreSpotUWP.Services
                 Marshal.Copy(key, 0, keyOutPtr, 16);
                 return true;
             }
+
             return false;
         }
 
@@ -111,18 +114,21 @@ namespace LibreSpotUWP.Services
             Marshal.Copy(trackIdPtr, trackIdBytes, 0, 16);
             Marshal.Copy(keyPtr, keyBytes, 0, 16);
 
-            string trackIdHex = BitConverter.ToString(trackIdBytes).Replace("-", "").ToLower();
+            string trackIdHex = BitConverter.ToString(trackIdBytes).Replace("-", "").ToLowerInvariant();
 
-            _ = _audioKeyCache.AddKeyAsync(trackIdHex, keyBytes);
+            if (_audioKeyCache.IsPersisted(trackIdHex))
+                _ = _audioKeyCache.AddPersistedKeyAsync(trackIdHex, keyBytes);
+            else
+                _ = _audioKeyCache.AddVolatileKeyAsync(trackIdHex, keyBytes);
         }
 
         private void OnKeyRemoved(IntPtr trackIdPtr, IntPtr userData)
         {
             byte[] trackId = new byte[16];
             Marshal.Copy(trackIdPtr, trackId, 0, 16);
-            string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLower();
+            string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLowerInvariant();
 
-            _ = _audioKeyCache.RemoveKeyAsync(trackIdHex);
+            _ = _audioKeyCache.RemoveVolatileKeyAsync(trackIdHex);
         }
 
         public async Task ConnectWithAccessTokenAsync(string accessToken)
@@ -227,17 +233,56 @@ namespace LibreSpotUWP.Services
 
         public void Seek(uint posMs)
         {
-            if (_instance != IntPtr.Zero) Librespot.librespot_seek(_instance, posMs);
+            if (_instance != IntPtr.Zero)
+                Librespot.librespot_seek(_instance, posMs);
         }
 
         public void Next()
         {
-            if (_instance != IntPtr.Zero) Librespot.librespot_next(_instance);
+            if (_instance != IntPtr.Zero)
+                Librespot.librespot_next(_instance);
         }
 
         public void Previous()
         {
-            if (_instance != IntPtr.Zero) Librespot.librespot_prev(_instance);
+            if (_instance != IntPtr.Zero)
+                Librespot.librespot_prev(_instance);
+        }
+
+        public async Task SetCachedTrackPersistedAsync(string fileIdHex, string trackIdHex, bool persisted)
+        {
+            ThrowIfDisposed();
+            if (!_initialized) throw new InvalidOperationException("Not initialized.");
+            if (_instance == IntPtr.Zero) throw new InvalidOperationException("Not connected.");
+
+            if (string.IsNullOrWhiteSpace(fileIdHex))
+                throw new ArgumentException("fileIdHex must not be null or empty.", nameof(fileIdHex));
+
+            if (string.IsNullOrWhiteSpace(trackIdHex))
+                throw new ArgumentException("trackIdHex must not be null or empty.", nameof(trackIdHex));
+
+            IntPtr fileIdPtr = Marshal.StringToHGlobalAnsi(fileIdHex);
+
+            try
+            {
+                if (persisted)
+                    _audioKeyCache.MarkPersisted(trackIdHex);
+                else
+                    _audioKeyCache.MarkVolatile(trackIdHex);
+
+                bool ok = Librespot.librespot_cache_set_persisted(_instance, fileIdPtr, persisted);
+                if (!ok)
+                    throw new InvalidOperationException("librespot_cache_set_persisted returned false.");
+
+                if (persisted)
+                    await _audioKeyCache.MoveKeyToPersistedAsync(trackIdHex).ConfigureAwait(false);
+                else
+                    await _audioKeyCache.MoveKeyToVolatileAsync(trackIdHex).ConfigureAwait(false);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(fileIdPtr);
+            }
         }
 
         public void Dispose()
@@ -527,13 +572,15 @@ namespace LibreSpotUWP.Services
                     break;
             }
 
-            string cacheDir = ApplicationData.Current.LocalFolder.Path;
+            string cacheDir = ApplicationData.Current.LocalCacheFolder.Path;
+            string persistedCacheDir = ApplicationData.Current.LocalFolder.Path;
 
             return new LibrespotConfig
             {
                 device_name = Marshal.StringToHGlobalAnsi(Environment.MachineName),
                 device_type = Marshal.StringToHGlobalAnsi(deviceType),
                 cache_dir = Marshal.StringToHGlobalAnsi(cacheDir),
+                persisted_cache_dir = Marshal.StringToHGlobalAnsi(persistedCacheDir),
                 enable_discovery = false,
                 enable_volume_normalisation = false,
                 bitrate = Bitrate.B320,
@@ -553,6 +600,7 @@ namespace LibreSpotUWP.Services
             FreeHGlobalIfNeeded(cfg.device_name);
             FreeHGlobalIfNeeded(cfg.device_type);
             FreeHGlobalIfNeeded(cfg.cache_dir);
+            FreeHGlobalIfNeeded(cfg.persisted_cache_dir);
             FreeHGlobalIfNeeded(cfg.username);
             FreeHGlobalIfNeeded(cfg.password);
             FreeHGlobalIfNeeded(cfg.auth_blob);
