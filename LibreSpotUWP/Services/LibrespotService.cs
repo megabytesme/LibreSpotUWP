@@ -20,9 +20,10 @@ namespace LibreSpotUWP.Services
         private IntPtr _dllHandle = IntPtr.Zero;
         private IntPtr _instance = IntPtr.Zero;
         private LibrespotCallback _callbackDelegate;
-        private LibrespotKeyCallback _keyCallbackDelegate;
+        private readonly Librespot.LibrespotKeyCallback _keyCallbackDelegate;
+        private readonly Librespot.LibrespotKeySaveCallback _keySaveDelegate;
 
-        private AudioKeyCache _audioKeyCache = new AudioKeyCache();
+        private readonly AudioKeyCache _audioKeyCache;
 
         private AudioFormatProbeResult _audioFormat;
 
@@ -35,6 +36,8 @@ namespace LibreSpotUWP.Services
         private bool _disposed;
         private bool _shuffle;
         private uint _repeatMode;
+
+        private string ts = DateTime.Now.ToString("HH:mm:ss");
 
         public AudioEncodingProperties EncodingProperties => _audioFormat?.EncodingProperties;
         public LibrespotSessionState Session => _session;
@@ -58,6 +61,14 @@ namespace LibreSpotUWP.Services
         public event EventHandler<uint> RepeatChanged;
         public event EventHandler<uint> Seeked;
 
+        public LibrespotService(AudioKeyCache keyCache)
+        {
+            _audioKeyCache = keyCache;
+
+            _keyCallbackDelegate = OnKeyRequested;
+            _keySaveDelegate = OnKeyReceived;
+        }
+
         public async Task InitializeAsync()
         {
             ThrowIfDisposed();
@@ -70,17 +81,11 @@ namespace LibreSpotUWP.Services
             _audioFormat = await AudioFormatProbe.ProbeAsync().ConfigureAwait(false);
 
             _callbackDelegate = OnLibrespotEvent;
-            _keyCallbackDelegate = OnKeyRequested;
 
             _initialized = true;
         }
 
-        private bool OnKeyRequested(
-            IntPtr trackIdPtr,
-            IntPtr fileIdPtr,
-            IntPtr keyOutPtr,
-            IntPtr userData
-        )
+        private bool OnKeyRequested(IntPtr trackIdPtr, IntPtr fileIdPtr, IntPtr keyOutPtr, IntPtr userData)
         {
             byte[] trackId = new byte[16];
             Marshal.Copy(trackIdPtr, trackId, 0, 16);
@@ -91,13 +96,22 @@ namespace LibreSpotUWP.Services
             if (key != null)
             {
                 Marshal.Copy(key, 0, keyOutPtr, 16);
-
-                Debug.WriteLine($"{ts} [KeyCache] Provided key for track {trackIdHex} from cache.");
                 return true;
             }
-
-            Debug.WriteLine($"{ts} [KeyCache] No key found in cache for track {trackIdHex}.");
             return false;
+        }
+
+        private void OnKeyReceived(IntPtr trackIdPtr, IntPtr keyPtr, IntPtr userData)
+        {
+            byte[] trackIdBytes = new byte[16];
+            byte[] keyBytes = new byte[16];
+
+            Marshal.Copy(trackIdPtr, trackIdBytes, 0, 16);
+            Marshal.Copy(keyPtr, keyBytes, 0, 16);
+
+            string trackIdHex = BitConverter.ToString(trackIdBytes).Replace("-", "").ToLower();
+
+            _ = _audioKeyCache.AddKeyAsync(trackIdHex, keyBytes);
         }
 
         public async Task ConnectWithAccessTokenAsync(string accessToken)
@@ -246,7 +260,6 @@ namespace LibreSpotUWP.Services
 
         private void HandleEvent(LibrespotEvent evt)
         {
-            string ts = DateTime.Now.ToString("HH:mm:ss");
             string logPrefix = $"{ts} [LibreSpot Event:{evt.event_type}]";
 
             switch (evt.event_type)
@@ -519,6 +532,7 @@ namespace LibreSpotUWP.Services
                 auth_blob = IntPtr.Zero,
                 access_token = Marshal.StringToHGlobalAnsi(accessToken),
                 key_callback = _keyCallbackDelegate,
+                key_save_callback = _keySaveDelegate
             };
         }
 
