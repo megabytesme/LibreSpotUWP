@@ -187,6 +187,7 @@
     <Compile Include="Models\AuthState.cs" />
     <Compile Include="Interfaces\ISecureStorage.cs" />
     <Compile Include="Services\AppearanceService.cs" />
+    <Compile Include="Services\AudioKeyCache.cs" />
     <Compile Include="Services\BarcodeUIService.cs" />
     <Compile Include="Services\SecureStorage.cs" />
     <Compile Include="Exceptions\SpotifyWebExceptions.cs" />
@@ -374,6 +375,9 @@
     </Page>
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core">
+      <Version>10.0.7</Version>
+    </PackageReference>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform">
       <Version>6.2.8</Version>
     </PackageReference>
