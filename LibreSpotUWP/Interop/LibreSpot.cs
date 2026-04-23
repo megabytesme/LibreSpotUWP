@@ -33,6 +33,7 @@ namespace LibreSpotUWP.Interop
             public IntPtr device_name;
             public IntPtr device_type;
             public IntPtr cache_dir;
+            public IntPtr persisted_cache_dir;
 
             [MarshalAs(UnmanagedType.U1)]
             public bool enable_discovery;
@@ -203,5 +204,13 @@ namespace LibreSpotUWP.Interop
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_audio_set_read_cursor(UIntPtr pos);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        public static extern bool librespot_cache_set_persisted(
+            IntPtr inst,
+            IntPtr fileIdHex,
+            [MarshalAs(UnmanagedType.U1)] bool persisted
+        );
     }
 }
