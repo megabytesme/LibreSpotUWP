@@ -30,6 +30,22 @@ public sealed class FileMetadataCache : IMetadataCache
     private SemaphoreSlim GetLock(string path)
         => _locks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
 
+    public async Task<CacheResponse<T>> TryGetAsync<T>(string key)
+    {
+        var path = GetPathForKey(key);
+        var fileLock = GetLock(path);
+
+        await fileLock.WaitAsync();
+        try
+        {
+            return await ReadCacheEntryAsync<T>(path, TimeSpan.MaxValue, false);
+        }
+        finally
+        {
+            fileLock.Release();
+        }
+    }
+
     public async Task<CacheResponse<T>> GetOrAddAsync<T>(
         string key,
         Func<Task<T>> factory,
@@ -42,44 +58,40 @@ public sealed class FileMetadataCache : IMetadataCache
         await fileLock.WaitAsync();
         try
         {
-            if (!forceRefresh && await _fileSystem.FileExistsAsync(path))
+            var cached = await ReadCacheEntryAsync<T>(path, ttl, true);
+
+            if (!forceRefresh && cached != null && !cached.IsStale)
+                return cached;
+
+            try
             {
-                try
-                {
-                    var json = await _fileSystem.ReadTextAsync(path);
-                    var envelope = JsonConvert.DeserializeObject<CacheEnvelope<T>>(json);
+                var fresh = await factory();
 
-                    if (envelope != null)
-                    {
-                        if (ttl == TimeSpan.Zero || ttl == TimeSpan.MaxValue)
-                            return new CacheResponse<T>(envelope.Data, envelope.Timestamp, true);
-
-                        if (DateTimeOffset.UtcNow - envelope.Timestamp < ttl)
-                            return new CacheResponse<T>(envelope.Data, envelope.Timestamp, true);
-                    }
-                }
-                catch
+                var newEnvelope = new CacheEnvelope<T>
                 {
-                }
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Data = fresh
+                };
+
+                var jsonOut = JsonConvert.SerializeObject(newEnvelope);
+
+                var folder = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(folder))
+                    await _fileSystem.CreateFolderAsync(folder);
+
+                await _fileSystem.WriteTextAsync(path, jsonOut);
+
+                return new CacheResponse<T>(fresh, newEnvelope.Timestamp, false);
             }
-
-            var fresh = await factory();
-
-            var newEnvelope = new CacheEnvelope<T>
+            catch when (cached != null)
             {
-                Timestamp = DateTimeOffset.UtcNow,
-                Data = fresh
-            };
-
-            var jsonOut = JsonConvert.SerializeObject(newEnvelope);
-
-            var folder = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(folder))
-                await _fileSystem.CreateFolderAsync(folder);
-
-            await _fileSystem.WriteTextAsync(path, jsonOut);
-
-            return new CacheResponse<T>(fresh, newEnvelope.Timestamp, false);
+                return new CacheResponse<T>(
+                    cached.Value,
+                    cached.Timestamp,
+                    true,
+                    cached.IsStale,
+                    true);
+            }
         }
         finally
         {
@@ -111,5 +123,30 @@ public sealed class FileMetadataCache : IMetadataCache
             : key + ".json";
 
         return _fileSystem.Combine(_root, relative);
+    }
+
+    private async Task<CacheResponse<T>> ReadCacheEntryAsync<T>(string path, TimeSpan ttl, bool evaluateStaleness)
+    {
+        if (!await _fileSystem.FileExistsAsync(path))
+            return null;
+
+        try
+        {
+            var json = await _fileSystem.ReadTextAsync(path);
+            var envelope = JsonConvert.DeserializeObject<CacheEnvelope<T>>(json);
+
+            if (envelope == null)
+                return null;
+
+            var isStale = false;
+            if (evaluateStaleness && ttl != TimeSpan.Zero && ttl != TimeSpan.MaxValue)
+                isStale = DateTimeOffset.UtcNow - envelope.Timestamp >= ttl;
+
+            return new CacheResponse<T>(envelope.Data, envelope.Timestamp, true, isStale);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
