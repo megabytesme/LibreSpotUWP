@@ -20,6 +20,12 @@
     <PackageCertificateKeyFile>LibreSpotUWP_TemporaryKey.pfx</PackageCertificateKeyFile>
     <AppxOSMinVersionReplaceManifestVersion>false</AppxOSMinVersionReplaceManifestVersion>
     <AppxOSMaxVersionTestedReplaceManifestVersion>false</AppxOSMaxVersionTestedReplaceManifestVersion>
+    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
+    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
+    <GenerateTestArtifacts>True</GenerateTestArtifacts>
+    <AppxBundle>Never</AppxBundle>
+    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
@@ -153,6 +159,7 @@
     <Compile Include="Controls\SpotifyAccountControl.xaml.cs">
       <DependentUpon>SpotifyAccountControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Helpers\ConnectivityHelper.cs" />
     <Compile Include="Helpers\UwpBackgroundExecutionManager.cs" />
     <Compile Include="Helpers\UwpSettingsNavigator.cs" />
     <Compile Include="Interfaces\IBackgroundExecutionManager.cs" />
@@ -170,8 +177,10 @@
     <Compile Include="Helpers\BarcodeHelper.cs" />
     <Compile Include="Helpers\NavigationHelper.cs" />
     <Compile Include="Helpers\OSHelper.cs" />
+    <Compile Include="Helpers\SpotifyIdHelper.cs" />
     <Compile Include="Models\CacheResponse.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
+    <Compile Include="Interfaces\IOfflineCatalogService.cs" />
     <Compile Include="Interfaces\IMetadataCache.cs" />
     <Compile Include="Interfaces\ILibrespotService.cs" />
     <Compile Include="Interfaces\ISpotifyAuthService.cs" />
@@ -181,6 +190,8 @@
       <DependentUpon>ScannerPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\MediaState.cs" />
+    <Compile Include="Models\DownloadModels.cs" />
+    <Compile Include="Models\OfflineCatalogModels.cs" />
     <Compile Include="Models\LibrespotPlaybackState.cs" />
     <Compile Include="Models\LibrespotTrackInfo.cs" />
     <Compile Include="Models\LibrespotSessionState.cs" />
@@ -194,6 +205,9 @@
     <Compile Include="Services\SpotifyAuthService.cs" />
     <Compile Include="Services\FileMetadataCache.cs" />
     <Compile Include="Services\FileSystem.cs" />
+    <Compile Include="Services\LogService.cs" />
+    <Compile Include="Services\DownloadTrackerService.cs" />
+    <Compile Include="Services\OfflineCatalogService.cs" />
     <Compile Include="Interfaces\IFileSystem.cs" />
     <Compile Include="Constants\SpotifyConfig.cs" />
     <Compile Include="Services\SpotifyWebService.cs" />
