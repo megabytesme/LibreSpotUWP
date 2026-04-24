@@ -9,6 +9,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -22,6 +23,34 @@
             Grid.Row="1"
             Margin="0,0,0,24" />
 
-        <controls:TrackListControl x:Name="TrackList" Grid.Row="2" />
+        <StackPanel
+            x:Name="CacheIndicator"
+            Grid.Row="2"
+            Margin="0,0,0,16"
+            Orientation="Horizontal"
+            Spacing="8"
+            Visibility="Collapsed">
+            <FontIcon
+                Foreground="{ThemeResource SystemAccentColor}"
+                FontFamily="Segoe MDL2 Assets"
+                Glyph="&#xE946;" />
+            <TextBlock
+                x:Name="CacheIndicatorText"
+                Foreground="{ThemeResource SystemAccentColor}"
+                Text="Cached" />
+            <Button
+                x:Name="RefreshButton"
+                Width="28"
+                Height="28"
+                Background="Transparent"
+                Click="RefreshButton_Click">
+                <FontIcon
+                    Foreground="{ThemeResource SystemAccentColor}"
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE72C;" />
+            </Button>
+        </StackPanel>
+
+        <controls:TrackListControl x:Name="TrackList" Grid.Row="3" />
     </Grid>
 </Page>

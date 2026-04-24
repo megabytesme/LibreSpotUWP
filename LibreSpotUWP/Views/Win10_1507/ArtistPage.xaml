@@ -12,6 +12,31 @@
 
         <ScrollViewer Grid.Row="0">
             <StackPanel Padding="24" Spacing="24">
+                <StackPanel
+                    x:Name="CacheIndicator"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Visibility="Collapsed">
+                    <FontIcon
+                        Foreground="{ThemeResource SystemAccentColor}"
+                        FontFamily="Segoe MDL2 Assets"
+                        Glyph="&#xE946;" />
+                    <TextBlock
+                        x:Name="CacheIndicatorText"
+                        Foreground="{ThemeResource SystemAccentColor}"
+                        Text="Cached" />
+                    <Button
+                        x:Name="RefreshButton"
+                        Width="28"
+                        Height="28"
+                        Background="Transparent"
+                        Click="RefreshButton_Click">
+                        <FontIcon
+                            Foreground="{ThemeResource SystemAccentColor}"
+                            FontFamily="Segoe MDL2 Assets"
+                            Glyph="&#xE72C;" />
+                    </Button>
+                </StackPanel>
                 <controls:HeaderImageControl x:Name="HeaderControl" />
                 <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Top Tracks" />
                 <controls:TrackListControl x:Name="TrackList" />
