@@ -42,15 +42,23 @@ namespace LibreSpotUWP.Views
         {
             base.OnNavigatedTo(e);
             string albumId = e.Parameter as string;
-            await ViewModel.LoadAsync(albumId);
+            SetIsLoading(true, "Loading album...");
+            try
+            {
+                await ViewModel.LoadAsync(albumId);
 
-            HeaderControl.SetAlbum(ViewModel.Album);
-            UpdateStatusBanner();
-            PlayActions.SetPersisted(App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album?.Id));
+                HeaderControl.SetAlbum(ViewModel.Album);
+                UpdateStatusBanner();
+                PlayActions.SetPersisted(App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album?.Id));
 
-            var tracks = MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>());
-            TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
-            TrackList.AddTracks(tracks, true, 0);
+                var tracks = MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>());
+                TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
+                TrackList.AddTracks(tracks, true, 0);
+            }
+            finally
+            {
+                SetIsLoading(false);
+            }
         }
 
         private void UpdateStatusBanner()
@@ -146,10 +154,18 @@ namespace LibreSpotUWP.Views
             if (ViewModel.Album == null)
                 return;
 
-            await ViewModel.LoadAsync(ViewModel.Album.Id, true);
-            HeaderControl.SetAlbum(ViewModel.Album);
-            UpdateStatusBanner();
-            TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>()), true, 0);
+            SetIsLoading(true, "Refreshing album...");
+            try
+            {
+                await ViewModel.LoadAsync(ViewModel.Album.Id, true);
+                HeaderControl.SetAlbum(ViewModel.Album);
+                UpdateStatusBanner();
+                TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>()), true, 0);
+            }
+            finally
+            {
+                SetIsLoading(false);
+            }
         }
 
         private MainPage GetMainPage()
@@ -170,6 +186,12 @@ namespace LibreSpotUWP.Views
             return cachedAt.HasValue
                 ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
                 : "Cached data is being shown.";
+        }
+
+        private void SetIsLoading(bool isLoading, string message = null)
+        {
+            LoadingOverlay.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
+            LoadingText.Text = message ?? "Loading album...";
         }
     }
 }

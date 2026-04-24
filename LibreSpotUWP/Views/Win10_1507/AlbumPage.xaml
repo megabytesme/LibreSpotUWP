@@ -52,5 +52,26 @@
         </StackPanel>
 
         <controls:TrackListControl x:Name="TrackList" Grid.Row="3" />
+
+        <Grid
+            x:Name="LoadingOverlay"
+            Grid.RowSpan="4"
+            Background="#66000000"
+            Visibility="Collapsed">
+            <StackPanel
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12">
+                <ProgressRing
+                    Width="40"
+                    Height="40"
+                    IsActive="True" />
+                <TextBlock
+                    x:Name="LoadingText"
+                    HorizontalAlignment="Center"
+                    FontSize="16"
+                    Text="Loading album..." />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>
