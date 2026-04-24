@@ -1,6 +1,7 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using System;
+using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -15,11 +16,13 @@ namespace LibreSpotUWP.Controls
         private IMediaService _media => App.Media;
         private bool _draggingPosition = false;
         private bool _isReady = false;
+        private string _currentArtworkUri = null;
 
         public MediaControllerBar()
         {
             InitializeComponent();
             Loaded += MediaControllerBar_Loaded;
+            Unloaded += MediaControllerBar_Unloaded;
         }
 
         private void MediaControllerBar_Loaded(object sender, RoutedEventArgs e)
@@ -32,6 +35,8 @@ namespace LibreSpotUWP.Controls
                     Windows.UI.Core.CoreDispatcherPriority.Normal,
                     () => UpdateUI(state));
             };
+            if (App.Downloads != null)
+                App.Downloads.TrackStatusChanged += Downloads_TrackStatusChanged;
 
             UpdateUI(_media.Current);
             _isReady = true;
@@ -50,9 +55,10 @@ namespace LibreSpotUWP.Controls
             ToolTipService.SetToolTip(TrackTitle, title);
             ToolTipService.SetToolTip(TrackArtist, artist);
 
-            if (state.Metadata?.Album?.Images?.Count > 0)
+            if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
             {
-                AlbumArt.Source = new BitmapImage(new Uri(state.Metadata.Album.Images[0].Url));
+                _currentArtworkUri = state.ArtworkUri;
+                AlbumArt.Source = TryCreateBitmap(state.ArtworkUri);
             }
 
             if (!_draggingPosition)
@@ -65,6 +71,16 @@ namespace LibreSpotUWP.Controls
             TotalTime.Text = Format(state.DurationMs);
 
             PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
+            var downloadState = App.Downloads?.GetTrackStatus(state.Track?.Uri)?.State ?? DownloadTrackState.Idle;
+            var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
+            PersistButton.IsEnabled = state.Track != null && !isDownloading;
+            PersistButton.Visibility = isDownloading ? Visibility.Collapsed : Visibility.Visible;
+            PersistProgressRing.IsActive = isDownloading;
+            PersistProgressRing.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
+            PersistIcon.Glyph = (state.IsCurrentTrackPersisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
+            ToolTipService.SetToolTip(
+                PersistButton,
+                state.IsCurrentTrackPersisted ? "Remove from downloads" : "Download this track");
 
             UpdateShuffleVisual(state.Shuffle);
             UpdateRepeatVisual(state.RepeatMode);
@@ -103,6 +119,11 @@ namespace LibreSpotUWP.Controls
         {
             int mode = (_media.Current.RepeatMode + 1) % 3;
             await _media.SetRepeatAsync(mode);
+        }
+
+        private async void PersistButton_Click(object sender, RoutedEventArgs e)
+        {
+            await ToggleCurrentTrackPersistenceAsync();
         }
 
         private void PositionSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -173,6 +194,37 @@ namespace LibreSpotUWP.Controls
                 case 1: RepeatIcon.Glyph = "\uE8EE"; break;
                 case 2: RepeatIcon.Glyph = "\uE8ED"; break;
             }
+        }
+
+        private Task ToggleCurrentTrackPersistenceAsync()
+        {
+            if (_media?.Current == null)
+                return Task.CompletedTask;
+
+            return _media.SetCurrentTrackPersistedAsync(!_media.Current.IsCurrentTrackPersisted);
+        }
+
+        private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)
+        {
+            if (_media?.Current?.Track?.Uri != e?.TrackUri)
+                return;
+
+            await Dispatcher.RunAsync(
+                Windows.UI.Core.CoreDispatcherPriority.Normal,
+                () => UpdateUI(_media.Current));
+        }
+
+        private void MediaControllerBar_Unloaded(object sender, RoutedEventArgs e)
+        {
+            if (App.Downloads != null)
+                App.Downloads.TrackStatusChanged -= Downloads_TrackStatusChanged;
+        }
+
+        private static BitmapImage TryCreateBitmap(string uriString)
+        {
+            return Uri.TryCreate(uriString, UriKind.Absolute, out var uri)
+                ? new BitmapImage(uri)
+                : null;
         }
     }
 }

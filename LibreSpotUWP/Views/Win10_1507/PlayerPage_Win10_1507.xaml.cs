@@ -1,6 +1,7 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using System;
+using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -16,6 +17,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private bool _dragging = false;
         private string _currentTrackUri = null;
+        private string _currentArtworkUri = null;
         private uint _lastUpdateSec = uint.MaxValue;
 
         public PlayerPage_Win10_1507()
@@ -30,6 +32,8 @@ namespace LibreSpotUWP.Views.Win10_1507
             if (Media != null)
             {
                 Media.MediaStateChanged += OnMediaStateChanged;
+                if (App.Downloads != null)
+                    App.Downloads.TrackStatusChanged += Downloads_TrackStatusChanged;
                 UpdateUI(Media.Current);
             }
         }
@@ -40,6 +44,8 @@ namespace LibreSpotUWP.Views.Win10_1507
             {
                 Media.MediaStateChanged -= OnMediaStateChanged;
             }
+            if (App.Downloads != null)
+                App.Downloads.TrackStatusChanged -= Downloads_TrackStatusChanged;
         }
 
         private void OnMediaStateChanged(object sender, MediaState state)
@@ -61,22 +67,27 @@ namespace LibreSpotUWP.Views.Win10_1507
                 TrackArtist.Text = state.Track?.Artist ?? "";
                 TotalTime.Text = Format(state.DurationMs);
 
-                if (state.Metadata?.Album?.Images?.Count > 0)
-                {
-                    var newUri = new Uri(state.Metadata.Album.Images[0].Url);
+            }
 
-                    if (!(AlbumArt.Source is BitmapImage existing && existing.UriSource == newUri))
-                    {
-                        AlbumArt.Source = new BitmapImage(newUri);
-                    }
-                }
-                else
-                {
-                    AlbumArt.Source = null;
-                }
+            if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentArtworkUri = state.ArtworkUri;
+                AlbumArt.Source = TryCreateBitmap(state.ArtworkUri);
             }
 
             PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
+            var downloadState = App.Downloads?.GetTrackStatus(state.Track?.Uri)?.State ?? DownloadTrackState.Idle;
+            var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
+            PersistButton.IsEnabled = state.Track != null && !isDownloading;
+            PersistButton.Visibility = isDownloading ? Visibility.Collapsed : Visibility.Visible;
+            PersistProgressRing.IsActive = isDownloading;
+            PersistProgressRing.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
+            PersistIcon.Glyph = (state.IsCurrentTrackPersisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
+            ToolTipService.SetToolTip(
+                PersistButton,
+                state.IsCurrentTrackPersisted ? "Remove from downloads" : "Download this track");
+            CacheIndicator.Visibility = Visibility.Collapsed;
+            UpdateCacheStatus(state);
 
             UpdateShuffleVisual(state.Shuffle);
             UpdateRepeatVisual(state.RepeatMode);
@@ -161,6 +172,20 @@ namespace LibreSpotUWP.Views.Win10_1507
             await Media.SetRepeatAsync(mode);
         }
 
+        private async void PersistButton_Click(object sender, RoutedEventArgs e)
+        {
+            await ToggleCurrentTrackPersistenceAsync();
+        }
+
+        private async void RefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            var trackUri = Media?.Current?.Track?.Uri;
+            if (string.IsNullOrWhiteSpace(trackUri) || Media.Current.IsOffline)
+                return;
+
+            await App.Media.PlayAsync(trackUri, null);
+        }
+
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
             Media?.SetVolumeDebounced(e.NewValue);
@@ -190,6 +215,81 @@ namespace LibreSpotUWP.Views.Win10_1507
             else if (value < 33) VolumeIcon.Glyph = "\uE993";
             else if (value < 66) VolumeIcon.Glyph = "\uE994";
             else VolumeIcon.Glyph = "\uE995";
+        }
+
+        private static string BuildCacheTooltip(MediaState state)
+        {
+            if (state == null)
+                return null;
+
+            if (state.IsOffline && state.IsTrackMetadataFromCache)
+                return "Cached details are being used while offline.";
+
+            if (state.IsOffline)
+                return "Offline mode is active.";
+
+            if (state.IsTrackMetadataFromCache)
+                return "Cached details are currently being shown.";
+
+            return null;
+        }
+
+        private static BitmapImage TryCreateBitmap(string uriString)
+        {
+            return Uri.TryCreate(uriString, UriKind.Absolute, out var uri)
+                ? new BitmapImage(uri)
+                : null;
+        }
+
+        private void UpdateCacheStatus(MediaState state)
+        {
+            var mainPage = GetMainPage();
+            if (mainPage == null)
+                return;
+
+            if (state != null && (state.IsTrackMetadataFromCache || state.IsOffline))
+            {
+                mainPage.SetCacheStatus(
+                    BuildCacheTooltip(state),
+                    !state.IsOffline,
+                    RefreshCurrentTrackAsync);
+            }
+            else
+            {
+                mainPage.ClearCacheStatus();
+            }
+        }
+
+        private MainPage GetMainPage()
+        {
+            return (Window.Current.Content as Frame)?.Content as MainPage;
+        }
+
+        private async Task RefreshCurrentTrackAsync()
+        {
+            var trackUri = Media?.Current?.Track?.Uri;
+            if (string.IsNullOrWhiteSpace(trackUri) || Media.Current.IsOffline)
+                return;
+
+            await App.Media.PlayAsync(trackUri, null);
+        }
+
+        private Task ToggleCurrentTrackPersistenceAsync()
+        {
+            if (Media?.Current == null)
+                return Task.CompletedTask;
+
+            return Media.SetCurrentTrackPersistedAsync(!Media.Current.IsCurrentTrackPersisted);
+        }
+
+        private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)
+        {
+            if (Media?.Current?.Track?.Uri != e?.TrackUri)
+                return;
+
+            await Dispatcher.RunAsync(
+                Windows.UI.Core.CoreDispatcherPriority.Normal,
+                () => UpdateUI(Media.Current));
         }
     }
 }
