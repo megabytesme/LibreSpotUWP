@@ -101,6 +101,18 @@
                                         Text="Currently Playing" />
                                 </StackPanel>
                             </ListBoxItem>
+                            <ListBoxItem Tag="LikedSongs" Tapped="NavItem_Tapped">
+                                <StackPanel Padding="2" Orientation="Horizontal">
+                                    <FontIcon
+                                        VerticalAlignment="Center"
+                                        FontFamily="Segoe MDL2 Assets"
+                                        Glyph="&#xEB52;" />
+                                    <TextBlock
+                                        Margin="16,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Text="Liked Songs" />
+                                </StackPanel>
+                            </ListBoxItem>
                         </ListBox>
                     </StackPanel>
 
