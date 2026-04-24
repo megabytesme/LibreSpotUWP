@@ -96,7 +96,7 @@ namespace LibreSpotUWP.Views
             }
             finally
             {
-                SetIsLoading(false);
+                SetIsLoading(false, null);
             }
         }
 

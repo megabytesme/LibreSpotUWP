@@ -397,7 +397,8 @@ namespace LibreSpotUWP.Services
 
         private async Task PersistProtectedKeyAsync(SQLiteAsyncConnection database, string trackId, byte[] rawKey)
         {
-            IBuffer protectedBuffer = await _protector.ProtectAsync(rawKey.AsBuffer()).ConfigureAwait(false);
+            IBuffer protectedBuffer = await _protector.ProtectAsync(rawKey.AsBuffer());
+
             var entry = new CachedKey
             {
                 TrackId = trackId,
