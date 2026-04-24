@@ -23,6 +23,7 @@ namespace LibreSpotUWP.Services
     {
         private readonly ConcurrentDictionary<string, byte[]> _hotCache = new ConcurrentDictionary<string, byte[]>();
         private readonly ConcurrentDictionary<string, byte> _persistedTrackIndex = new ConcurrentDictionary<string, byte>();
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _trackLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         private readonly DataProtectionProvider _protector = new DataProtectionProvider("LOCAL=user");
 
@@ -139,11 +140,10 @@ namespace LibreSpotUWP.Services
         public async Task AddVolatileKeyAsync(string trackId, byte[] rawKey)
         {
             trackId = NormalizeTrackId(trackId);
-            if (!_isInitialized)
-            {
-                await _initLock.WaitAsync();
-                _initLock.Release();
-            }
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
 
             try
             {
@@ -166,16 +166,19 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Volatile DB Save Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
         }
 
         public async Task AddPersistedKeyAsync(string trackId, byte[] rawKey)
         {
             trackId = NormalizeTrackId(trackId);
-            if (!_isInitialized)
-            {
-                await _initLock.WaitAsync();
-                _initLock.Release();
-            }
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
 
             try
             {
@@ -198,11 +201,20 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Persisted DB Save Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
         }
 
         public async Task RemoveKeyAsync(string trackId)
         {
             trackId = NormalizeTrackId(trackId);
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
+
             _hotCache.TryRemove(trackId, out _);
             _persistedTrackIndex.TryRemove(trackId, out _);
 
@@ -216,11 +228,20 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] DB Delete Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
         }
 
         public async Task RemoveVolatileKeyAsync(string trackId)
         {
             trackId = NormalizeTrackId(trackId);
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
+
             try
             {
                 await _volatileDb.DeleteAsync<CachedKey>(trackId);
@@ -236,11 +257,20 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Volatile DB Delete Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
         }
 
         public async Task RemovePersistedKeyAsync(string trackId)
         {
             trackId = NormalizeTrackId(trackId);
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
+
             try
             {
                 await _persistedDb.DeleteAsync<CachedKey>(trackId);
@@ -261,16 +291,19 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Persisted DB Delete Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
         }
 
         public async Task MoveKeyToPersistedAsync(string trackId)
         {
             trackId = NormalizeTrackId(trackId);
-            if (!_isInitialized)
-            {
-                await _initLock.WaitAsync();
-                _initLock.Release();
-            }
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
 
             try
             {
@@ -279,7 +312,15 @@ namespace LibreSpotUWP.Services
                 var existing = await _volatileDb.FindAsync<CachedKey>(trackId);
                 if (existing == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToPersistedAsync: no volatile key found for {trackId}");
+                    if (_hotCache.TryGetValue(trackId, out var rawKey))
+                    {
+                        await PersistProtectedKeyAsync(_persistedDb, trackId, rawKey).ConfigureAwait(false);
+                        await _volatileDb.DeleteAsync<CachedKey>(trackId).ConfigureAwait(false);
+                        System.Diagnostics.Debug.WriteLine($"[KeyCache] Rebuilt persisted key from hot cache for {trackId}");
+                        return;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToPersistedAsync: no volatile or hot key found for {trackId}");
                     return;
                 }
 
@@ -292,16 +333,19 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToPersistedAsync Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
         }
 
         public async Task MoveKeyToVolatileAsync(string trackId)
         {
             trackId = NormalizeTrackId(trackId);
-            if (!_isInitialized)
-            {
-                await _initLock.WaitAsync();
-                _initLock.Release();
-            }
+            await WaitForInitializationAsync().ConfigureAwait(false);
+
+            var trackLock = GetTrackLock(trackId);
+            await trackLock.WaitAsync().ConfigureAwait(false);
 
             try
             {
@@ -310,7 +354,15 @@ namespace LibreSpotUWP.Services
                 var existing = await _persistedDb.FindAsync<CachedKey>(trackId);
                 if (existing == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToVolatileAsync: no persisted key found for {trackId}");
+                    if (_hotCache.TryGetValue(trackId, out var rawKey))
+                    {
+                        await PersistProtectedKeyAsync(_volatileDb, trackId, rawKey).ConfigureAwait(false);
+                        await _persistedDb.DeleteAsync<CachedKey>(trackId).ConfigureAwait(false);
+                        System.Diagnostics.Debug.WriteLine($"[KeyCache] Rebuilt volatile key from hot cache for {trackId}");
+                        return;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToVolatileAsync: no persisted or hot key found for {trackId}");
                     return;
                 }
 
@@ -323,6 +375,36 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToVolatileAsync Error: {ex.Message}");
             }
+            finally
+            {
+                trackLock.Release();
+            }
+        }
+
+        private async Task WaitForInitializationAsync()
+        {
+            if (_isInitialized)
+                return;
+
+            await _initLock.WaitAsync().ConfigureAwait(false);
+            _initLock.Release();
+        }
+
+        private SemaphoreSlim GetTrackLock(string trackId)
+        {
+            return _trackLocks.GetOrAdd(trackId, _ => new SemaphoreSlim(1, 1));
+        }
+
+        private async Task PersistProtectedKeyAsync(SQLiteAsyncConnection database, string trackId, byte[] rawKey)
+        {
+            IBuffer protectedBuffer = await _protector.ProtectAsync(rawKey.AsBuffer()).ConfigureAwait(false);
+            var entry = new CachedKey
+            {
+                TrackId = trackId,
+                ProtectedKey = protectedBuffer.ToArray()
+            };
+
+            await database.InsertOrReplaceAsync(entry).ConfigureAwait(false);
         }
 
         private static string NormalizeTrackId(string trackId)

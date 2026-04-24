@@ -662,9 +662,6 @@ namespace LibreSpotUWP.Services
                 if (!ok)
                     throw new InvalidOperationException("librespot_track_set_persisted returned false.");
 
-                // Give librespot a brief window to request/save the audio key before we move it.
-                await Task.Delay(150).ConfigureAwait(false);
-
                 if (persisted)
                     await _audioKeyCache.MoveKeyToPersistedAsync(trackIdHex).ConfigureAwait(false);
                 else
