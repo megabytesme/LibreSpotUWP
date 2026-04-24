@@ -47,6 +47,11 @@ namespace LibreSpotUWP.Helpers
                 return typeof(PlayerPage_Win10_1507);
             }
 
+            if (pageKey == "Lyrics")
+            {
+                return typeof(LyricsPage_Win10_1507);
+            }
+
             if (pageKey == "LikedSongs")
             {
                 return typeof(LikedSongsPage);

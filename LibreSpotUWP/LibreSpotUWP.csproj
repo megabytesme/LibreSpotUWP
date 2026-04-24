@@ -202,6 +202,7 @@
     <Compile Include="Models\MediaState.cs" />
     <Compile Include="Models\AppEntities.cs" />
     <Compile Include="Models\LibrespotAppDataModels.cs" />
+    <Compile Include="Models\LibrespotLyricsModels.cs" />
     <Compile Include="Models\DownloadModels.cs" />
     <Compile Include="Models\OfflineCatalogModels.cs" />
     <Compile Include="Models\LibrespotPlaybackState.cs" />
@@ -259,6 +260,9 @@
     </Compile>
     <Compile Include="Views\Win10_1507\PlayerPage_Win10_1507.xaml.cs">
       <DependentUpon>PlayerPage_Win10_1507.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1507\LyricsPage_Win10_1507.xaml.cs">
+      <DependentUpon>LyricsPage_Win10_1507.xaml</DependentUpon>
     </Compile>
     <Compile Include="Views\Win10_1507\UserProfilePage.xaml.cs">
       <DependentUpon>UserProfilePage.xaml</DependentUpon>
@@ -407,6 +411,9 @@
     </Page>
     <Page Include="Views\Win10_1507\PlayerPage_Win10_1507.xaml">
       <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\Win10_1507\LyricsPage_Win10_1507.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Views\Win10_1507\UserProfilePage.xaml">

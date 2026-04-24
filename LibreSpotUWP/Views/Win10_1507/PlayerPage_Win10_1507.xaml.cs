@@ -201,6 +201,13 @@ namespace LibreSpotUWP.Views.Win10_1507
             DataTransferManager.ShowShareUI();
         }
 
+        private void LyricsButton_Click(object sender, RoutedEventArgs e)
+        {
+            var frame = Window.Current.Content as Frame;
+            var mainPage = frame?.Content as LibreSpotUWP.MainPage;
+            mainPage?.NavigateTo("Lyrics");
+        }
+
         private void ContextButton_Click(object sender, RoutedEventArgs e)
         {
             var contextUri = Media?.Current?.ContextUri;

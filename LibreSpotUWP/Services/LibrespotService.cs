@@ -2,6 +2,7 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Interop;
 using LibreSpotUWP.Models;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -221,6 +222,23 @@ namespace LibreSpotUWP.Services
             return GetTypedPayloadAsync(userId, Librespot.librespot_followed_artists_get, Librespot.librespot_artist_list_free, ReadArtistList);
         }
 
+        public Task<LibrespotLyricsData> GetLyricsAsync(string trackUri, string imageIdHex = null)
+        {
+            var kind = string.IsNullOrWhiteSpace(imageIdHex)
+                ? LibrespotAppDataKind.Lyrics
+                : LibrespotAppDataKind.LyricsForImage;
+
+            var argument = string.IsNullOrWhiteSpace(imageIdHex)
+                ? trackUri
+                : JsonConvert.SerializeObject(new
+                {
+                    trackUri,
+                    imageIdHex = imageIdHex
+                });
+
+            return GetAppDataPayloadAsync(argument, kind, payload => JsonConvert.DeserializeObject<LibrespotLyricsData>(payload));
+        }
+
         public Task<LibrespotSearchData> SearchAsync(string query)
         {
             return GetTypedPayloadAsync(query, Librespot.librespot_search_get, Librespot.librespot_search_free, ReadSearch);
@@ -240,6 +258,53 @@ namespace LibreSpotUWP.Services
             {
                 Librespot.librespot_string_free(errorPtr);
             }
+        }
+
+        private Task<T> GetAppDataPayloadAsync<T>(
+            string argument,
+            LibrespotAppDataKind kind,
+            Func<string, T> mapper)
+        {
+            ThrowIfDisposed();
+            if (!_initialized)
+                throw new InvalidOperationException("LibrespotService not initialized.");
+            if (_instance == IntPtr.Zero)
+                throw new InvalidOperationException("Not connected.");
+
+            return Task.Run(() =>
+            {
+                IntPtr argumentPtr = IntPtr.Zero;
+                IntPtr payloadPtr = IntPtr.Zero;
+
+                try
+                {
+                    argumentPtr = Marshal.StringToHGlobalAnsi(argument ?? string.Empty);
+                    payloadPtr = Librespot.librespot_appdata_get(_instance, (int)kind, argumentPtr);
+
+                    if (payloadPtr == IntPtr.Zero)
+                    {
+                        var lastError = GetLastNativeError();
+                        throw new InvalidOperationException(
+                            string.IsNullOrWhiteSpace(lastError)
+                                ? $"librespot app data request returned null for {argument}."
+                                : $"librespot app data request returned null for {argument}. Native error: {lastError}");
+                    }
+
+                    var json = Marshal.PtrToStringAnsi(payloadPtr);
+                    if (string.IsNullOrWhiteSpace(json))
+                        throw new InvalidOperationException("App data payload was empty.");
+
+                    return mapper(json);
+                }
+                finally
+                {
+                    if (payloadPtr != IntPtr.Zero)
+                        Librespot.librespot_string_free(payloadPtr);
+
+                    if (argumentPtr != IntPtr.Zero)
+                        Marshal.FreeHGlobal(argumentPtr);
+                }
+            });
         }
 
         private Task<T> GetTypedPayloadAsync<T>(
