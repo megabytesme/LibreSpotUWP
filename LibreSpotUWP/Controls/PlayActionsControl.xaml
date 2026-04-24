@@ -14,5 +14,13 @@
                 <SymbolIcon Symbol="Shuffle" />
             </StackPanel>
         </Button>
+        <Button x:Name="BtnPersist">
+            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                <FontIcon
+                    x:Name="PersistIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE710;" />
+            </StackPanel>
+        </Button>
     </StackPanel>
 </UserControl>
