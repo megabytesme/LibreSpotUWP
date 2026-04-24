@@ -3,6 +3,7 @@ using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
@@ -23,15 +24,31 @@ namespace LibreSpotUWP.Controls
         private bool _showAlbum;
         private bool _isLoadingMore = false;
         private readonly Dictionary<string, TrackRowVisuals> _rowVisuals = new Dictionary<string, TrackRowVisuals>(StringComparer.OrdinalIgnoreCase);
+        private string _currentTrackUri;
         public Func<FullTrack, bool> IsTrackPersistedResolver { get; set; }
 
         public TrackListControl()
         {
             this.InitializeComponent();
+            this.Loaded += TrackListControl_Loaded;
             this.TrackListView.Loaded += TrackListView_Loaded;
             this.Unloaded += TrackListControl_Unloaded;
+        }
+
+        private void TrackListControl_Loaded(object sender, RoutedEventArgs e)
+        {
             if (App.Downloads != null)
+            {
+                App.Downloads.TrackStatusChanged -= OnTrackStatusChanged;
                 App.Downloads.TrackStatusChanged += OnTrackStatusChanged;
+            }
+
+            if (App.Media != null)
+            {
+                App.Media.MediaStateChanged -= OnMediaStateChanged;
+                App.Media.MediaStateChanged += OnMediaStateChanged;
+                _currentTrackUri = App.Media.Current?.Track?.Uri;
+            }
         }
 
         private void TrackListView_Loaded(object sender, RoutedEventArgs e)
@@ -154,8 +171,6 @@ namespace LibreSpotUWP.Controls
                 Background = new SolidColorBrush(Windows.UI.Colors.Transparent)
             };
 
-            rowGrid.PointerEntered += (s, e) => rowGrid.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255));
-            rowGrid.PointerExited += (s, e) => rowGrid.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
             foreach (var column in CreateColumns(_showAlbum)) rowGrid.ColumnDefinitions.Add(column);
 
             int col = 0;
@@ -262,6 +277,16 @@ namespace LibreSpotUWP.Controls
                     ProgressBar = progressBar
                 };
                 _rowVisuals[fullTrack.Uri] = visuals;
+                rowGrid.PointerEntered += (s, e) =>
+                {
+                    visuals.IsPointerOver = true;
+                    ApplyRowBackground(visuals);
+                };
+                rowGrid.PointerExited += (s, e) =>
+                {
+                    visuals.IsPointerOver = false;
+                    ApplyRowBackground(visuals);
+                };
                 UpdateRowVisuals(visuals, fullTrack.Uri);
             }
 
@@ -290,6 +315,23 @@ namespace LibreSpotUWP.Controls
                 });
         }
 
+        private async void OnMediaStateChanged(object sender, MediaState state)
+        {
+            await Dispatcher.RunAsync(
+                Windows.UI.Core.CoreDispatcherPriority.Normal,
+                () =>
+                {
+                    var previousTrackUri = _currentTrackUri;
+                    _currentTrackUri = state?.Track?.Uri;
+
+                    if (!string.IsNullOrWhiteSpace(previousTrackUri) && _rowVisuals.TryGetValue(previousTrackUri, out var previousVisuals))
+                        ApplyRowBackground(previousVisuals);
+
+                    if (!string.IsNullOrWhiteSpace(_currentTrackUri) && _rowVisuals.TryGetValue(_currentTrackUri, out var currentVisuals))
+                        ApplyRowBackground(currentVisuals);
+                });
+        }
+
         private void UpdateRowVisuals(TrackRowVisuals visuals, string trackUri)
         {
             var persisted = IsTrackPersistedResolver?.Invoke(new FullTrack { Uri = trackUri }) == true;
@@ -303,6 +345,28 @@ namespace LibreSpotUWP.Controls
             visuals.PersistButton.IsEnabled = !isDownloading;
             visuals.PersistIcon.Glyph = (persisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
             visuals.RowGrid.Opacity = IsTrackAvailable(trackUri) ? 1.0 : 0.45;
+            ApplyRowBackground(visuals);
+        }
+
+        private void ApplyRowBackground(TrackRowVisuals visuals)
+        {
+            visuals.RowGrid.Background = new SolidColorBrush(GetRowBackgroundColor(visuals));
+        }
+
+        private Color GetRowBackgroundColor(TrackRowVisuals visuals)
+        {
+            var isCurrentTrack = !string.IsNullOrWhiteSpace(_currentTrackUri) &&
+                string.Equals(visuals.TrackUri, _currentTrackUri, StringComparison.OrdinalIgnoreCase);
+
+            if (isCurrentTrack)
+            {
+                var accent = (Color)Application.Current.Resources["SystemAccentColor"];
+                return Color.FromArgb(visuals.IsPointerOver ? (byte)56 : (byte)40, accent.R, accent.G, accent.B);
+            }
+
+            return visuals.IsPointerOver
+                ? Color.FromArgb(30, 255, 255, 255)
+                : Colors.Transparent;
         }
 
         private static bool IsTrackAvailable(string trackUri)
@@ -314,6 +378,8 @@ namespace LibreSpotUWP.Controls
         {
             if (App.Downloads != null)
                 App.Downloads.TrackStatusChanged -= OnTrackStatusChanged;
+            if (App.Media != null)
+                App.Media.MediaStateChanged -= OnMediaStateChanged;
         }
 
         private T FindVisualChild<T>(DependencyObject obj) where T : DependencyObject
@@ -356,5 +422,6 @@ namespace LibreSpotUWP.Controls
         public FontIcon PersistIcon { get; set; }
         public ProgressRing ProgressRing { get; set; }
         public ProgressBar ProgressBar { get; set; }
+        public bool IsPointerOver { get; set; }
     }
 }
