@@ -44,6 +44,7 @@
                 <ColumnDefinition Width="63" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="48" />
+                <ColumnDefinition Width="48" />
             </Grid.ColumnDefinitions>
 
             <Image
@@ -73,7 +74,7 @@
 
             <Button
                 x:Name="PlayPauseButton"
-                Grid.Column="2"
+                Grid.Column="3"
                 Width="40"
                 Height="40"
                 HorizontalAlignment="Center"
@@ -82,6 +83,31 @@
                 Tapped="PlayPauseButton_Tapped">
                 <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
             </Button>
+
+            <Button
+                x:Name="PersistButton"
+                Grid.Column="2"
+                Width="40"
+                Height="40"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Click="PersistButton_Click"
+                Tapped="PersistButton_Tapped">
+                <FontIcon
+                    x:Name="PersistIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="14"
+                    Glyph="&#xE710;" />
+            </Button>
+            <ProgressRing
+                x:Name="PersistProgressRing"
+                Grid.Column="2"
+                Width="18"
+                Height="18"
+                IsActive="False"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Visibility="Collapsed" />
 
         </Grid>
     </Grid>

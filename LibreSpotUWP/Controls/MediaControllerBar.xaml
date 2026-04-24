@@ -147,6 +147,24 @@
             VerticalAlignment="Center"
             Orientation="Horizontal"
             Spacing="10">
+            <Button
+                x:Name="PersistButton"
+                Width="32"
+                Height="32"
+                Click="PersistButton_Click">
+                <FontIcon
+                    x:Name="PersistIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="14"
+                    Glyph="&#xE710;" />
+            </Button>
+            <ProgressRing
+                x:Name="PersistProgressRing"
+                Width="18"
+                Height="18"
+                IsActive="False"
+                VerticalAlignment="Center"
+                Visibility="Collapsed" />
 
             <FontIcon
                 x:Name="VolumeIcon"
