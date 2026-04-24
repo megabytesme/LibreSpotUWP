@@ -1,6 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+<Project
+  ToolsVersion="15.0"
+  DefaultTargets="Build"
+  xmlns="http://schemas.microsoft.com/developer/msbuild/2003"
+>
+  <Import
+    Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props"
+    Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')"
+  />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
@@ -11,7 +18,9 @@
     <AssemblyName>LibreSpotUWP</AssemblyName>
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
-    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.19041.0</TargetPlatformVersion>
+    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' "
+      >10.0.19041.0</TargetPlatformVersion
+    >
     <TargetPlatformMinVersion>10.0.16299.0</TargetPlatformMinVersion>
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
@@ -160,6 +169,7 @@
       <DependentUpon>SpotifyAccountControl.xaml</DependentUpon>
     </Compile>
     <Compile Include="Helpers\ConnectivityHelper.cs" />
+    <Compile Include="Helpers\PlaybackNavigationHelper.cs" />
     <Compile Include="Helpers\UwpBackgroundExecutionManager.cs" />
     <Compile Include="Helpers\UwpSettingsNavigator.cs" />
     <Compile Include="Interfaces\IBackgroundExecutionManager.cs" />
@@ -222,11 +232,13 @@
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ViewModels\LikedSongsPageViewModel.cs" />
     <Compile Include="ViewModels\SearchPageViewModel.cs" />
     <Compile Include="ViewModels\PlaylistPageViewModel.cs" />
     <Compile Include="ViewModels\ArtistPageViewModel.cs" />
     <Compile Include="ViewModels\AlbumPageViewModel.cs" />
     <Compile Include="ViewModels\HomePageViewModel.cs" />
+    <Compile Include="ViewModels\UserProfilePageViewModel.cs" />
     <Compile Include="Views\Win10_1507\SearchPage.xaml.cs">
       <DependentUpon>SearchPage.xaml</DependentUpon>
     </Compile>
@@ -247,6 +259,12 @@
     </Compile>
     <Compile Include="Views\Win10_1507\PlayerPage_Win10_1507.xaml.cs">
       <DependentUpon>PlayerPage_Win10_1507.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1507\UserProfilePage.xaml.cs">
+      <DependentUpon>UserProfilePage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1507\LikedSongsPage.xaml.cs">
+      <DependentUpon>LikedSongsPage.xaml</DependentUpon>
     </Compile>
   </ItemGroup>
   <ItemGroup>
@@ -359,6 +377,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="Views\Win10_1507\LikedSongsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Views\Win10_1507\SearchPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -386,6 +408,10 @@
     <Page Include="Views\Win10_1507\PlayerPage_Win10_1507.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\Win10_1507\UserProfilePage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
     </Page>
   </ItemGroup>
   <ItemGroup>
