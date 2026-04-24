@@ -70,6 +70,34 @@
                     <TextBlock
                         Margin="0,0,0,8"
                         Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Home Organization" />
+
+                    <RadioButton
+                        x:Name="DefaultHomeOrganizationRadio"
+                        Checked="HomeOrganizationRadio_Checked"
+                        Content="Default order"
+                        GroupName="HomeOrganizationGroup"
+                        Tag="Default" />
+
+                    <RadioButton
+                        x:Name="PlaylistsFirstHomeOrganizationRadio"
+                        Checked="HomeOrganizationRadio_Checked"
+                        Content="Playlists first"
+                        GroupName="HomeOrganizationGroup"
+                        Tag="PlaylistsFirst" />
+
+                    <RadioButton
+                        x:Name="AlphabeticalHomeOrganizationRadio"
+                        Checked="HomeOrganizationRadio_Checked"
+                        Content="Alphabetical"
+                        GroupName="HomeOrganizationGroup"
+                        Tag="Alphabetical" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
                         Text="Playback" />
 
                     <ToggleSwitch
