@@ -524,6 +524,9 @@ namespace LibreSpotUWP.Services
 
         private void OnAuthChanged(object sender, AuthState auth)
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                return;
+
             if (auth != null && !auth.IsExpired && !string.IsNullOrEmpty(auth.AccessToken))
                 _ = _librespot.ConnectWithAccessTokenAsync(auth.AccessToken);
         }
@@ -697,7 +700,14 @@ namespace LibreSpotUWP.Services
             UpdateConnectivityState();
 
             if (!ConnectivityHelper.HasInternetAccess())
+            {
+                if (_librespot.Session.IsConnected)
+                {
+                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity lost or offline mode enabled, disconnecting librespot.");
+                    await _librespot.DisconnectAsync();
+                }
                 return;
+            }
 
             try
             {

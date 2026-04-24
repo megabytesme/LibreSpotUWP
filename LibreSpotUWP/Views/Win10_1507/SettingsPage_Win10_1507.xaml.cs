@@ -51,9 +51,34 @@ namespace LibreSpotUWP.Views.Win10_1507
             _ = RefreshStorageStatusAsync();
         }
 
-        private void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
+        private async void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
         {
             ConnectivityHelper.SetManualOfflineModeEnabled(OfflineModeToggle.IsOn);
+
+            if (App.Librespot == null)
+                return;
+
+            if (OfflineModeToggle.IsOn)
+            {
+                await App.Librespot.DisconnectAsync();
+                UpdateLibrespotStatus(App.Librespot.Session);
+                return;
+            }
+
+            try
+            {
+                var token = _auth == null
+                    ? null
+                    : await _auth.EnsureValidAccessTokenAsync();
+                if (!string.IsNullOrWhiteSpace(token))
+                    await App.Librespot.ConnectWithAccessTokenAsync(token);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to reconnect librespot after leaving offline mode: {ex}");
+            }
+
+            UpdateLibrespotStatus(App.Librespot.Session);
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)

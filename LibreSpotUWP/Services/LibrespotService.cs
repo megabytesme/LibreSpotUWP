@@ -152,6 +152,35 @@ namespace LibreSpotUWP.Services
             await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
         }
 
+        public Task DisconnectAsync()
+        {
+            ThrowIfDisposed();
+
+            if (_instance != IntPtr.Zero)
+            {
+                Librespot.librespot_free(_instance);
+                _instance = IntPtr.Zero;
+            }
+
+            lock (_stateLock)
+            {
+                _session = new LibrespotSessionState
+                {
+                    IsConnected = false,
+                    UserName = null,
+                    AuthNeeded = false
+                };
+                _playbackState = LibrespotPlaybackState.Stopped;
+                _currentTrack = null;
+            }
+
+            SessionStateChanged?.Invoke(this, _session);
+            PlaybackStateChanged?.Invoke(this, _playbackState);
+            TrackChanged?.Invoke(this, null);
+
+            return Task.CompletedTask;
+        }
+
         public Task<LibrespotTrackData> GetTrackAsync(string trackUri)
         {
             return GetTypedPayloadAsync(trackUri, Librespot.librespot_track_get, Librespot.librespot_track_free, ReadTrack);

@@ -43,6 +43,7 @@ namespace LibreSpotUWP.Interfaces
         ushort Volume { get; }
 
         Task ConnectWithAccessTokenAsync(string accessToken);
+        Task DisconnectAsync();
         Task<LibrespotTrackData> GetTrackAsync(string trackUri);
         Task<LibrespotAlbumData> GetAlbumAsync(string albumUri);
         Task<LibrespotArtistData> GetArtistAsync(string artistUri);
