@@ -8,7 +8,7 @@
 
   <Identity
     Name="34151aa6-2b17-4a37-bddb-2ee83fdf53e4"
-    Publisher="CN=ben"
+    Publisher="CN=MegaBytesMe"
     Version="1.0.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="34151aa6-2b17-4a37-bddb-2ee83fdf53e4"
