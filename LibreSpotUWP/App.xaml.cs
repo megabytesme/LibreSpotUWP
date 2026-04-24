@@ -1,6 +1,7 @@
 ﻿using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Services;
+using LibreSpotUWP.Controls;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -120,6 +121,19 @@ namespace LibreSpotUWP
 
                 if (!string.IsNullOrEmpty(token))
                     await Librespot.ConnectWithAccessTokenAsync(token);
+
+                if (hasInternet && !string.IsNullOrEmpty(token))
+                {
+                    try
+                    {
+                        var currentUser = await SpotifyWeb.GetCurrentUserProfileAsync(forceRefresh: false);
+                        SpotifyAccountManager.Instance.SetUser(currentUser?.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Warn($"Unable to preload current user profile during launch: {ex.Message}");
+                    }
+                }
 
                 await Media.InitializeAsync();
 
