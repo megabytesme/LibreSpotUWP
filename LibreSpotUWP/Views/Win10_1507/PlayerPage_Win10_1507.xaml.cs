@@ -2,6 +2,7 @@
 using LibreSpotUWP.Models;
 using System;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -19,6 +20,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         private string _currentTrackUri = null;
         private string _currentArtworkUri = null;
         private uint _lastUpdateSec = uint.MaxValue;
+        private DataTransferManager _dataTransferManager;
 
         public PlayerPage_Win10_1507()
         {
@@ -29,6 +31,9 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private void PlayerPage_Loaded(object sender, RoutedEventArgs e)
         {
+            _dataTransferManager = DataTransferManager.GetForCurrentView();
+            _dataTransferManager.DataRequested += DataTransferManager_DataRequested;
+
             if (Media != null)
             {
                 Media.MediaStateChanged += OnMediaStateChanged;
@@ -40,6 +45,12 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private void PlayerPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            if (_dataTransferManager != null)
+            {
+                _dataTransferManager.DataRequested -= DataTransferManager_DataRequested;
+                _dataTransferManager = null;
+            }
+
             if (Media != null)
             {
                 Media.MediaStateChanged -= OnMediaStateChanged;
@@ -177,6 +188,14 @@ namespace LibreSpotUWP.Views.Win10_1507
             await ToggleCurrentTrackPersistenceAsync();
         }
 
+        private void ShareButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(Media?.Current?.Track?.Uri))
+                return;
+
+            DataTransferManager.ShowShareUI();
+        }
+
         private async void RefreshButton_Click(object sender, RoutedEventArgs e)
         {
             var trackUri = Media?.Current?.Track?.Uri;
@@ -280,6 +299,40 @@ namespace LibreSpotUWP.Views.Win10_1507
                 return Task.CompletedTask;
 
             return Media.SetCurrentTrackPersistedAsync(!Media.Current.IsCurrentTrackPersisted);
+        }
+
+        private void DataTransferManager_DataRequested(DataTransferManager sender, DataRequestedEventArgs args)
+        {
+            var track = Media?.Current?.Track;
+            if (track == null || string.IsNullOrWhiteSpace(track.Uri))
+            {
+                args.Request.FailWithDisplayText("There is no current track to share.");
+                return;
+            }
+
+            var trackUrl = BuildSpotifyWebUrl(track.Uri);
+            var title = string.IsNullOrWhiteSpace(track.Name) ? "Current track" : track.Name;
+            var artist = string.IsNullOrWhiteSpace(track.Artist) ? "Unknown artist" : track.Artist;
+            var request = args.Request;
+
+            request.Data.Properties.Title = $"Share {title}";
+            request.Data.Properties.Description = $"Share {title} by {artist}";
+            request.Data.SetText($"{title} - {artist}\n{trackUrl}");
+
+            if (Uri.TryCreate(trackUrl, UriKind.Absolute, out var uri))
+                request.Data.SetWebLink(uri);
+        }
+
+        private static string BuildSpotifyWebUrl(string spotifyUri)
+        {
+            if (string.IsNullOrWhiteSpace(spotifyUri))
+                return "https://open.spotify.com/";
+
+            var parts = spotifyUri.Split(':');
+            if (parts.Length < 3)
+                return "https://open.spotify.com/";
+
+            return $"https://open.spotify.com/{parts[1]}/{parts[2]}";
         }
 
         private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)

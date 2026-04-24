@@ -46,6 +46,10 @@
                                 Minimum="0"
                                 ValueChanged="VolumeSlider_ValueChanged" />
                         </StackPanel>
+                        <Button
+                            Margin="0,16,0,0"
+                            Click="ShareButton_Click"
+                            Content="Share current track" />
                     </StackPanel>
                 </Flyout>
             </Button.Flyout>
