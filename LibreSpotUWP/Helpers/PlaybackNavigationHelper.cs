@@ -1,5 +1,4 @@
 using System;
-using Windows.System;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -51,8 +50,7 @@ namespace LibreSpotUWP.Helpers
             if (spotifyUri.StartsWith("spotify:user:", StringComparison.OrdinalIgnoreCase))
             {
                 var userId = spotifyUri.Substring("spotify:user:".Length);
-                var escapedUserId = Uri.EscapeDataString(userId);
-                _ = Launcher.LaunchUriAsync(new Uri($"https://open.spotify.com/user/{escapedUserId}"));
+                mainPage.NavigateTo("User:" + userId);
             }
         }
     }

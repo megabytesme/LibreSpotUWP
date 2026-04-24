@@ -135,6 +135,8 @@ namespace LibreSpotUWP
 
         public void NavigateToPlaylist(string id) => NavigateTo("Playlist:" + id);
 
+        public void NavigateToUserProfile(string id) => NavigateTo("User:" + id);
+
         public async void NavigateTo(string pageTag, bool forceReload = false)
         {
             ClearCacheStatus();
@@ -197,6 +199,14 @@ namespace LibreSpotUWP
             if (pageTag.StartsWith("Playlist:"))
             {
                 ContentFrame.Navigate(typeof(PlaylistPage), pageTag.Substring(9));
+                SetSelectedNavigationTag(null);
+                UpdateBackButton();
+                return;
+            }
+
+            if (pageTag.StartsWith("User:"))
+            {
+                ContentFrame.Navigate(typeof(UserProfilePage), pageTag.Substring(5));
                 SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
@@ -317,6 +327,14 @@ namespace LibreSpotUWP
             if (previous.StartsWith("Playlist:"))
             {
                 ContentFrame.Navigate(typeof(PlaylistPage), previous.Substring(9));
+                SetSelectedNavigationTag(null);
+                UpdateBackButton();
+                return;
+            }
+
+            if (previous.StartsWith("User:"))
+            {
+                ContentFrame.Navigate(typeof(UserProfilePage), previous.Substring(5));
                 SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
