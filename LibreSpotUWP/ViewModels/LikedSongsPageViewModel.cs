@@ -30,7 +30,9 @@ namespace LibreSpotUWP.ViewModels
                 Tracks = response.Value ?? new Paging<SavedTrack> { Items = new List<SavedTrack>() };
                 LastLoadedBatch = Tracks.Items?.ToList() ?? new List<SavedTrack>();
                 StatusMessage = BuildStatusMessage(response);
-                CachedAt = response.IsFromCache || response.IsOfflineFallback ? response.Timestamp : null;
+                CachedAt = response.IsFromCache || response.IsOfflineFallback
+                    ? (DateTimeOffset?)response.Timestamp
+                    : null;
             }
             catch (Exception)
             {
