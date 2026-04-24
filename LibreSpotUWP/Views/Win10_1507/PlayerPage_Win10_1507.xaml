@@ -55,13 +55,34 @@
             </Button.Flyout>
         </Button>
 
-        <Image
-            x:Name="AlbumArt"
+        <StackPanel
             Grid.Row="0"
-            Margin="60,60,60,20"
+            Margin="24,24,24,20"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
-            Stretch="Uniform" />
+            Spacing="16">
+            <Button
+                x:Name="ContextButton"
+                HorizontalAlignment="Center"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="ContextButton_Click"
+                Foreground="{ThemeResource SystemControlForegroundAccentBrush}"
+                Padding="8,4"
+                Visibility="Collapsed">
+                <TextBlock
+                    x:Name="ContextText"
+                    FontSize="14"
+                    FontWeight="SemiBold"
+                    TextAlignment="Center"
+                    TextTrimming="CharacterEllipsis" />
+            </Button>
+
+            <Image
+                x:Name="AlbumArt"
+                HorizontalAlignment="Center"
+                Stretch="Uniform" />
+        </StackPanel>
 
         <Grid
             Grid.Row="1"
@@ -110,13 +131,21 @@
                     TextAlignment="Center"
                     TextTrimming="CharacterEllipsis" />
 
-                <TextBlock
-                    x:Name="TrackArtist"
-                    FontSize="16"
-                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                    MaxLines="1"
-                    TextAlignment="Center"
-                    TextTrimming="CharacterEllipsis" />
+                <Button
+                    x:Name="TrackArtistButton"
+                    HorizontalAlignment="Center"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="TrackArtistButton_Click"
+                    Padding="8,4">
+                    <TextBlock
+                        x:Name="TrackArtist"
+                        FontSize="16"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        MaxLines="1"
+                        TextAlignment="Center"
+                        TextTrimming="CharacterEllipsis" />
+                </Button>
             </StackPanel>
 
             <Grid

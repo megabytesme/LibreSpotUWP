@@ -16,6 +16,8 @@ namespace LibreSpotUWP.Models
         public bool IsCurrentTrackPersisted { get; set; }
         public string StatusMessage { get; set; }
         public string ArtworkUri { get; set; }
+        public string ContextUri { get; set; }
+        public string ContextName { get; set; }
 
         public bool IsPlaying => PlaybackState == LibrespotPlaybackState.Playing;
 
@@ -38,6 +40,8 @@ namespace LibreSpotUWP.Models
                 IsCurrentTrackPersisted = this.IsCurrentTrackPersisted,
                 StatusMessage = this.StatusMessage,
                 ArtworkUri = this.ArtworkUri,
+                ContextUri = this.ContextUri,
+                ContextName = this.ContextName,
                 Shuffle = this.Shuffle,
                 RepeatMode = this.RepeatMode
             };

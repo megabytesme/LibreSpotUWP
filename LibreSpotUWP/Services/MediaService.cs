@@ -5,6 +5,7 @@ using SpotifyAPI.Web;
 using System;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Media;
 using Windows.Media.Core;
@@ -37,6 +38,7 @@ namespace LibreSpotUWP.Services
         private bool _volumeDirty = false;
         private string[] _offlineQueue = Array.Empty<string>();
         private int _offlineQueueIndex = -1;
+        private int _contextResolutionVersion;
 
         public MediaState Current => _state;
         public event EventHandler<MediaState> MediaStateChanged;
@@ -157,6 +159,7 @@ namespace LibreSpotUWP.Services
             var isOffline = !ConnectivityHelper.HasInternetAccess();
             var wasOffline = Current.IsOffline;
             var originalContextUri = contextUri;
+            var playbackContextUri = GetPlaybackContextUri(originalContextUri, startUri);
             var directTrackUri = !string.IsNullOrWhiteSpace(startUri) ? startUri : contextUri;
             var isDirectTrack = !string.IsNullOrWhiteSpace(directTrackUri) &&
                 directTrackUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase);
@@ -239,10 +242,14 @@ namespace LibreSpotUWP.Services
             UpdateState(s =>
             {
                 s.IsOffline = isOffline;
+                s.ContextUri = playbackContextUri;
+                s.ContextName = null;
                 s.StatusMessage = isOffline
                     ? "Offline. Trying to play the selected cached track."
                     : null;
             });
+
+            _ = ResolveAndApplyContextNameAsync(playbackContextUri, Interlocked.Increment(ref _contextResolutionVersion));
 
             LogService.Info($"[MediaService.PlayAsync] Loading context={contextUri}, start={startUri ?? "(null)"}, offline={isOffline}.");
             await _librespot.LoadAndPlayAsync(contextUri, startUri);
@@ -424,6 +431,15 @@ namespace LibreSpotUWP.Services
                     state.IsOffline = !ConnectivityHelper.HasInternetAccess();
                     state.StatusMessage = BuildPlaybackStatusMessage(trackResponse);
                     state.ArtworkUri = ResolveArtworkUri(metadata, track, offlineTrack);
+
+                    if (string.IsNullOrWhiteSpace(state.ContextUri) ||
+                        state.ContextUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        state.ContextUri = metadata?.Album?.Uri ?? state.ContextUri;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(state.ContextName))
+                        state.ContextName = ResolveImmediateContextName(state.ContextUri, metadata);
                 });
 
                 UpdateSmtcDisplay();
@@ -749,6 +765,80 @@ namespace LibreSpotUWP.Services
                 return false;
 
             return Uri.TryCreate(value, UriKind.Absolute, out uri);
+        }
+
+        private static string GetPlaybackContextUri(string originalContextUri, string startUri)
+        {
+            if (!string.IsNullOrWhiteSpace(originalContextUri) &&
+                !originalContextUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
+            {
+                return originalContextUri;
+            }
+
+            if (!string.IsNullOrWhiteSpace(startUri) &&
+                !startUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
+            {
+                return startUri;
+            }
+
+            return originalContextUri;
+        }
+
+        private static string ResolveImmediateContextName(string contextUri, FullTrack metadata)
+        {
+            if (string.IsNullOrWhiteSpace(contextUri))
+                return metadata?.Album?.Name;
+
+            if (contextUri.StartsWith("spotify:album:", StringComparison.OrdinalIgnoreCase))
+                return metadata?.Album?.Name;
+
+            if (contextUri.StartsWith("spotify:artist:", StringComparison.OrdinalIgnoreCase))
+                return metadata?.Artists?.FirstOrDefault()?.Name;
+
+            return null;
+        }
+
+        private async Task ResolveAndApplyContextNameAsync(string contextUri, int version)
+        {
+            if (string.IsNullOrWhiteSpace(contextUri) || !ConnectivityHelper.HasInternetAccess())
+                return;
+
+            string contextName = null;
+
+            try
+            {
+                if (contextUri.StartsWith("spotify:playlist:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var playlistId = contextUri.Substring("spotify:playlist:".Length);
+                    var playlist = await _web.GetPlaylistAsync(playlistId, false).ConfigureAwait(false);
+                    contextName = playlist.Value?.Name;
+                }
+                else if (contextUri.StartsWith("spotify:album:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var albumId = contextUri.Substring("spotify:album:".Length);
+                    var album = await _web.GetAlbumAsync(albumId, false).ConfigureAwait(false);
+                    contextName = album.Value?.Name;
+                }
+                else if (contextUri.StartsWith("spotify:artist:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var artistId = contextUri.Substring("spotify:artist:".Length);
+                    var artist = await _web.GetArtistAsync(artistId, false).ConfigureAwait(false);
+                    contextName = artist.Value?.Name;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.ResolveAndApplyContextNameAsync] Unable to resolve context name for {contextUri}: {ex.Message}");
+            }
+
+            if (string.IsNullOrWhiteSpace(contextName) || version != _contextResolutionVersion)
+                return;
+
+            UpdateState(state =>
+            {
+                if (string.Equals(state.ContextUri, contextUri, StringComparison.OrdinalIgnoreCase))
+                    state.ContextName = contextName;
+            });
         }
     }
 }

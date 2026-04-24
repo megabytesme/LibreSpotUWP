@@ -42,13 +42,21 @@
                     TextTrimming="CharacterEllipsis"
                     TextWrapping="NoWrap" />
 
-                <TextBlock
-                    x:Name="TrackArtist"
-                    FontSize="14"
-                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                    MaxLines="1"
-                    TextTrimming="CharacterEllipsis"
-                    TextWrapping="NoWrap" />
+                <Button
+                    x:Name="TrackArtistButton"
+                    HorizontalAlignment="Left"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="TrackArtistButton_Click"
+                    Padding="0">
+                    <TextBlock
+                        x:Name="TrackArtist"
+                        FontSize="14"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        MaxLines="1"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap" />
+                </Button>
             </StackPanel>
         </Grid>
 
