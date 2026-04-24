@@ -86,6 +86,11 @@
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">
                     <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Authentication" />
+
+                    <TextBlock
                         x:Name="LibrespotStatusText"
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
@@ -96,6 +101,33 @@
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="LastTokenRefreshText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Storage" />
+
+                    <TextBlock
+                        x:Name="PersistedStorageText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Persisted audio: Calculating..." />
+
+                    <TextBlock
+                        x:Name="CachedStorageText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Cached audio: Calculating..." />
                 </StackPanel>
 
                 <StackPanel BorderBrush="Red" Style="{StaticResource GroupPanelStyle}">

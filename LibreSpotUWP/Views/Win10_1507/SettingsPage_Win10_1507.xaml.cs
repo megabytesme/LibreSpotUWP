@@ -4,8 +4,10 @@ using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
+using Windows.Storage;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -44,7 +46,9 @@ namespace LibreSpotUWP.Views.Win10_1507
                 _auth.AuthStateChanged += _authStateChangedHandler;
             }
 
+            UpdateLibrespotStatus(App.Librespot?.Session);
             UpdateSpotifyApiStatus(_auth?.Current);
+            _ = RefreshStorageStatusAsync();
         }
 
         private void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -278,6 +282,76 @@ namespace LibreSpotUWP.Views.Win10_1507
         private void UpdateSpotifyApiStatus(AuthState state)
         {
             SpotifyApiStatusText.Text = (state == null || state.IsExpired) ? "Web API: Logged Out" : "Web API: Authenticated";
+            LastTokenRefreshText.Text = state?.LastTokenRefreshAt.HasValue == true
+                ? $"Last token refresh: {state.LastTokenRefreshAt.Value.LocalDateTime:G}"
+                : "Last token refresh: Never";
+        }
+
+        private async Task RefreshStorageStatusAsync()
+        {
+            try
+            {
+                var persistedAudioPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "audio");
+                var cachedAudioPath = Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "audio");
+
+                var persistedStats = await Task.Run(() => GetStorageStats(persistedAudioPath));
+                var cachedStats = await Task.Run(() => GetStorageStats(cachedAudioPath));
+
+                await Dispatcher.RunAsync(
+                    Windows.UI.Core.CoreDispatcherPriority.Normal,
+                    () =>
+                    {
+                        PersistedStorageText.Text =
+                            $"Persisted audio: {FormatBytes(persistedStats.Bytes)} across {persistedStats.FileCount} song{(persistedStats.FileCount == 1 ? string.Empty : "s")}";
+                        CachedStorageText.Text =
+                            $"Cached audio: {FormatBytes(cachedStats.Bytes)} across {cachedStats.FileCount} song{(cachedStats.FileCount == 1 ? string.Empty : "s")}";
+                    });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to refresh storage status: {ex}");
+                PersistedStorageText.Text = "Persisted audio: Unavailable";
+                CachedStorageText.Text = "Cached audio: Unavailable";
+            }
+        }
+
+        private static (long Bytes, int FileCount) GetStorageStats(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                return (0, 0);
+
+            long bytes = 0;
+            int count = 0;
+
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var info = new FileInfo(file);
+                    bytes += info.Length;
+                    count++;
+                }
+                catch
+                {
+                }
+            }
+
+            return (bytes, count);
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            double value = bytes;
+            int unit = 0;
+
+            while (value >= 1024 && unit < units.Length - 1)
+            {
+                value /= 1024;
+                unit++;
+            }
+
+            return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.##} {units[unit]}";
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)

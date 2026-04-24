@@ -78,7 +78,8 @@ namespace LibreSpotUWP.Services
             {
                 AccessToken = response.AccessToken,
                 RefreshToken = response.RefreshToken,
-                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn)
+                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn),
+                LastTokenRefreshAt = DateTimeOffset.UtcNow
             };
 
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
@@ -119,6 +120,7 @@ namespace LibreSpotUWP.Services
                 if (!string.IsNullOrEmpty(response.RefreshToken))
                     Current.RefreshToken = response.RefreshToken;
                 Current.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn);
+                Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
 
                 await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true).ConfigureAwait(false);
             }
@@ -221,6 +223,8 @@ namespace LibreSpotUWP.Services
                 throw new ArgumentException("Invalid AuthState imported.");
 
             Current = state;
+            if (!Current.LastTokenRefreshAt.HasValue)
+                Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
 
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
         }
