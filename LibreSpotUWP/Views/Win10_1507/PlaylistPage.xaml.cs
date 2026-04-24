@@ -81,16 +81,24 @@ namespace LibreSpotUWP.Views
             base.OnNavigatedTo(e);
 
             string playlistId = e.Parameter as string;
-            await ViewModel.LoadAsync(playlistId);
+            SetIsLoading(true, "Loading playlist...");
+            try
+            {
+                await ViewModel.LoadAsync(playlistId);
 
-            HeaderControl.SetPlaylist(ViewModel.Playlist);
-            UpdateStatusBanner();
-            PlayActions.SetPersisted(App.OfflineCatalog.IsPlaylistPersisted(ViewModel.Playlist?.Id));
+                HeaderControl.SetPlaylist(ViewModel.Playlist);
+                UpdateStatusBanner();
+                PlayActions.SetPersisted(App.OfflineCatalog.IsPlaylistPersisted(ViewModel.Playlist?.Id));
 
-            var tracks = ViewModel.Tracks?.Items?.Select(t => t.Track as FullTrack).Where(t => t != null)
-                ?? Enumerable.Empty<FullTrack>();
-            TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
-            TrackList.AddTracks(tracks, true, 0);
+                var tracks = ViewModel.Tracks?.Items?.Select(t => t.Track as FullTrack).Where(t => t != null)
+                    ?? Enumerable.Empty<FullTrack>();
+                TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
+                TrackList.AddTracks(tracks, true, 0);
+            }
+            finally
+            {
+                SetIsLoading(false);
+            }
         }
 
         private void UpdateStatusBanner()
@@ -157,14 +165,22 @@ namespace LibreSpotUWP.Views
             if (ViewModel.Playlist == null)
                 return;
 
-            await ViewModel.LoadAsync(ViewModel.Playlist.Id, true);
-            HeaderControl.SetPlaylist(ViewModel.Playlist);
-            UpdateStatusBanner();
-            TrackList.AddTracks(
-                ViewModel.Tracks?.Items?.Select(t => t.Track as FullTrack).Where(t => t != null)
-                    ?? Enumerable.Empty<FullTrack>(),
-                true,
-                0);
+            SetIsLoading(true, "Refreshing playlist...");
+            try
+            {
+                await ViewModel.LoadAsync(ViewModel.Playlist.Id, true);
+                HeaderControl.SetPlaylist(ViewModel.Playlist);
+                UpdateStatusBanner();
+                TrackList.AddTracks(
+                    ViewModel.Tracks?.Items?.Select(t => t.Track as FullTrack).Where(t => t != null)
+                        ?? Enumerable.Empty<FullTrack>(),
+                    true,
+                    0);
+            }
+            finally
+            {
+                SetIsLoading(false);
+            }
         }
 
         private MainPage GetMainPage()
@@ -185,6 +201,12 @@ namespace LibreSpotUWP.Views
             return cachedAt.HasValue
                 ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
                 : "Cached data is being shown.";
+        }
+
+        private void SetIsLoading(bool isLoading, string message = null)
+        {
+            LoadingOverlay.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
+            LoadingText.Text = message ?? "Loading playlist...";
         }
     }
 }
