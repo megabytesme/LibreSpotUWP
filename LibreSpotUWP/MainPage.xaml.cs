@@ -27,7 +27,8 @@ namespace LibreSpotUWP
         private DispatcherTimer _searchDebounceTimer;
         private string _pendingSearchQuery;
         private Func<Task> _cacheRefreshAction;
-        private bool _suppressNextNavSelectionChange;
+        private int _suppressedSelectionChanges;
+        private string _currentNavTag = "Home";
 
         public MainPage()
         {
@@ -41,7 +42,7 @@ namespace LibreSpotUWP
             });
 
             ApplyAppearanceStyling();
-            NavListBox.SelectedIndex = 0;
+            SetSelectedNavigationTag(_currentNavTag);
 
             _searchDebounceTimer = new DispatcherTimer
             {
@@ -144,6 +145,7 @@ namespace LibreSpotUWP
             if (pageTag == "Player")
             {
                 ShowPlayer();
+                SetSelectedNavigationTag(pageTag);
                 UpdateBackButton();
                 return;
             }
@@ -160,6 +162,8 @@ namespace LibreSpotUWP
                     if (ContentFrame.CurrentSourcePageType != settingsType)
                         ContentFrame.Navigate(settingsType);
 
+                    SetSelectedNavigationTag("Settings");
+
                     UpdateBackButton();
                     return;
                 }
@@ -169,6 +173,7 @@ namespace LibreSpotUWP
             {
                 var query = pageTag.Substring(7);
                 ContentFrame.Navigate(typeof(SearchPage), query);
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -176,6 +181,7 @@ namespace LibreSpotUWP
             if (pageTag.StartsWith("Album:"))
             {
                 ContentFrame.Navigate(typeof(AlbumPage), pageTag.Substring(6));
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -183,6 +189,7 @@ namespace LibreSpotUWP
             if (pageTag.StartsWith("Artist:"))
             {
                 ContentFrame.Navigate(typeof(ArtistPage), pageTag.Substring(7));
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -190,31 +197,16 @@ namespace LibreSpotUWP
             if (pageTag.StartsWith("Playlist:"))
             {
                 ContentFrame.Navigate(typeof(PlaylistPage), pageTag.Substring(9));
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
-            }
-
-            foreach (var item in NavListBox.Items)
-            {
-                if (item is ListBoxItem lbi && (string)lbi.Tag == pageTag)
-                {
-                    NavListBox.SelectedItem = lbi;
-                    break;
-                }
-            }
-
-            foreach (var item in BottomNavListBox.Items)
-            {
-                if (item is ListBoxItem lbi && (string)lbi.Tag == pageTag)
-                {
-                    BottomNavListBox.SelectedItem = lbi;
-                    break;
-                }
             }
 
             var pageType = NavigationHelper.GetPageType(pageTag);
             if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
                 ContentFrame.Navigate(pageType);
+
+            SetSelectedNavigationTag(pageTag);
 
             UpdateBackButton();
         }
@@ -226,9 +218,9 @@ namespace LibreSpotUWP
 
         private async void NavListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_suppressNextNavSelectionChange)
+            if (_suppressedSelectionChanges > 0)
             {
-                _suppressNextNavSelectionChange = false;
+                _suppressedSelectionChanges--;
                 return;
             }
 
@@ -254,11 +246,6 @@ namespace LibreSpotUWP
 
                     return;
                 }
-
-                if (listBox == NavListBox)
-                    BottomNavListBox.SelectedIndex = -1;
-                else
-                    NavListBox.SelectedIndex = -1;
 
                 await Task.Yield();
                 NavigateTo(tag);
@@ -295,6 +282,7 @@ namespace LibreSpotUWP
             if (previous == "Player")
             {
                 ShowPlayer();
+                SetSelectedNavigationTag(previous);
                 UpdateBackButton();
                 return;
             }
@@ -305,6 +293,7 @@ namespace LibreSpotUWP
             {
                 var query = previous.Substring(7);
                 ContentFrame.Navigate(typeof(SearchPage), query);
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -312,6 +301,7 @@ namespace LibreSpotUWP
             if (previous.StartsWith("Album:"))
             {
                 ContentFrame.Navigate(typeof(AlbumPage), previous.Substring(6));
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -319,6 +309,7 @@ namespace LibreSpotUWP
             if (previous.StartsWith("Artist:"))
             {
                 ContentFrame.Navigate(typeof(ArtistPage), previous.Substring(7));
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -326,6 +317,7 @@ namespace LibreSpotUWP
             if (previous.StartsWith("Playlist:"))
             {
                 ContentFrame.Navigate(typeof(PlaylistPage), previous.Substring(9));
+                SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
             }
@@ -333,24 +325,7 @@ namespace LibreSpotUWP
             var pageType = NavigationHelper.GetPageType(previous);
             if (ContentFrame.CurrentSourcePageType != pageType)
                 ContentFrame.Navigate(pageType);
-
-            foreach (var item in NavListBox.Items)
-            {
-                if (item is ListBoxItem lbi && (string)lbi.Tag == previous)
-                {
-                    NavListBox.SelectedItem = lbi;
-                    break;
-                }
-            }
-
-            foreach (var item in BottomNavListBox.Items)
-            {
-                if (item is ListBoxItem lbi && (string)lbi.Tag == previous)
-                {
-                    BottomNavListBox.SelectedItem = lbi;
-                    break;
-                }
-            }
+            SetSelectedNavigationTag(previous);
 
             UpdateBackButton();
         }
@@ -490,8 +465,6 @@ namespace LibreSpotUWP
 
         private void NavItem_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            _suppressNextNavSelectionChange = true;
-
             if (!(sender is ListBoxItem item))
                 return;
 
@@ -528,10 +501,32 @@ namespace LibreSpotUWP
             var homeType = NavigationHelper.GetPageType("Home");
             ContentFrame.Navigate(homeType);
 
-            NavListBox.SelectedIndex = 0;
-            BottomNavListBox.SelectedIndex = -1;
+            SetSelectedNavigationTag("Home");
 
             UpdateBackButton();
+        }
+
+        private void SetSelectedNavigationTag(string tag)
+        {
+            _currentNavTag = tag;
+
+            _suppressedSelectionChanges = 2;
+            NavListBox.SelectedItem = FindListBoxItemByTag(NavListBox, tag);
+            BottomNavListBox.SelectedItem = FindListBoxItemByTag(BottomNavListBox, tag);
+        }
+
+        private static ListBoxItem FindListBoxItemByTag(ListBox listBox, string tag)
+        {
+            if (listBox == null || string.IsNullOrWhiteSpace(tag))
+                return null;
+
+            foreach (var item in listBox.Items)
+            {
+                if (item is ListBoxItem lbi && string.Equals(lbi.Tag as string, tag, StringComparison.Ordinal))
+                    return lbi;
+            }
+
+            return null;
         }
 
         public void SetCacheStatus(string tooltip, bool showRefreshButton, Func<Task> refreshAction)
