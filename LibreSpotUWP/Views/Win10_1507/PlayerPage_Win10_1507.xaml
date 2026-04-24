@@ -50,6 +50,10 @@
                             Margin="0,16,0,0"
                             Click="ShareButton_Click"
                             Content="Share current track" />
+                        <Button
+                            Margin="0,8,0,0"
+                            Click="LyricsButton_Click"
+                            Content="View lyrics" />
                     </StackPanel>
                 </Flyout>
             </Button.Flyout>

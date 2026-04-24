@@ -212,6 +212,14 @@ namespace LibreSpotUWP
                 return;
             }
 
+            if (pageTag == "Lyrics")
+            {
+                ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag));
+                SetSelectedNavigationTag(null);
+                UpdateBackButton();
+                return;
+            }
+
             var pageType = NavigationHelper.GetPageType(pageTag);
             if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
                 ContentFrame.Navigate(pageType);
@@ -335,6 +343,14 @@ namespace LibreSpotUWP
             if (previous.StartsWith("User:"))
             {
                 ContentFrame.Navigate(typeof(UserProfilePage), previous.Substring(5));
+                SetSelectedNavigationTag(null);
+                UpdateBackButton();
+                return;
+            }
+
+            if (previous == "Lyrics")
+            {
+                ContentFrame.Navigate(NavigationHelper.GetPageType(previous));
                 SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
