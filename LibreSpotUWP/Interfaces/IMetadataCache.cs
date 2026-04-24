@@ -12,6 +12,8 @@ namespace LibreSpotUWP.Interfaces
             TimeSpan ttl,
             bool forceRefresh = false);
 
+        Task<CacheResponse<T>> TryGetAsync<T>(string key);
+
         Task InvalidateAsync(string key);
     }
 }
