@@ -61,6 +61,10 @@ namespace LibreSpotUWP.Interfaces
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken());
 
+        Task<CacheResponse<AppUserProfile>> GetCurrentUserProfileAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken());
+
         Task<CacheResponse<Paging<FullTrack>>> GetUserTopTracksAsync(
             int limit = 20,
             bool forceRefresh = false,
@@ -86,5 +90,6 @@ namespace LibreSpotUWP.Interfaces
         Task<CacheResponse<FollowedArtistsResponse>> GetFollowedArtistsAsync(
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken());
+
     }
 }

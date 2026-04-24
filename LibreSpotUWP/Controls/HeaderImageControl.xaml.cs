@@ -121,6 +121,9 @@ namespace LibreSpotUWP.Controls {
 
         public void SetArtist(FullArtist artist)
         {
+            if (artist == null)
+                return;
+
             _currentId = artist.Id;
             _currentType = "artist";
 

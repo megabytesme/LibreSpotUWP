@@ -74,7 +74,6 @@ namespace LibreSpotUWP.ViewModels
 
             await LoadAlbumsYouStartedAsync(spotify, ct, forceRefresh);
             await LoadAlbumsFromTopArtistsAsync(spotify, ct, forceRefresh);
-            await LoadMixedForYouAsync(spotify, ct, forceRefresh);
 
             if (_usedOfflineFallback)
                 StatusMessage = "Offline. Home is showing cached sections from earlier sessions.";
@@ -95,10 +94,12 @@ namespace LibreSpotUWP.ViewModels
             var tracks = await offlineCatalog.GetDownloadedTracksAsync();
             var albums = await offlineCatalog.GetDownloadedAlbumsAsync();
             var playlists = await offlineCatalog.GetDownloadedPlaylistsAsync();
+            var mixed = tracks.Take(30).ToList();
 
             AddGroup("Downloaded Playlists", new ObservableCollection<OfflinePlaylistEntry>(playlists));
             AddGroup("Downloaded Albums", new ObservableCollection<OfflineAlbumEntry>(albums));
             AddGroup("Downloaded Songs", new ObservableCollection<OfflineTrackEntry>(tracks));
+            AddGroup("Mixed For You", new ObservableCollection<OfflineTrackEntry>(mixed));
 
             StatusMessage = GroupedHomeContent.Count > 1
                 ? "Offline. Home is showing your downloaded music."
@@ -140,41 +141,21 @@ namespace LibreSpotUWP.ViewModels
 
                     if (track.Album != null)
                     {
-                        var albumId = track.Album.Id;
-
-                        if (!_skipIds.Contains(albumId))
+                        var album = ToFullAlbum(track.Album);
+                        if (album != null && !_skipIds.Contains(album.Id))
                         {
-                            try
-                            {
-                                var fullAlbumResp = await spotify.GetAlbumAsync(albumId, forceRefresh, ct);
-                                RegisterCacheUse(fullAlbumResp);
-                                RecentlyPlayedAlbums.Add(fullAlbumResp.Value);
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Failed album {albumId}: {ex.Message}");
-                                _skipIds.Add(albumId);
-                            }
+                            RecentlyPlayedAlbums.Add(album);
+                            _skipIds.Add(album.Id);
                         }
                     }
 
                     foreach (var artist in track.Artists)
                     {
-                        var artistId = artist.Id;
-
-                        if (!_skipIds.Contains(artistId))
+                        var fullArtist = ToFullArtist(artist);
+                        if (fullArtist != null && !_skipIds.Contains(fullArtist.Id))
                         {
-                            try
-                            {
-                                var fullArtistResp = await spotify.GetArtistAsync(artistId, forceRefresh, ct);
-                                RegisterCacheUse(fullArtistResp);
-                                RecentlyPlayedArtists.Add(fullArtistResp.Value);
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Failed artist {artistId}: {ex.Message}");
-                                _skipIds.Add(artistId);
-                            }
+                            RecentlyPlayedArtists.Add(fullArtist);
+                            _skipIds.Add(fullArtist.Id);
                         }
                     }
 
@@ -208,19 +189,11 @@ namespace LibreSpotUWP.ViewModels
                     {
                         var id = uri.Substring("spotify:album:".Length);
 
-                        if (_skipIds.Contains(id))
+                        if (_skipIds.Contains(id) || track.Album == null || track.Album.Id != id)
                             continue;
 
-                        try
-                        {
-                            var albumResp = await spotify.GetAlbumAsync(id, forceRefresh, ct);
-                            RegisterCacheUse(albumResp);
-                            RecentlyPlayedAlbums.Add(albumResp.Value);
-                        }
-                        catch
-                        {
-                            _skipIds.Add(id);
-                        }
+                        RecentlyPlayedAlbums.Add(ToFullAlbum(track.Album));
+                        _skipIds.Add(id);
 
                         continue;
                     }
@@ -232,14 +205,10 @@ namespace LibreSpotUWP.ViewModels
                         if (_skipIds.Contains(id))
                             continue;
 
-                        try
+                        var artist = track.Artists?.FirstOrDefault(a => a.Id == id);
+                        if (artist != null)
                         {
-                            var artistResp = await spotify.GetArtistAsync(id, forceRefresh, ct);
-                            RegisterCacheUse(artistResp);
-                            RecentlyPlayedArtists.Add(artistResp.Value);
-                        }
-                        catch
-                        {
+                            RecentlyPlayedArtists.Add(ToFullArtist(artist));
                             _skipIds.Add(id);
                         }
                     }
@@ -375,17 +344,7 @@ namespace LibreSpotUWP.ViewModels
                             continue;
 
                         seen.Add(a.Id);
-
-                        try
-                        {
-                            var respFull = await spotify.GetAlbumAsync(a.Id, forceRefresh, ct);
-                            RegisterCacheUse(respFull);
-                            AlbumsFromTopArtists.Add(respFull.Value);
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"AlbumsFromTopArtists: failed album {a.Id}: {ex.Message}");
-                        }
+                        AlbumsFromTopArtists.Add(ToFullAlbum(a));
                     }
                 }
                 catch (Exception ex)
@@ -410,84 +369,42 @@ namespace LibreSpotUWP.ViewModels
 
                 seen.Add(albumId);
 
-                try
-                {
-                    var resp = await spotify.GetAlbumAsync(albumId, forceRefresh, ct);
-                    RegisterCacheUse(resp);
-                    AlbumsYouStarted.Add(resp.Value);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"AlbumsYouStarted: failed album {albumId}: {ex.Message}");
-                }
+                AlbumsYouStarted.Add(ToFullAlbum(track.Album));
             }
 
             AddGroup("Albums You Started", AlbumsYouStarted);
         }
 
-        private async Task LoadMixedForYouAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh)
+        private static FullAlbum ToFullAlbum(SimpleAlbum album)
         {
-            MixedForYou.Clear();
-            var seen = new HashSet<string>();
+            if (album == null)
+                return null;
 
-            void add(FullTrack t)
+            return new FullAlbum
             {
-                if (t != null && seen.Add(t.Id))
-                    MixedForYou.Add(t);
-            }
+                Id = album.Id,
+                Uri = album.Uri,
+                Name = album.Name,
+                AlbumType = album.AlbumType,
+                Images = album.Images ?? new List<Image>(),
+                Artists = album.Artists ?? new List<SimpleArtist>(),
+                ReleaseDate = album.ReleaseDate,
+                TotalTracks = album.TotalTracks
+            };
+        }
 
-            foreach (var t in RecentlyPlayedTracks.Take(20))
-                add(t);
+        private static FullArtist ToFullArtist(SimpleArtist artist)
+        {
+            if (artist == null)
+                return null;
 
-            foreach (var t in UserTopTracksShortTerm.Take(20))
-                add(t);
-
-            foreach (var artist in UserTopArtistsShortTerm.Take(10))
+            return new FullArtist
             {
-                try
-                {
-                    var respAlbums = await spotify.GetArtistAlbumsAsync(artist.Id, forceRefresh, ct);
-                    RegisterCacheUse(respAlbums);
-                    var albums = respAlbums.Value;
-
-                    foreach (var simpleAlbum in albums.Items.Take(3))
-                    {
-                        try
-                        {
-                            var respTracks = await spotify.GetAlbumTracksAsync(simpleAlbum.Id, forceRefresh, ct);
-                            RegisterCacheUse(respTracks);
-                            var albumTracks = respTracks.Value;
-
-                            foreach (var simpleTrack in albumTracks.Items.Take(5))
-                            {
-                                try
-                                {
-                                    var respFull = await spotify.GetTrackAsync(simpleTrack.Id, forceRefresh, ct);
-                                    RegisterCacheUse(respFull);
-                                    add(respFull.Value);
-                                }
-                                catch (Exception ex)
-                                {
-                                    System.Diagnostics.Debug.WriteLine(
-                                        $"MixedForYou: failed to promote track {simpleTrack.Id}: {ex.Message}");
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"MixedForYou: failed to load album tracks for {simpleAlbum.Id}: {ex.Message}");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"MixedForYou: failed to load albums for artist {artist.Id}: {ex.Message}");
-                }
-            }
-
-            AddGroup("Mixed For You", MixedForYou);
+                Id = artist.Id,
+                Uri = artist.Uri,
+                Name = artist.Name,
+                Images = new List<Image>()
+            };
         }
 
         private void RegisterCacheUse<T>(CacheResponse<T> response)

@@ -148,6 +148,169 @@ namespace LibreSpotUWP.Interop
             public EventData data;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiImage
+        {
+            public IntPtr url;
+            public int width;
+            public int height;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiArtistSummary
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiAlbumSummary
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public IntPtr album_type;
+            public IntPtr release_date;
+            public int total_tracks;
+            public IntPtr images;
+            public UIntPtr image_count;
+            public IntPtr artists;
+            public UIntPtr artist_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiSimpleTrack
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public int duration_ms;
+            public int disc_number;
+            public int track_number;
+            public IntPtr artists;
+            public UIntPtr artist_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiTrack
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public int duration_ms;
+            public int disc_number;
+            public int track_number;
+            public IntPtr artists;
+            public UIntPtr artist_count;
+            public IntPtr album;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiAlbum
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public IntPtr album_type;
+            public IntPtr release_date;
+            public int total_tracks;
+            public IntPtr images;
+            public UIntPtr image_count;
+            public IntPtr artists;
+            public UIntPtr artist_count;
+            public IntPtr tracks;
+            public UIntPtr track_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiArtist
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public IntPtr images;
+            public UIntPtr image_count;
+            public IntPtr albums;
+            public UIntPtr album_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiOwner
+        {
+            public IntPtr id;
+            public IntPtr display_name;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiPlaylistSummary
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public IntPtr images;
+            public UIntPtr image_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiPlaylist
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr name;
+            public IntPtr images;
+            public UIntPtr image_count;
+            public IntPtr owner;
+            public IntPtr tracks;
+            public UIntPtr track_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiUserProfile
+        {
+            public IntPtr id;
+            public IntPtr uri;
+            public IntPtr display_name;
+            public IntPtr email;
+            public IntPtr country;
+            public IntPtr images;
+            public UIntPtr image_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiPlaylistList
+        {
+            public IntPtr items;
+            public UIntPtr item_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiTrackList
+        {
+            public IntPtr items;
+            public UIntPtr item_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiArtistList
+        {
+            public IntPtr items;
+            public UIntPtr item_count;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FfiSearch
+        {
+            public IntPtr tracks;
+            public UIntPtr track_count;
+            public IntPtr albums;
+            public UIntPtr album_count;
+            public IntPtr artists;
+            public UIntPtr artist_count;
+            public IntPtr playlists;
+            public UIntPtr playlist_count;
+        }
+
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr librespot_new(LibrespotConfig config, LibrespotCallback cb, IntPtr userData);
 
@@ -220,5 +383,72 @@ namespace LibreSpotUWP.Interop
             IntPtr trackUri,
             [MarshalAs(UnmanagedType.U1)] bool persisted
         );
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_appdata_get(
+            IntPtr inst,
+            int kind,
+            IntPtr argument
+        );
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_last_error_get();
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_string_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_track_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_album_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_artist_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_playlist_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_user_profile_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_user_playlists_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_saved_tracks_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_followed_artists_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_search_get(IntPtr inst, IntPtr argument);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_track_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_album_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_artist_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_playlist_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_user_profile_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_playlist_list_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_track_list_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_artist_list_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_search_free(IntPtr value);
     }
 }

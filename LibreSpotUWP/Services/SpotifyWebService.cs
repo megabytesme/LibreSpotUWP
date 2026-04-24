@@ -4,6 +4,8 @@ using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +16,7 @@ namespace LibreSpotUWP.Services
     {
         private readonly ISpotifyAuthService _auth;
         private readonly IMetadataCache _cache;
+        private readonly ILibrespotService _librespot;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(4);
         private readonly SemaphoreSlim _clientUpdateGate = new SemaphoreSlim(1, 1);
         private SpotifyClient _client;
@@ -26,10 +29,11 @@ namespace LibreSpotUWP.Services
         private string _userId;
         private string _userCountry;
 
-        public SpotifyWebService(ISpotifyAuthService auth, IMetadataCache cache)
+        public SpotifyWebService(ISpotifyAuthService auth, IMetadataCache cache, ILibrespotService librespot)
         {
             _auth = auth;
             _cache = cache;
+            _librespot = librespot;
 
             _auth.AuthStateChanged += OnAuthStateChanged;
 
@@ -214,19 +218,290 @@ namespace LibreSpotUWP.Services
                 ex is InvalidOperationException;
         }
 
+        private static FullTrack MapFullTrack(LibrespotTrackData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new FullTrack
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                DurationMs = payload.DurationMs,
+                DiscNumber = payload.DiscNumber,
+                TrackNumber = payload.TrackNumber,
+                Artists = payload.Artists?.Select(MapSimpleArtist).ToList() ?? new List<SimpleArtist>(),
+                Album = MapSimpleAlbum(payload.Album)
+            };
+        }
+
+        private static SimpleTrack MapSimpleTrack(LibrespotSimpleTrackData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new SimpleTrack
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                DurationMs = payload.DurationMs,
+                DiscNumber = payload.DiscNumber,
+                TrackNumber = payload.TrackNumber,
+                Artists = payload.Artists?.Select(MapSimpleArtist).ToList() ?? new List<SimpleArtist>()
+            };
+        }
+
+        private static FullAlbum MapFullAlbum(LibrespotAlbumData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new FullAlbum
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                AlbumType = payload.AlbumType,
+                Images = EnsureImageList(payload.Images?.Select(MapImage).ToList()),
+                Artists = payload.Artists?.Select(MapSimpleArtist).ToList() ?? new List<SimpleArtist>(),
+                ReleaseDate = payload.ReleaseDate,
+                TotalTracks = payload.TotalTracks
+            };
+        }
+
+        private static SimpleAlbum MapSimpleAlbum(LibrespotAlbumSummaryData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new SimpleAlbum
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                AlbumType = payload.AlbumType,
+                Images = payload.Images?.Select(MapImage).ToList() ?? new List<Image>(),
+                Artists = payload.Artists?.Select(MapSimpleArtist).ToList() ?? new List<SimpleArtist>()
+            };
+        }
+
+        private static FullArtist MapFullArtist(LibrespotArtistData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new FullArtist
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                Images = EnsureImageList(payload.Images?.Select(MapImage).ToList())
+            };
+        }
+
+        private static FullPlaylist MapFullPlaylist(LibrespotPlaylistData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new FullPlaylist
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                Images = EnsureImageList(payload.Images?.Select(MapImage).ToList()),
+                Owner = payload.Owner == null
+                    ? null
+                    : new PublicUser
+                    {
+                        Id = payload.Owner.Id,
+                        DisplayName = payload.Owner.DisplayName
+                    }
+            };
+        }
+
+        private static PlaylistTrack<IPlayableItem> MapPlaylistTrack(LibrespotTrackData payload)
+        {
+            var fullTrack = MapFullTrack(payload);
+            return new PlaylistTrack<IPlayableItem>
+            {
+                Track = fullTrack
+            };
+        }
+
+        private static SimpleArtist MapSimpleArtist(LibrespotArtistSummaryData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new SimpleArtist
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name
+            };
+        }
+
+        private static Image MapImage(LibrespotImageData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new Image
+            {
+                Url = payload.Url,
+                Width = payload.Width,
+                Height = payload.Height
+            };
+        }
+
+        private static PrivateUser MapPrivateUser(LibrespotUserProfileData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new PrivateUser
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                DisplayName = payload.DisplayName,
+                Email = payload.Email,
+                Country = payload.Country,
+                Images = EnsureImageList(payload.Images?.Select(MapImage).ToList())
+            };
+        }
+
+        private static AppImage MapAppImage(Image image)
+        {
+            if (image == null)
+                return null;
+
+            return new AppImage
+            {
+                Url = image.Url,
+                Width = image.Width,
+                Height = image.Height
+            };
+        }
+
+        private static List<AppImage> EnsureAppImageList(List<AppImage> images)
+        {
+            if (images == null || images.Count == 0)
+                return new List<AppImage>();
+
+            return images.Where(image => image != null).ToList();
+        }
+
+        private static AppUserProfile MapAppUserProfile(PrivateUser user)
+        {
+            if (user == null)
+                return null;
+
+            return new AppUserProfile
+            {
+                Id = user.Id,
+                Uri = user.Uri,
+                DisplayName = user.DisplayName,
+                Email = user.Email,
+                Country = user.Country,
+                Images = EnsureAppImageList(user.Images?.Select(MapAppImage).ToList())
+            };
+        }
+
+        private static SavedTrack MapSavedTrack(LibrespotTrackData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new SavedTrack
+            {
+                AddedAt = DateTime.UtcNow,
+                Track = MapFullTrack(payload)
+            };
+        }
+
+        private static FullPlaylist MapPlaylistSummary(LibrespotPlaylistSummaryData payload)
+        {
+            if (payload == null)
+                return null;
+
+            return new FullPlaylist
+            {
+                Id = payload.Id,
+                Uri = payload.Uri,
+                Name = payload.Name,
+                Images = EnsureImageList(payload.Images?.Select(MapImage).ToList())
+            };
+        }
+
+        private static List<Image> EnsureImageList(List<Image> images)
+        {
+            if (images == null || images.Count == 0)
+            {
+                return new List<Image>
+                {
+                    new Image
+                    {
+                        Url = null,
+                        Width = 0,
+                        Height = 0
+                    }
+                };
+            }
+
+            return images;
+        }
+
+        private static SearchResponse MapSearchResponse(LibrespotSearchData payload)
+        {
+            payload = payload ?? new LibrespotSearchData();
+
+            return new SearchResponse
+            {
+                Tracks = new Paging<FullTrack, SearchResponse>()
+                {
+                    Items = payload.Tracks?.Select(MapFullTrack).ToList() ?? new List<FullTrack>(),
+                    Total = payload.Tracks?.Count ?? 0
+                },
+                Albums = new Paging<SimpleAlbum, SearchResponse>()
+                {
+                    Items = payload.Albums?.Select(MapSimpleAlbum).ToList() ?? new List<SimpleAlbum>(),
+                    Total = payload.Albums?.Count ?? 0
+                },
+                Artists = new Paging<FullArtist, SearchResponse>()
+                {
+                    Items = payload.Artists?.Select(p => new FullArtist
+                    {
+                        Id = p.Id,
+                        Uri = p.Uri,
+                        Name = p.Name
+                    }).ToList() ?? new List<FullArtist>(),
+                    Total = payload.Artists?.Count ?? 0
+                },
+                Playlists = new Paging<FullPlaylist, SearchResponse>()
+                {
+                    Items = payload.Playlists?.Select(MapPlaylistSummary).ToList() ?? new List<FullPlaylist>(),
+                    Total = payload.Playlists?.Count ?? 0
+                }
+            };
+        }
+
         public async Task<CacheResponse<FullTrack>> GetTrackAsync(
             string trackId,
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
         {
-            await EnsureUserContextAsync(ct);
-
-            var key = $"global/tracks/{trackId}_{_userCountry}";
+            var key = $"global/tracks/{trackId}";
             return await GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c =>
-                    c.Tracks.Get(trackId, new TrackRequest { Market = _userCountry }, ct),
-                    ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetTrackAsync($"spotify:track:{trackId}").ConfigureAwait(false);
+                    return MapFullTrack(payload);
+                },
                 TtlImmutable,
                 forceRefresh);
         }
@@ -236,14 +511,15 @@ namespace LibreSpotUWP.Services
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
         {
-            await EnsureUserContextAsync(ct);
-
-            var key = $"global/albums/{albumId}_{_userCountry}";
+            var key = $"global/albums/{albumId}";
             return await GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c =>
-                    c.Albums.Get(albumId, new AlbumRequest { Market = _userCountry }, ct),
-                    ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetAlbumAsync($"spotify:album:{albumId}").ConfigureAwait(false);
+                    return MapFullAlbum(payload);
+                },
                 TtlImmutable,
                 forceRefresh);
         }
@@ -256,7 +532,17 @@ namespace LibreSpotUWP.Services
             var key = $"global/album_tracks/{albumId}";
             return GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Albums.GetTracks(albumId, ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetAlbumAsync($"spotify:album:{albumId}").ConfigureAwait(false);
+
+                    return new Paging<SimpleTrack>
+                    {
+                        Items = payload.Tracks?.Select(MapSimpleTrack).ToList() ?? new List<SimpleTrack>(),
+                        Total = payload.TotalTracks
+                    };
+                },
                 TtlImmutable,
                 forceRefresh);
         }
@@ -269,7 +555,18 @@ namespace LibreSpotUWP.Services
             var key = $"global/artist_albums/{artistId}";
             return GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Artists.GetAlbums(artistId, ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetArtistAsync($"spotify:artist:{artistId}").ConfigureAwait(false);
+
+                    var items = payload.Albums?.Select(MapSimpleAlbum).ToList() ?? new List<SimpleAlbum>();
+                    return new Paging<SimpleAlbum>
+                    {
+                        Items = items,
+                        Total = items.Count
+                    };
+                },
                 TtlImmutable,
                 forceRefresh);
         }
@@ -282,7 +579,18 @@ namespace LibreSpotUWP.Services
             var key = $"global/artists/{artistId}";
             return GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Artists.Get(artistId, ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetArtistAsync($"spotify:artist:{artistId}").ConfigureAwait(false);
+                    return MapFullArtist(payload) ?? new FullArtist
+                    {
+                        Id = artistId,
+                        Uri = $"spotify:artist:{artistId}",
+                        Name = string.Empty,
+                        Images = EnsureImageList(null)
+                    };
+                },
                 TtlArtist,
                 forceRefresh);
         }
@@ -291,14 +599,53 @@ namespace LibreSpotUWP.Services
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
         {
-            await EnsureUserContextAsync(ct);
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
-            var key = $"users/{_userId}/profile";
+            var key = "users/current/profile";
             return await GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.UserProfile.Current(ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetUserProfileAsync(_userId).ConfigureAwait(false);
+
+                    _userId = payload.Id;
+                    _userCountry = payload.Country;
+                    var user = MapPrivateUser(payload);
+                    var cached = await _cache.TryGetAsync<PrivateUser>($"users/{_userId}/profile").ConfigureAwait(false);
+                    if ((user.Images == null || user.Images.Count == 0 || string.IsNullOrWhiteSpace(user.Images[0].Url)) &&
+                        cached?.Value?.Images != null &&
+                        cached.Value.Images.Count > 0)
+                    {
+                        user.Images = cached.Value.Images;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(user.DisplayName) && cached?.Value != null)
+                        user.DisplayName = cached.Value.DisplayName;
+
+                    if (string.IsNullOrWhiteSpace(user.Email) && cached?.Value != null)
+                        user.Email = cached.Value.Email;
+
+                    if (string.IsNullOrWhiteSpace(user.Country) && cached?.Value != null)
+                        user.Country = cached.Value.Country;
+
+                    return user;
+                },
                 TtlSession,
                 forceRefresh);
+        }
+
+        public async Task<CacheResponse<AppUserProfile>> GetCurrentUserProfileAsync(
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            var response = await GetCurrentUserAsync(forceRefresh, ct).ConfigureAwait(false);
+            return new CacheResponse<AppUserProfile>(
+                MapAppUserProfile(response.Value),
+                response.Timestamp,
+                response.IsFromCache,
+                response.IsStale,
+                response.IsOfflineFallback);
         }
 
         public async Task<CacheResponse<Paging<FullTrack>>> GetUserTopTracksAsync(
@@ -356,12 +703,23 @@ namespace LibreSpotUWP.Services
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
         {
-            await EnsureUserContextAsync(ct);
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
-            var key = $"users/{_userId}/playlists";
+            var key = "users/current/playlists";
             return await GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Playlists.CurrentUsers(ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetUserPlaylistsAsync(_userId).ConfigureAwait(false);
+
+                    var items = payload.Items?.Select(MapPlaylistSummary).ToList() ?? new List<FullPlaylist>();
+                    return new Paging<FullPlaylist>
+                    {
+                        Items = items,
+                        Total = items.Count
+                    };
+                },
                 TtlSession,
                 forceRefresh);
         }
@@ -370,12 +728,23 @@ namespace LibreSpotUWP.Services
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
         {
-            await EnsureUserContextAsync(ct);
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
-            var key = $"users/{_userId}/saved_tracks";
+            var key = "users/current/saved_tracks";
             return await GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Library.GetTracks(ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetSavedTracksAsync(_userId).ConfigureAwait(false);
+
+                    var items = payload.Items?.Select(MapSavedTrack).ToList() ?? new List<SavedTrack>();
+                    return new Paging<SavedTrack>
+                    {
+                        Items = items,
+                        Total = items.Count
+                    };
+                },
                 TtlSession,
                 forceRefresh);
         }
@@ -398,12 +767,32 @@ namespace LibreSpotUWP.Services
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
         {
-            await EnsureUserContextAsync(ct);
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
-            var key = $"users/{_userId}/followed_artists";
+            var key = "users/current/followed_artists";
             return await GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Follow.OfCurrentUser(new FollowOfCurrentUserRequest(), ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetFollowedArtistsAsync(_userId).ConfigureAwait(false);
+
+                    var artists = payload.Items?.Select(p => new FullArtist
+                    {
+                        Id = p.Id,
+                        Uri = p.Uri,
+                        Name = p.Name
+                    }).ToList() ?? new List<FullArtist>();
+
+                    return new FollowedArtistsResponse
+                    {
+                        Artists = new CursorPaging<FullArtist, FollowedArtistsResponse>()
+                        {
+                            Items = artists,
+                            Total = artists.Count
+                        }
+                    };
+                },
                 TtlSession,
                 forceRefresh);
         }
@@ -416,7 +805,18 @@ namespace LibreSpotUWP.Services
             var key = $"global/playlists/{playlistId}";
             return GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Playlists.Get(playlistId, ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetPlaylistAsync($"spotify:playlist:{playlistId}").ConfigureAwait(false);
+                    return MapFullPlaylist(payload) ?? new FullPlaylist
+                    {
+                        Id = playlistId,
+                        Uri = $"spotify:playlist:{playlistId}",
+                        Name = string.Empty,
+                        Images = EnsureImageList(null)
+                    };
+                },
                 TtlImmutable,
                 forceRefresh);
         }
@@ -429,7 +829,20 @@ namespace LibreSpotUWP.Services
             var key = $"global/playlist_items/{playlistId}";
             return GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Playlists.GetItems(playlistId, ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var payload = await _librespot.GetPlaylistAsync($"spotify:playlist:{playlistId}").ConfigureAwait(false);
+
+                    var items = payload.Tracks?.Select(MapPlaylistTrack).ToList()
+                        ?? new List<PlaylistTrack<IPlayableItem>>();
+
+                    return new Paging<PlaylistTrack<IPlayableItem>>
+                    {
+                        Items = items,
+                        Total = items.Count
+                    };
+                },
                 TtlImmutable,
                 forceRefresh);
         }
@@ -438,7 +851,7 @@ namespace LibreSpotUWP.Services
             Paging<T> currentPaging,
             CancellationToken ct = new CancellationToken())
         {
-            if (currentPaging?.Next == null)
+            if (currentPaging == null || currentPaging.Next == null)
                 return null;
 
             var key = $"global/paging_next/{currentPaging.Next.GetHashCode()}";
@@ -459,9 +872,139 @@ namespace LibreSpotUWP.Services
             var key = $"global/search/{type}_{query}";
             return GetCachedResponseAsync(
                 key,
-                () => ExecuteAsync(c => c.Search.Item(new SearchRequest(type, query), ct), ct),
+                async () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    await EnsureUserContextAsync(ct).ConfigureAwait(false);
+
+                    var request = new SearchRequest(type, query)
+                    {
+                        Limit = 20,
+                        Market = _userCountry
+                    };
+
+                    return await ExecuteAsync(c => c.Search.Item(request, ct), ct).ConfigureAwait(false);
+                },
                 TtlSession,
                 forceRefresh);
+        }
+
+        private sealed class ImagePayload
+        {
+            public string Url { get; set; }
+            public int Width { get; set; }
+            public int Height { get; set; }
+        }
+
+        private sealed class ArtistSummaryPayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string Name { get; set; }
+        }
+
+        private class AlbumSummaryPayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string Name { get; set; }
+            public string AlbumType { get; set; }
+            public List<ImagePayload> Images { get; set; }
+            public List<ArtistSummaryPayload> Artists { get; set; }
+        }
+
+        private class SimpleTrackPayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string Name { get; set; }
+            public int DurationMs { get; set; }
+            public int DiscNumber { get; set; }
+            public int TrackNumber { get; set; }
+            public List<ArtistSummaryPayload> Artists { get; set; }
+        }
+
+        private sealed class TrackPayload : SimpleTrackPayload
+        {
+            public AlbumSummaryPayload Album { get; set; }
+        }
+
+        private sealed class AlbumPayload : AlbumSummaryPayload
+        {
+            public string ReleaseDate { get; set; }
+            public int TotalTracks { get; set; }
+            public List<SimpleTrackPayload> Tracks { get; set; }
+        }
+
+        private sealed class ArtistPayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string Name { get; set; }
+            public List<ImagePayload> Images { get; set; }
+            public List<AlbumSummaryPayload> Albums { get; set; }
+        }
+
+        private sealed class OwnerPayload
+        {
+            public string Id { get; set; }
+            public string DisplayName { get; set; }
+        }
+
+        private sealed class PlaylistTrackPayload
+        {
+            public TrackPayload Track { get; set; }
+        }
+
+        private sealed class PlaylistPayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string Name { get; set; }
+            public List<ImagePayload> Images { get; set; }
+            public OwnerPayload Owner { get; set; }
+            public List<PlaylistTrackPayload> Tracks { get; set; }
+        }
+
+        private sealed class UserProfilePayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string DisplayName { get; set; }
+            public string Email { get; set; }
+            public string Country { get; set; }
+            public List<ImagePayload> Images { get; set; }
+        }
+
+        private sealed class PlaylistSummaryPayload
+        {
+            public string Id { get; set; }
+            public string Uri { get; set; }
+            public string Name { get; set; }
+            public List<ImagePayload> Images { get; set; }
+        }
+
+        private sealed class PlaylistListPayload
+        {
+            public List<PlaylistSummaryPayload> Items { get; set; }
+        }
+
+        private sealed class TrackListPayload
+        {
+            public List<TrackPayload> Items { get; set; }
+        }
+
+        private sealed class ArtistListPayload
+        {
+            public List<ArtistSummaryPayload> Items { get; set; }
+        }
+
+        private sealed class SearchPayload
+        {
+            public List<TrackPayload> Tracks { get; set; }
+            public List<AlbumSummaryPayload> Albums { get; set; }
+            public List<ArtistSummaryPayload> Artists { get; set; }
+            public List<PlaylistSummaryPayload> Playlists { get; set; }
         }
     }
 }

@@ -42,7 +42,8 @@ namespace LibreSpotUWP.Views
             string artistId = e.Parameter as string;
             await ViewModel.LoadAsync(artistId);
 
-            HeaderControl.SetArtist(ViewModel.Artist);
+            if (ViewModel.Artist != null)
+                HeaderControl.SetArtist(ViewModel.Artist);
             UpdateStatusBanner();
 
             TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
@@ -94,7 +95,8 @@ namespace LibreSpotUWP.Views
                 return;
 
             await ViewModel.LoadAsync(ViewModel.Artist.Id, true);
-            HeaderControl.SetArtist(ViewModel.Artist);
+            if (ViewModel.Artist != null)
+                HeaderControl.SetArtist(ViewModel.Artist);
             UpdateStatusBanner();
             TrackList.AddTracks(ViewModel.TopTracks ?? new System.Collections.Generic.List<FullTrack>(), true);
             AlbumsGrid.SetAlbums(ViewModel.Albums?.Items ?? new System.Collections.Generic.List<SimpleAlbum>());

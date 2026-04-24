@@ -1,6 +1,6 @@
-﻿using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
-using SpotifyAPI.Web;
 using System;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
@@ -16,13 +16,13 @@ namespace LibreSpotUWP.Controls
 
         public static SpotifyAccountManager Instance => _instance.Value;
 
-        public PrivateUser User { get; private set; }
+        public AppUserProfile User { get; private set; }
 
-        public event EventHandler<PrivateUser> UserChanged;
+        public event EventHandler<AppUserProfile> UserChanged;
 
         private SpotifyAccountManager() { }
 
-        public void SetUser(PrivateUser user)
+        public void SetUser(AppUserProfile user)
         {
             User = user;
             UserChanged?.Invoke(this, user);
@@ -34,7 +34,8 @@ namespace LibreSpotUWP.Controls
         private ISpotifyAuthService _auth;
         private ISpotifyWebService _web;
 
-        private PrivateUser _user;
+        private AppUserProfile _user;
+        private bool _isLoading;
 
         public SpotifyAccountControl()
         {
@@ -50,6 +51,19 @@ namespace LibreSpotUWP.Controls
             Unloaded += OnUnloaded;
         }
 
+        public event EventHandler<UserChangedEventArgs> UserChanged;
+        public event EventHandler<bool> LoadingStateChanged;
+
+        public bool IsLoading
+        {
+            get => _isLoading;
+            set
+            {
+                _isLoading = value;
+                LoadingStateChanged?.Invoke(this, value);
+            }
+        }
+
         public async Task Initialize()
         {
             var token = await _auth.GetAccessToken();
@@ -63,14 +77,13 @@ namespace LibreSpotUWP.Controls
             if (SpotifyAccountManager.Instance.User != null)
             {
                 UpdateUserUI(SpotifyAccountManager.Instance.User);
+                return;
             }
-            else
-            {
-                await RefreshUserProfileAsync();
-            }
+
+            await RefreshUserProfileAsync();
         }
 
-        private async void OnAuthStateChanged(object sender, Models.AuthState state)
+        private async void OnAuthStateChanged(object sender, AuthState state)
         {
             if (state == null)
             {
@@ -89,7 +102,7 @@ namespace LibreSpotUWP.Controls
             Unloaded -= OnUnloaded;
         }
 
-        private void OnGlobalUserChanged(object sender, PrivateUser user)
+        private void OnGlobalUserChanged(object sender, AppUserProfile user)
         {
             _user = user;
             UpdateUserUI(user);
@@ -101,7 +114,7 @@ namespace LibreSpotUWP.Controls
 
             try
             {
-                var result = await _web.GetCurrentUserAsync(forceRefresh: true);
+                var result = await _web.GetCurrentUserProfileAsync(forceRefresh: true);
                 SpotifyAccountManager.Instance.SetUser(result?.Value);
             }
             catch
@@ -114,7 +127,7 @@ namespace LibreSpotUWP.Controls
             }
         }
 
-        public void UpdateUserUI(PrivateUser user)
+        public void UpdateUserUI(AppUserProfile user)
         {
             _user = user;
 
@@ -123,7 +136,7 @@ namespace LibreSpotUWP.Controls
                 DisplayNameText.Text = user.DisplayName ?? "Unknown User";
                 EmailText.Text = user.Email ?? user.Id;
 
-                var img = user.Images?.Count > 0 ? user.Images[0].Url : null;
+                var img = user.Images != null && user.Images.Count > 0 ? user.Images[0].Url : null;
                 UserAvatarBrush.ImageSource = img != null ? new BitmapImage(new Uri(img)) : null;
 
                 BtnManage.Content = "Manage";
@@ -141,10 +154,8 @@ namespace LibreSpotUWP.Controls
 
         public class UserChangedEventArgs : EventArgs
         {
-            public PrivateUser User { get; set; }
+            public AppUserProfile User { get; set; }
         }
-
-        public event EventHandler<UserChangedEventArgs> UserChanged;
 
         private async void BtnManage_Click(object sender, RoutedEventArgs e)
         {
@@ -219,14 +230,15 @@ namespace LibreSpotUWP.Controls
 
         private async Task ShareCurrentAccountQrAsync()
         {
-            if (_auth.Current == null) return;
+            if (_auth.Current == null)
+                return;
 
             string json = Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
             var qrBitmap = await BarcodeUIService.GenerateQrCodeBitmapAsync(json);
 
             if (qrBitmap != null)
             {
-                var image = new Windows.UI.Xaml.Controls.Image
+                var image = new Image
                 {
                     Source = qrBitmap,
                     Width = 300,
@@ -254,15 +266,6 @@ namespace LibreSpotUWP.Controls
 
                 await qrDialog.ShowAsync();
             }
-        }
-
-        public event EventHandler<bool> LoadingStateChanged;
-
-        private bool _isLoading;
-        public bool IsLoading
-        {
-            get => _isLoading;
-            set { _isLoading = value; LoadingStateChanged?.Invoke(this, value); }
         }
     }
 }
