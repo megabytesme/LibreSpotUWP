@@ -368,7 +368,55 @@ namespace LibreSpotUWP.Services
             UpdateState(s => s.IsCurrentTrackPersisted = App.OfflineCatalog.IsTrackPersisted(track.Uri));
         }
 
-        public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
+        public Task SetVolumeAsync(ushort v)
+        {
+            _pendingVolume = v;
+            _volumeDirty = false;
+
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            settings.Values[VolumeKey] = v;
+            UpdateState(s => s.Volume = v);
+
+            if (_absoluteVolumeControlEnabled)
+            {
+                ApplyAbsoluteVolumeToGraph(v);
+                return Task.CompletedTask;
+            }
+
+            return ApplyLibrespotVolumeAsync(v);
+        }
+
+        public async Task SetAbsoluteVolumeControlEnabledAsync(bool enabled)
+        {
+            if (_absoluteVolumeControlEnabled == enabled)
+            {
+                UserSettings.AbsoluteVolumeControlEnabled = enabled;
+                if (_absoluteVolumeControlEnabled)
+                    ApplyAbsoluteVolumeToGraph(_pendingVolume);
+                return;
+            }
+
+            _absoluteVolumeControlEnabled = enabled;
+            UserSettings.AbsoluteVolumeControlEnabled = enabled;
+
+            if (_absoluteVolumeControlEnabled)
+            {
+                await ApplyLibrespotVolumeAsync(65535);
+                ApplyAbsoluteVolumeToGraph(_pendingVolume);
+            }
+            else
+            {
+                ApplyAbsoluteVolumeToGraph(65535);
+                await ApplyLibrespotVolumeAsync(_pendingVolume);
+            }
+        }
+
+        public Task SetAudioEffectsPresetAsync(string preset)
+        {
+            UserSettings.AudioEffectsPreset = string.IsNullOrWhiteSpace(preset) ? "None" : preset;
+            _ringPlayer?.SetAudioEffectsPreset(UserSettings.AudioEffectsPreset);
+            return Task.CompletedTask;
+        }
         public void Next()
         {
             if (TryPlayOfflineRelativeTrack(1))
@@ -396,6 +444,8 @@ namespace LibreSpotUWP.Services
 
             _ringPlayer = new LibrespotRingBufferPlayer(props);
             await _ringPlayer.InitializeAsync();
+            _ringPlayer.SetAudioEffectsPreset(UserSettings.AudioEffectsPreset);
+            ApplyAbsoluteVolumeToGraph(_absoluteVolumeControlEnabled ? _pendingVolume : 65535);
         }
 
         private async void OnTrackChanged(object sender, LibrespotTrackInfo track)

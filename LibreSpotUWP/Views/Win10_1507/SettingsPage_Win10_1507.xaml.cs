@@ -36,6 +36,8 @@ namespace LibreSpotUWP.Views.Win10_1507
             _media = App.Media;
             _auth = App.SpotifyAuth;
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
+            AbsoluteVolumeToggle.IsOn = UserSettings.AbsoluteVolumeControlEnabled;
+            SelectAudioEffectsPreset(UserSettings.AudioEffectsPreset);
             DefaultHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.Default;
             PlaylistsFirstHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.PlaylistsFirst;
             AlphabeticalHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.Alphabetical;
@@ -85,6 +87,49 @@ namespace LibreSpotUWP.Views.Win10_1507
             UpdateLibrespotStatus(App.Librespot.Session);
         }
 
+        private async void AbsoluteVolumeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.AbsoluteVolumeControlEnabled = AbsoluteVolumeToggle.IsOn;
+
+            if (_media == null)
+                return;
+
+            try
+            {
+                await _media.SetAbsoluteVolumeControlEnabledAsync(AbsoluteVolumeToggle.IsOn);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to update absolute volume control: {ex}");
+            }
+        }
+
+        private async void AudioEffectsComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            if (!(AudioEffectsComboBox.SelectedItem is ComboBoxItem selectedItem))
+                return;
+
+            var preset = selectedItem.Tag as string ?? "None";
+            UserSettings.AudioEffectsPreset = preset;
+
+            if (_media == null)
+                return;
+
+            try
+            {
+                await _media.SetAudioEffectsPresetAsync(preset);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to update audio effects preset: {ex}");
+            }
+        }
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             base.OnNavigatedFrom(e);
@@ -118,6 +163,22 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             if (sender is RadioButton rb && rb.Tag is string tag && Enum.TryParse(tag, out HomeOrganizationMode mode))
                 UserSettings.HomeOrganizationMode = mode;
+        }
+
+        private void SelectAudioEffectsPreset(string preset)
+        {
+            switch (preset)
+            {
+                case "Echo":
+                    AudioEffectsComboBox.SelectedIndex = 1;
+                    break;
+                case "Reverb":
+                    AudioEffectsComboBox.SelectedIndex = 2;
+                    break;
+                default:
+                    AudioEffectsComboBox.SelectedIndex = 0;
+                    break;
+            }
         }
 
         protected void ApplyAppearanceWithoutRestart()
