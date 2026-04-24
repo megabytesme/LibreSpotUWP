@@ -10,6 +10,12 @@ namespace LibreSpotUWP.Models
         public ushort Volume { get; set; }
         public uint PositionMs { get; set; }
         public uint DurationMs { get; set; }
+        public bool IsSessionConnected { get; set; }
+        public bool IsOffline { get; set; }
+        public bool IsTrackMetadataFromCache { get; set; }
+        public bool IsCurrentTrackPersisted { get; set; }
+        public string StatusMessage { get; set; }
+        public string ArtworkUri { get; set; }
 
         public bool IsPlaying => PlaybackState == LibrespotPlaybackState.Playing;
 
@@ -26,6 +32,12 @@ namespace LibreSpotUWP.Models
                 Volume = this.Volume,
                 PositionMs = this.PositionMs,
                 DurationMs = this.DurationMs,
+                IsSessionConnected = this.IsSessionConnected,
+                IsOffline = this.IsOffline,
+                IsTrackMetadataFromCache = this.IsTrackMetadataFromCache,
+                IsCurrentTrackPersisted = this.IsCurrentTrackPersisted,
+                StatusMessage = this.StatusMessage,
+                ArtworkUri = this.ArtworkUri,
                 Shuffle = this.Shuffle,
                 RepeatMode = this.RepeatMode
             };

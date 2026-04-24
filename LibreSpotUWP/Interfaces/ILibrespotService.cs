@@ -14,6 +14,7 @@ namespace LibreSpotUWP.Interfaces
 
         Task ConnectWithAccessTokenAsync(string accessToken);
         Task LoadAndPlayAsync(string spotifyUri, string startUri);
+        Task SetTrackPersistedAsync(string trackUri, bool persisted);
         Task PauseAsync();
         Task ResumeAsync();
         Task StopAsync();
@@ -33,6 +34,7 @@ namespace LibreSpotUWP.Interfaces
         event EventHandler<ushort> VolumeChanged;
         event EventHandler<bool> ShuffleChanged;
         event EventHandler<uint> RepeatChanged;
+        event EventHandler<string> EndOfTrack;
         event EventHandler<string> LogMessage;
         event EventHandler<string> Panic;
     }

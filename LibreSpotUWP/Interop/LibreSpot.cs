@@ -212,5 +212,13 @@ namespace LibreSpotUWP.Interop
             IntPtr fileIdHex,
             [MarshalAs(UnmanagedType.U1)] bool persisted
         );
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        public static extern bool librespot_track_set_persisted(
+            IntPtr inst,
+            IntPtr trackUri,
+            [MarshalAs(UnmanagedType.U1)] bool persisted
+        );
     }
 }
