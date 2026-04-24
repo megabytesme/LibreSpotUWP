@@ -1,6 +1,8 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.UI.Xaml;
@@ -79,6 +81,9 @@ namespace LibreSpotUWP.Views.Win10_1507
                 TotalTime.Text = Format(state.DurationMs);
 
             }
+
+            UpdateArtistButton(state);
+            UpdateContextButton(state);
 
             if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
             {
@@ -194,6 +199,40 @@ namespace LibreSpotUWP.Views.Win10_1507
                 return;
 
             DataTransferManager.ShowShareUI();
+        }
+
+        private void ContextButton_Click(object sender, RoutedEventArgs e)
+        {
+            var contextUri = Media?.Current?.ContextUri;
+            if (string.IsNullOrWhiteSpace(contextUri))
+                return;
+
+            Helpers.PlaybackNavigationHelper.NavigateToSpotifyUri(this, contextUri);
+        }
+
+        private void TrackArtistButton_Click(object sender, RoutedEventArgs e)
+        {
+            var artists = GetTrackArtists(Media?.Current);
+            if (artists.Count == 0)
+                return;
+
+            if (artists.Count == 1)
+            {
+                Helpers.PlaybackNavigationHelper.NavigateToSpotifyUri(this, artists[0].Uri);
+                return;
+            }
+
+            var flyout = new MenuFlyout();
+            foreach (var artist in artists.Where(a => !string.IsNullOrWhiteSpace(a.Uri)))
+            {
+                var artistUri = artist.Uri;
+                var item = new MenuFlyoutItem { Text = artist.Name };
+                item.Click += (s, args) => Helpers.PlaybackNavigationHelper.NavigateToSpotifyUri(this, artistUri);
+                flyout.Items.Add(item);
+            }
+
+            if (flyout.Items.Count > 0)
+                flyout.ShowAt(TrackArtistButton);
         }
 
         private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -333,6 +372,47 @@ namespace LibreSpotUWP.Views.Win10_1507
                 return "https://open.spotify.com/";
 
             return $"https://open.spotify.com/{parts[1]}/{parts[2]}";
+        }
+
+        private void UpdateArtistButton(MediaState state)
+        {
+            var artists = GetTrackArtists(state);
+            TrackArtistButton.Visibility = artists.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            TrackArtistButton.IsEnabled = artists.Count > 0;
+            ToolTipService.SetToolTip(
+                TrackArtistButton,
+                artists.Count > 1 ? "Choose an artist" : artists.FirstOrDefault()?.Name);
+        }
+
+        private void UpdateContextButton(MediaState state)
+        {
+            var contextName = state?.ContextName;
+            var contextUri = state?.ContextUri;
+            var hasContext = !string.IsNullOrWhiteSpace(contextName) && !string.IsNullOrWhiteSpace(contextUri);
+
+            ContextText.Text = contextName ?? string.Empty;
+            ContextButton.Visibility = hasContext ? Visibility.Visible : Visibility.Collapsed;
+            ContextButton.IsEnabled = hasContext;
+            ToolTipService.SetToolTip(ContextButton, contextName);
+        }
+
+        private static List<AppSimpleArtist> GetTrackArtists(MediaState state)
+        {
+            var metadataArtists = state?.Metadata?.Artists;
+            if (metadataArtists?.Count > 0)
+            {
+                return metadataArtists
+                    .Where(a => !string.IsNullOrWhiteSpace(a?.Id))
+                    .Select(a => new AppSimpleArtist
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        Uri = a.Uri ?? $"spotify:artist:{a.Id}"
+                    })
+                    .ToList();
+            }
+
+            return new List<AppSimpleArtist>();
         }
 
         private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)

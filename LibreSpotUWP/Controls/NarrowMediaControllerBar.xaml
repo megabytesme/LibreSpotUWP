@@ -63,14 +63,22 @@
                 MaxLines="1"
                 TextTrimming="CharacterEllipsis" />
 
-            <TextBlock
-                x:Name="TrackArtist"
+            <Button
+                x:Name="TrackArtistButton"
                 Grid.Column="1"
                 Margin="8,18,0,0"
-                FontSize="12"
-                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                MaxLines="1"
-                TextTrimming="CharacterEllipsis" />
+                HorizontalAlignment="Left"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="TrackArtistButton_Click"
+                Padding="0">
+                <TextBlock
+                    x:Name="TrackArtist"
+                    FontSize="12"
+                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                    MaxLines="1"
+                    TextTrimming="CharacterEllipsis" />
+            </Button>
 
             <Button
                 x:Name="PlayPauseButton"

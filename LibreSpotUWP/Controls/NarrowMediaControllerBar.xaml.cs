@@ -2,6 +2,8 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -61,6 +63,8 @@ namespace LibreSpotUWP.Controls
                 TrackArtist.Text = state.Track?.Artist ?? "";
             }
 
+            UpdateArtistButton(state);
+
             if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
             {
                 _currentArtworkUri = state.ArtworkUri;
@@ -118,23 +122,33 @@ namespace LibreSpotUWP.Controls
 
         private void Root_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            var mainPage = FindMainPage();
+            var mainPage = PlaybackNavigationHelper.FindMainPage(this);
             mainPage?.NavigateTo("Player");
         }
 
-        private MainPage FindMainPage()
+        private void TrackArtistButton_Click(object sender, RoutedEventArgs e)
         {
-            DependencyObject parent = this;
+            var artists = GetTrackArtists(Media?.Current);
+            if (artists.Count == 0)
+                return;
 
-            while (parent != null)
+            if (artists.Count == 1)
             {
-                if (parent is MainPage mp)
-                    return mp;
-
-                parent = Windows.UI.Xaml.Media.VisualTreeHelper.GetParent(parent);
+                PlaybackNavigationHelper.NavigateToSpotifyUri(this, artists[0].Uri);
+                return;
             }
 
-            return null;
+            var flyout = new MenuFlyout();
+            foreach (var artist in artists.Where(a => !string.IsNullOrWhiteSpace(a.Uri)))
+            {
+                var artistUri = artist.Uri;
+                var item = new MenuFlyoutItem { Text = artist.Name };
+                item.Click += (s, args) => PlaybackNavigationHelper.NavigateToSpotifyUri(this, artistUri);
+                flyout.Items.Add(item);
+            }
+
+            if (flyout.Items.Count > 0)
+                flyout.ShowAt(TrackArtistButton);
         }
 
         private void Root_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
@@ -196,6 +210,35 @@ namespace LibreSpotUWP.Controls
         {
             if (App.Downloads != null)
                 App.Downloads.TrackStatusChanged -= Downloads_TrackStatusChanged;
+        }
+
+        private void UpdateArtistButton(MediaState state)
+        {
+            var artists = GetTrackArtists(state);
+            TrackArtistButton.Visibility = artists.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            TrackArtistButton.IsEnabled = artists.Count > 0;
+            ToolTipService.SetToolTip(
+                TrackArtistButton,
+                artists.Count > 1 ? "Choose an artist" : artists.FirstOrDefault()?.Name);
+        }
+
+        private static List<AppSimpleArtist> GetTrackArtists(MediaState state)
+        {
+            var metadataArtists = state?.Metadata?.Artists;
+            if (metadataArtists?.Count > 0)
+            {
+                return metadataArtists
+                    .Where(a => !string.IsNullOrWhiteSpace(a?.Id))
+                    .Select(a => new AppSimpleArtist
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        Uri = a.Uri ?? $"spotify:artist:{a.Id}"
+                    })
+                    .ToList();
+            }
+
+            return new List<AppSimpleArtist>();
         }
     }
 }

@@ -1,6 +1,8 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -54,6 +56,7 @@ namespace LibreSpotUWP.Controls
 
             ToolTipService.SetToolTip(TrackTitle, title);
             ToolTipService.SetToolTip(TrackArtist, artist);
+            UpdateArtistButton(state);
 
             if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
             {
@@ -124,6 +127,31 @@ namespace LibreSpotUWP.Controls
         private async void PersistButton_Click(object sender, RoutedEventArgs e)
         {
             await ToggleCurrentTrackPersistenceAsync();
+        }
+
+        private void TrackArtistButton_Click(object sender, RoutedEventArgs e)
+        {
+            var artists = GetTrackArtists(_media?.Current);
+            if (artists.Count == 0)
+                return;
+
+            if (artists.Count == 1)
+            {
+                Helpers.PlaybackNavigationHelper.NavigateToSpotifyUri(this, artists[0].Uri);
+                return;
+            }
+
+            var flyout = new MenuFlyout();
+            foreach (var artist in artists.Where(a => !string.IsNullOrWhiteSpace(a.Uri)))
+            {
+                var artistUri = artist.Uri;
+                var item = new MenuFlyoutItem { Text = artist.Name };
+                item.Click += (s, args) => Helpers.PlaybackNavigationHelper.NavigateToSpotifyUri(this, artistUri);
+                flyout.Items.Add(item);
+            }
+
+            if (flyout.Items.Count > 0)
+                flyout.ShowAt(TrackArtistButton);
         }
 
         private void PositionSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -225,6 +253,35 @@ namespace LibreSpotUWP.Controls
             return Uri.TryCreate(uriString, UriKind.Absolute, out var uri)
                 ? new BitmapImage(uri)
                 : null;
+        }
+
+        private void UpdateArtistButton(MediaState state)
+        {
+            var artists = GetTrackArtists(state);
+            TrackArtistButton.Visibility = artists.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            TrackArtistButton.IsEnabled = artists.Count > 0;
+            ToolTipService.SetToolTip(
+                TrackArtistButton,
+                artists.Count > 1 ? "Choose an artist" : artists.FirstOrDefault()?.Name);
+        }
+
+        private static List<AppSimpleArtist> GetTrackArtists(MediaState state)
+        {
+            var metadataArtists = state?.Metadata?.Artists;
+            if (metadataArtists?.Count > 0)
+            {
+                return metadataArtists
+                    .Where(a => !string.IsNullOrWhiteSpace(a?.Id))
+                    .Select(a => new AppSimpleArtist
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        Uri = a.Uri ?? $"spotify:artist:{a.Id}"
+                    })
+                    .ToList();
+            }
+
+            return new List<AppSimpleArtist>();
         }
     }
 }
