@@ -1,8 +1,10 @@
-﻿<Page
+<Page
     x:Class="LibreSpotUWP.Views.Win10_1507.HomePage_Win10_1507"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:LibreSpotUWP.Converters"
+    xmlns:imaging="using:Windows.UI.Xaml.Media.Imaging"
+    xmlns:models="using:LibreSpotUWP.Models"
     xmlns:selectors="using:LibreSpotUWP.Selectors"
     xmlns:spotify="using:SpotifyAPI.Web"
     xmlns:viewmodels="using:LibreSpotUWP.ViewModels"
@@ -64,10 +66,58 @@
             </StackPanel>
         </DataTemplate>
 
+        <DataTemplate x:Key="OfflineAlbumTemplate" x:DataType="models:OfflineAlbumEntry">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Image Width="140" Height="140">
+                    <Image.Source>
+                        <imaging:BitmapImage UriSource="{x:Bind ImageUri, Mode=OneWay}" />
+                    </Image.Source>
+                </Image>
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    FontSize="12"
+                    Foreground="Gray"
+                    Text="{x:Bind ArtistLine}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="OfflinePlaylistTemplate" x:DataType="models:OfflinePlaylistEntry">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Image Width="140" Height="140">
+                    <Image.Source>
+                        <imaging:BitmapImage UriSource="{x:Bind ImageUri, Mode=OneWay}" />
+                    </Image.Source>
+                </Image>
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    FontSize="12"
+                    Foreground="Gray"
+                    Text="{x:Bind OwnerName}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="OfflineTrackTemplate" x:DataType="models:OfflineTrackEntry">
+            <StackPanel Width="140" Margin="0,0,12,12">
+                <Image Width="140" Height="140">
+                    <Image.Source>
+                        <imaging:BitmapImage UriSource="{x:Bind ImageUri, Mode=OneWay}" />
+                    </Image.Source>
+                </Image>
+                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    FontSize="12"
+                    Foreground="Gray"
+                    Text="{x:Bind ArtistLine}" />
+            </StackPanel>
+        </DataTemplate>
+
         <selectors:HomeItemTemplateSelector
             x:Key="HomeSelector"
             AlbumTemplate="{StaticResource AlbumTemplate}"
             ArtistTemplate="{StaticResource ArtistTemplate}"
+            OfflineAlbumTemplate="{StaticResource OfflineAlbumTemplate}"
+            OfflinePlaylistTemplate="{StaticResource OfflinePlaylistTemplate}"
+            OfflineTrackTemplate="{StaticResource OfflineTrackTemplate}"
             PlaylistTemplate="{StaticResource PlaylistTemplate}"
             SavedAlbumTemplate="{StaticResource SavedAlbumTemplate}"
             TrackTemplate="{StaticResource TrackTemplate}" />
@@ -81,11 +131,40 @@
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <SemanticZoom Grid.Row="0">
+        <StackPanel
+            x:Name="CacheIndicator"
+            Grid.Row="0"
+            Margin="16,16,16,0"
+            Orientation="Horizontal"
+            Spacing="8"
+            Visibility="Collapsed">
+            <FontIcon
+                Foreground="{ThemeResource SystemAccentColor}"
+                FontFamily="Segoe MDL2 Assets"
+                Glyph="&#xE946;" />
+            <TextBlock
+                x:Name="CacheIndicatorText"
+                Foreground="{ThemeResource SystemAccentColor}"
+                Text="Cached" />
+            <Button
+                x:Name="RefreshButton"
+                Width="28"
+                Height="28"
+                Background="Transparent"
+                Click="RefreshButton_Click">
+                <FontIcon
+                    Foreground="{ThemeResource SystemAccentColor}"
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE72C;" />
+            </Button>
+        </StackPanel>
+
+        <SemanticZoom Grid.Row="1">
             <SemanticZoom.ZoomedInView>
                 <GridView
                     Padding="16"

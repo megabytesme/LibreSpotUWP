@@ -1,5 +1,6 @@
-﻿using LibreSpotUWP.Exceptions;
+using LibreSpotUWP.Exceptions;
 using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Models;
 using LibreSpotUWP.ViewModels;
 using SpotifyAPI.Web;
 using System;
@@ -21,10 +22,10 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         public HomePage_Win10_1507()
         {
-            this.InitializeComponent();
-            this.DataContext = this;
-            this.Loaded += HomePage_Loaded;
-            this.Unloaded += (s, e) => _cts?.Cancel();
+            InitializeComponent();
+            DataContext = this;
+            Loaded += HomePage_Loaded;
+            Unloaded += (s, e) => _cts?.Cancel();
         }
 
         private async void HomePage_Loaded(object sender, RoutedEventArgs e)
@@ -32,7 +33,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             _auth = App.SpotifyAuth;
             _spotify = App.SpotifyWeb;
 
-            if (!await EnsureAuthenticatedAsync())
+            if (Helpers.ConnectivityHelper.HasInternetAccess() && !await EnsureAuthenticatedAsync())
                 return;
 
             await LoadHomepageAsync();
@@ -58,12 +59,17 @@ namespace LibreSpotUWP.Views.Win10_1507
                 _cts?.Cancel();
                 _cts = new CancellationTokenSource();
 
-                await ViewModel.LoadAsync(_spotify, _cts.Token);
+                if (Helpers.ConnectivityHelper.HasInternetAccess())
+                    await ViewModel.LoadAsync(_spotify, _cts.Token);
+                else
+                    await ViewModel.LoadOfflineAsync(App.OfflineCatalog);
+
+                UpdateStatusBanner();
             }
-            catch (OperationCanceledException) {  }
+            catch (OperationCanceledException) { }
             catch (SpotifyWebException ex)
             {
-                System.Diagnostics.Debug.WriteLine("Homepage Load Failed: " + ex.Message);
+                Debug.WriteLine("Homepage Load Failed: " + ex.Message);
             }
         }
 
@@ -71,7 +77,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             var item = e.ClickedItem;
 
-            var frame = (Window.Current.Content as Frame);
+            var frame = Window.Current.Content as Frame;
             var mainPage = frame?.Content as MainPage;
             if (mainPage == null)
                 return;
@@ -103,10 +109,73 @@ namespace LibreSpotUWP.Views.Win10_1507
                     Debug.WriteLine($"Navigating to track: {track.Name}");
                     break;
 
+                case OfflineAlbumEntry offlineAlbum:
+                    mainPage.NavigateToAlbum(offlineAlbum.AlbumId);
+                    break;
+
+                case OfflinePlaylistEntry offlinePlaylist:
+                    mainPage.NavigateToPlaylist(offlinePlaylist.PlaylistId);
+                    break;
+
+                case OfflineTrackEntry offlineTrack:
+                    _ = App.Media.PlayAsync(offlineTrack.TrackUri, null);
+                    break;
+
                 default:
                     Debug.WriteLine("Unknown item type clicked: " + item.GetType().Name);
                     break;
             }
+        }
+
+        private void UpdateStatusBanner()
+        {
+            CacheIndicator.Visibility = Visibility.Collapsed;
+
+            var mainPage = (Window.Current.Content as Frame)?.Content as MainPage;
+            if (mainPage == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(ViewModel.StatusMessage))
+            {
+                mainPage.ClearCacheStatus();
+                return;
+            }
+
+            mainPage.SetCacheStatus(
+                BuildCacheTooltip(ViewModel.CachedAt),
+                Helpers.ConnectivityHelper.HasInternetAccess(),
+                RefreshHomeAsync);
+        }
+
+        private async void RefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            await RefreshHomeAsync();
+        }
+
+        private async Task RefreshHomeAsync()
+        {
+            try
+            {
+                _cts?.Cancel();
+                _cts = new CancellationTokenSource();
+
+                if (Helpers.ConnectivityHelper.HasInternetAccess())
+                    await ViewModel.LoadAsync(_spotify, _cts.Token, true);
+                else
+                    await ViewModel.LoadOfflineAsync(App.OfflineCatalog);
+
+                UpdateStatusBanner();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private static string BuildCacheTooltip(DateTimeOffset? cachedAt)
+        {
+            return cachedAt.HasValue
+                ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
+                : "Cached data is being shown.";
         }
     }
 }
