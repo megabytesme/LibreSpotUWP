@@ -52,6 +52,11 @@ namespace LibreSpotUWP.Helpers
                 return typeof(LikedSongsPage);
             }
 
+            if (pageKey.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
+            {
+                return typeof(UserProfilePage);
+            }
+
             if (pageKey.StartsWith("Search:", StringComparison.OrdinalIgnoreCase))
             {
                 return typeof(SearchPage);

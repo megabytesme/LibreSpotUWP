@@ -81,8 +81,9 @@ namespace LibreSpotUWP.Controls {
             }
             else
             {
-                var url = $"https://open.spotify.com/user/{id}";
-                Windows.System.Launcher.LaunchUriAsync(new Uri(url));
+                var frame = Window.Current.Content as Frame;
+                var main = frame?.Content as MainPage;
+                main?.NavigateTo("User:" + id);
             }
         }
 
