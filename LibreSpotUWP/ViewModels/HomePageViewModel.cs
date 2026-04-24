@@ -19,7 +19,6 @@ namespace LibreSpotUWP.ViewModels
 
     public class HomePageViewModel
     {
-        private static readonly HashSet<string> _skipIds = new HashSet<string>();
         private bool _usedCachedData;
         private bool _usedOfflineFallback;
         private DateTimeOffset? _cachedAt;
@@ -51,6 +50,25 @@ namespace LibreSpotUWP.ViewModels
             GroupedHomeContent.Add(new HomeSectionGroup { Title = "Home" });
         }
 
+        private static readonly string[] DefaultSectionOrder =
+        {
+            "Recently Played Playlists",
+            "Recently Played Albums",
+            "Recently Played Artists",
+            "Recently Played Tracks",
+            "Your Playlists",
+            "Top Artists",
+            "Top Tracks",
+            "Saved Albums",
+            "Artists You Follow",
+            "Albums From Your Top Artists",
+            "Albums You Started",
+            "Downloaded Playlists",
+            "Downloaded Albums",
+            "Downloaded Songs",
+            "Mixed For You"
+        };
+
         public async Task LoadAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh = false)
         {
             GroupedHomeContent.Clear();
@@ -59,10 +77,11 @@ namespace LibreSpotUWP.ViewModels
             _usedOfflineFallback = false;
             _cachedAt = null;
             StatusMessage = null;
+            var recentlyPlayedItemKeys = new HashSet<string>();
 
             var tasks = new Task[]
             {
-                LoadRecentlyPlayedAsync(spotify, ct, forceRefresh),
+                LoadRecentlyPlayedAsync(spotify, ct, forceRefresh, recentlyPlayedItemKeys),
                 LoadUserPlaylistsAsync(spotify, ct, forceRefresh),
                 LoadTopArtistsAsync(spotify, ct, forceRefresh),
                 LoadTopTracksAsync(spotify, ct, forceRefresh),
@@ -111,14 +130,89 @@ namespace LibreSpotUWP.ViewModels
             if (sourceItems == null || sourceItems.Count == 0)
                 return;
 
+            InsertGroup(BuildGroup(title, sourceItems));
+        }
+
+        private static HomeSectionGroup BuildGroup<T>(string title, ObservableCollection<T> sourceItems)
+        {
             var group = new HomeSectionGroup { Title = title };
             foreach (var item in sourceItems)
                 group.Items.Add(item);
 
-            GroupedHomeContent.Add(group);
+            return group;
         }
 
-        private async Task LoadRecentlyPlayedAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh)
+        private void InsertGroup(HomeSectionGroup group)
+        {
+            if (group == null)
+                return;
+
+            var existingIndex = FindGroupIndex(group.Title);
+            if (existingIndex >= 0)
+                GroupedHomeContent.RemoveAt(existingIndex);
+
+            if (group.Title == "Home")
+            {
+                GroupedHomeContent.Insert(0, group);
+                return;
+            }
+
+            var insertIndex = GroupedHomeContent.Count;
+            var organizationMode = UserSettings.HomeOrganizationMode;
+
+            for (int i = 1; i < GroupedHomeContent.Count; i++)
+            {
+                if (ShouldInsertBefore(group.Title, GroupedHomeContent[i].Title, organizationMode))
+                {
+                    insertIndex = i;
+                    break;
+                }
+            }
+
+            GroupedHomeContent.Insert(insertIndex, group);
+        }
+
+        private int FindGroupIndex(string title)
+        {
+            for (int i = 0; i < GroupedHomeContent.Count; i++)
+            {
+                if (string.Equals(GroupedHomeContent[i].Title, title, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static bool ShouldInsertBefore(string candidateTitle, string existingTitle, HomeOrganizationMode mode)
+        {
+            if (mode == HomeOrganizationMode.Alphabetical)
+                return string.Compare(candidateTitle, existingTitle, StringComparison.OrdinalIgnoreCase) < 0;
+
+            int candidateRank = GetSectionRank(candidateTitle, mode);
+            int existingRank = GetSectionRank(existingTitle, mode);
+
+            if (candidateRank != existingRank)
+                return candidateRank < existingRank;
+
+            return string.Compare(candidateTitle, existingTitle, StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        private static int GetSectionRank(string title, HomeOrganizationMode mode)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return int.MaxValue;
+
+            if (mode == HomeOrganizationMode.PlaylistsFirst && title.IndexOf("Playlist", StringComparison.OrdinalIgnoreCase) >= 0)
+                return 0;
+
+            int defaultIndex = Array.FindIndex(DefaultSectionOrder, item => string.Equals(item, title, StringComparison.OrdinalIgnoreCase));
+            if (defaultIndex >= 0)
+                return mode == HomeOrganizationMode.PlaylistsFirst ? defaultIndex + 1 : defaultIndex;
+
+            return mode == HomeOrganizationMode.PlaylistsFirst ? 1000 : int.MaxValue - 1;
+        }
+
+        private async Task LoadRecentlyPlayedAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh, HashSet<string> recentlyPlayedItemKeys)
         {
             try
             {
@@ -142,20 +236,20 @@ namespace LibreSpotUWP.ViewModels
                     if (track.Album != null)
                     {
                         var album = ToFullAlbum(track.Album);
-                        if (album != null && !_skipIds.Contains(album.Id))
+                        if (album != null && !recentlyPlayedItemKeys.Contains(album.Id))
                         {
                             RecentlyPlayedAlbums.Add(album);
-                            _skipIds.Add(album.Id);
+                            recentlyPlayedItemKeys.Add(album.Id);
                         }
                     }
 
                     foreach (var artist in track.Artists)
                     {
                         var fullArtist = ToFullArtist(artist);
-                        if (fullArtist != null && !_skipIds.Contains(fullArtist.Id))
+                        if (fullArtist != null && !recentlyPlayedItemKeys.Contains(fullArtist.Id))
                         {
                             RecentlyPlayedArtists.Add(fullArtist);
-                            _skipIds.Add(fullArtist.Id);
+                            recentlyPlayedItemKeys.Add(fullArtist.Id);
                         }
                     }
 
@@ -168,7 +262,7 @@ namespace LibreSpotUWP.ViewModels
                     {
                         var id = uri.Substring("spotify:playlist:".Length);
 
-                        if (_skipIds.Contains(id))
+                        if (recentlyPlayedItemKeys.Contains(id))
                             continue;
 
                         try
@@ -176,10 +270,10 @@ namespace LibreSpotUWP.ViewModels
                             var playlistResp = await spotify.GetPlaylistAsync(id, forceRefresh, ct);
                             RegisterCacheUse(playlistResp);
                             RecentlyPlayedPlaylists.Add(playlistResp.Value);
+                            recentlyPlayedItemKeys.Add(id);
                         }
                         catch
                         {
-                            _skipIds.Add(id);
                         }
 
                         continue;
@@ -189,11 +283,11 @@ namespace LibreSpotUWP.ViewModels
                     {
                         var id = uri.Substring("spotify:album:".Length);
 
-                        if (_skipIds.Contains(id) || track.Album == null || track.Album.Id != id)
+                        if (recentlyPlayedItemKeys.Contains(id) || track.Album == null || track.Album.Id != id)
                             continue;
 
                         RecentlyPlayedAlbums.Add(ToFullAlbum(track.Album));
-                        _skipIds.Add(id);
+                        recentlyPlayedItemKeys.Add(id);
 
                         continue;
                     }
@@ -202,14 +296,14 @@ namespace LibreSpotUWP.ViewModels
                     {
                         var id = uri.Substring("spotify:artist:".Length);
 
-                        if (_skipIds.Contains(id))
+                        if (recentlyPlayedItemKeys.Contains(id))
                             continue;
 
                         var artist = track.Artists?.FirstOrDefault(a => a.Id == id);
                         if (artist != null)
                         {
                             RecentlyPlayedArtists.Add(ToFullArtist(artist));
-                            _skipIds.Add(id);
+                            recentlyPlayedItemKeys.Add(id);
                         }
                     }
                 }

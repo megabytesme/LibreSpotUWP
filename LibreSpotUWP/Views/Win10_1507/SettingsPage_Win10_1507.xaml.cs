@@ -36,6 +36,9 @@ namespace LibreSpotUWP.Views.Win10_1507
             _media = App.Media;
             _auth = App.SpotifyAuth;
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
+            DefaultHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.Default;
+            PlaylistsFirstHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.PlaylistsFirst;
+            AlphabeticalHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.Alphabetical;
 
             if (_auth != null)
             {
@@ -49,6 +52,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             UpdateLibrespotStatus(App.Librespot?.Session);
             UpdateSpotifyApiStatus(_auth?.Current);
             _ = RefreshStorageStatusAsync();
+            _loading = false;
         }
 
         private async void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -105,6 +109,15 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             AppearanceService.Set(mode);
             ApplyAppearanceWithoutRestart();
+        }
+
+        protected void HomeOrganizationRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            if (sender is RadioButton rb && rb.Tag is string tag && Enum.TryParse(tag, out HomeOrganizationMode mode))
+                UserSettings.HomeOrganizationMode = mode;
         }
 
         protected void ApplyAppearanceWithoutRestart()
