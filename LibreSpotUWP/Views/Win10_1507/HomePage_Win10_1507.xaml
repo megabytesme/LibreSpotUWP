@@ -11,12 +11,14 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Page.Resources>
+        <converters:ImageCollectionToUrlConverter x:Key="ImageCollectionToUrlConverter" />
+
         <DataTemplate x:Key="PlaylistTemplate" x:DataType="spotify:FullPlaylist">
             <StackPanel Width="140" Margin="0,0,12,12">
                 <Image
                     Width="140"
                     Height="140"
-                    Source="{x:Bind Images[0].Url}" />
+                    Source="{x:Bind Images, Converter={StaticResource ImageCollectionToUrlConverter}}" />
                 <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
@@ -26,7 +28,7 @@
                 <Image
                     Width="140"
                     Height="140"
-                    Source="{x:Bind Album.Images[0].Url}" />
+                    Source="{x:Bind Album.Images, Converter={StaticResource ImageCollectionToUrlConverter}}" />
                 <TextBlock Text="{x:Bind Album.Name}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
@@ -36,7 +38,7 @@
                 <Image
                     Width="140"
                     Height="140"
-                    Source="{x:Bind Images[0].Url}" />
+                    Source="{x:Bind Images, Converter={StaticResource ImageCollectionToUrlConverter}}" />
                 <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
@@ -45,7 +47,7 @@
             <StackPanel Width="140" Margin="0,0,12,12">
                 <Ellipse Width="140" Height="140">
                     <Ellipse.Fill>
-                        <ImageBrush ImageSource="{x:Bind Images[0].Url}" />
+                        <ImageBrush ImageSource="{x:Bind Images, Converter={StaticResource ImageCollectionToUrlConverter}}" />
                     </Ellipse.Fill>
                 </Ellipse>
                 <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
@@ -57,7 +59,7 @@
                 <Image
                     Width="140"
                     Height="140"
-                    Source="{x:Bind Album.Images[0].Url}" />
+                    Source="{x:Bind Album.Images, Converter={StaticResource ImageCollectionToUrlConverter}}" />
                 <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                 <TextBlock
                     FontSize="12"

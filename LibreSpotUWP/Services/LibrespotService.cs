@@ -3,8 +3,10 @@ using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Interop;
 using LibreSpotUWP.Models;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.Media.MediaProperties;
 using Windows.Storage;
@@ -148,6 +150,344 @@ namespace LibreSpotUWP.Services
 
             LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token.");
             await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+        }
+
+        public Task<LibrespotTrackData> GetTrackAsync(string trackUri)
+        {
+            return GetTypedPayloadAsync(trackUri, Librespot.librespot_track_get, Librespot.librespot_track_free, ReadTrack);
+        }
+
+        public Task<LibrespotAlbumData> GetAlbumAsync(string albumUri)
+        {
+            return GetTypedPayloadAsync(albumUri, Librespot.librespot_album_get, Librespot.librespot_album_free, ReadAlbum);
+        }
+
+        public Task<LibrespotArtistData> GetArtistAsync(string artistUri)
+        {
+            return GetTypedPayloadAsync(artistUri, Librespot.librespot_artist_get, Librespot.librespot_artist_free, ReadArtist);
+        }
+
+        public Task<LibrespotPlaylistData> GetPlaylistAsync(string playlistUri)
+        {
+            return GetTypedPayloadAsync(playlistUri, Librespot.librespot_playlist_get, Librespot.librespot_playlist_free, ReadPlaylist);
+        }
+
+        public Task<LibrespotUserProfileData> GetUserProfileAsync(string userId)
+        {
+            return GetTypedPayloadAsync(userId, Librespot.librespot_user_profile_get, Librespot.librespot_user_profile_free, ReadUserProfile);
+        }
+
+        public Task<LibrespotPlaylistListData> GetUserPlaylistsAsync(string userId)
+        {
+            return GetTypedPayloadAsync(userId, Librespot.librespot_user_playlists_get, Librespot.librespot_playlist_list_free, ReadPlaylistList);
+        }
+
+        public Task<LibrespotTrackListData> GetSavedTracksAsync(string userId)
+        {
+            return GetTypedPayloadAsync(userId, Librespot.librespot_saved_tracks_get, Librespot.librespot_track_list_free, ReadTrackList);
+        }
+
+        public Task<LibrespotArtistListData> GetFollowedArtistsAsync(string userId)
+        {
+            return GetTypedPayloadAsync(userId, Librespot.librespot_followed_artists_get, Librespot.librespot_artist_list_free, ReadArtistList);
+        }
+
+        public Task<LibrespotSearchData> SearchAsync(string query)
+        {
+            return GetTypedPayloadAsync(query, Librespot.librespot_search_get, Librespot.librespot_search_free, ReadSearch);
+        }
+
+        private static string GetLastNativeError()
+        {
+            var errorPtr = Librespot.librespot_last_error_get();
+            if (errorPtr == IntPtr.Zero)
+                return null;
+
+            try
+            {
+                return Marshal.PtrToStringAnsi(errorPtr);
+            }
+            finally
+            {
+                Librespot.librespot_string_free(errorPtr);
+            }
+        }
+
+        private Task<T> GetTypedPayloadAsync<T>(
+            string argument,
+            Func<IntPtr, IntPtr, IntPtr> getter,
+            Action<IntPtr> freer,
+            Func<IntPtr, T> mapper)
+        {
+            ThrowIfDisposed();
+            if (!_initialized)
+                throw new InvalidOperationException("LibrespotService not initialized.");
+            if (_instance == IntPtr.Zero)
+                throw new InvalidOperationException("Not connected.");
+            if (string.IsNullOrWhiteSpace(argument))
+                throw new ArgumentException("Argument must not be null or empty.", nameof(argument));
+
+            return Task.Run(() =>
+            {
+                IntPtr argumentPtr = Marshal.StringToHGlobalAnsi(argument);
+                try
+                {
+                    var resultPtr = getter(_instance, argumentPtr);
+                    if (resultPtr == IntPtr.Zero)
+                    {
+                        var lastError = GetLastNativeError();
+                        throw new InvalidOperationException(
+                            string.IsNullOrWhiteSpace(lastError)
+                                ? string.Format("librespot typed request returned null for {0}.", argument)
+                                : string.Format("librespot typed request returned null for {0}. Native error: {1}", argument, lastError));
+                    }
+
+                    try
+                    {
+                        return mapper(resultPtr);
+                    }
+                    finally
+                    {
+                        freer(resultPtr);
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(argumentPtr);
+                }
+            });
+        }
+
+        private static string ReadString(IntPtr value)
+        {
+            if (value == IntPtr.Zero)
+                return null;
+
+            int length = 0;
+            while (Marshal.ReadByte(value, length) != 0)
+                length++;
+
+            if (length == 0)
+                return string.Empty;
+
+            byte[] buffer = new byte[length];
+            Marshal.Copy(value, buffer, 0, length);
+            return Encoding.UTF8.GetString(buffer, 0, buffer.Length);
+        }
+
+        private static int ReadCount(UIntPtr count)
+        {
+            return checked((int)count.ToUInt64());
+        }
+
+        private static List<T> ReadList<TStruct, T>(IntPtr itemsPtr, UIntPtr count, Func<TStruct, T> mapper)
+        {
+            var result = new List<T>();
+            if (itemsPtr == IntPtr.Zero)
+                return result;
+
+            int length = ReadCount(count);
+            int size = Marshal.SizeOf(typeof(TStruct));
+            for (int i = 0; i < length; i++)
+            {
+                var itemPtr = IntPtr.Add(itemsPtr, i * size);
+                var item = (TStruct)Marshal.PtrToStructure(itemPtr, typeof(TStruct));
+                result.Add(mapper(item));
+            }
+
+            return result;
+        }
+
+        private static LibrespotImageData ReadImage(FfiImage image)
+        {
+            return new LibrespotImageData
+            {
+                Url = ReadString(image.url),
+                Width = image.width,
+                Height = image.height
+            };
+        }
+
+        private static LibrespotArtistSummaryData ReadArtistSummary(FfiArtistSummary artist)
+        {
+            return new LibrespotArtistSummaryData
+            {
+                Id = ReadString(artist.id),
+                Uri = ReadString(artist.uri),
+                Name = ReadString(artist.name)
+            };
+        }
+
+        private static LibrespotAlbumSummaryData ReadAlbumSummary(FfiAlbumSummary album)
+        {
+            return new LibrespotAlbumSummaryData
+            {
+                Id = ReadString(album.id),
+                Uri = ReadString(album.uri),
+                Name = ReadString(album.name),
+                AlbumType = ReadString(album.album_type),
+                ReleaseDate = ReadString(album.release_date),
+                TotalTracks = album.total_tracks,
+                Images = ReadList<FfiImage, LibrespotImageData>(album.images, album.image_count, ReadImage),
+                Artists = ReadList<FfiArtistSummary, LibrespotArtistSummaryData>(album.artists, album.artist_count, ReadArtistSummary)
+            };
+        }
+
+        private static LibrespotSimpleTrackData ReadSimpleTrack(FfiSimpleTrack track)
+        {
+            return new LibrespotSimpleTrackData
+            {
+                Id = ReadString(track.id),
+                Uri = ReadString(track.uri),
+                Name = ReadString(track.name),
+                DurationMs = track.duration_ms,
+                DiscNumber = track.disc_number,
+                TrackNumber = track.track_number,
+                Artists = ReadList<FfiArtistSummary, LibrespotArtistSummaryData>(track.artists, track.artist_count, ReadArtistSummary)
+            };
+        }
+
+        private static LibrespotTrackData ReadTrack(IntPtr trackPtr)
+        {
+            return ReadTrackValue((FfiTrack)Marshal.PtrToStructure(trackPtr, typeof(FfiTrack)));
+        }
+
+        private static LibrespotTrackData ReadTrackValue(FfiTrack track)
+        {
+            return new LibrespotTrackData
+            {
+                Id = ReadString(track.id),
+                Uri = ReadString(track.uri),
+                Name = ReadString(track.name),
+                DurationMs = track.duration_ms,
+                DiscNumber = track.disc_number,
+                TrackNumber = track.track_number,
+                Artists = ReadList<FfiArtistSummary, LibrespotArtistSummaryData>(track.artists, track.artist_count, ReadArtistSummary),
+                Album = track.album == IntPtr.Zero
+                    ? null
+                    : ReadAlbumSummary((FfiAlbumSummary)Marshal.PtrToStructure(track.album, typeof(FfiAlbumSummary)))
+            };
+        }
+
+        private static LibrespotAlbumData ReadAlbum(IntPtr albumPtr)
+        {
+            var album = (FfiAlbum)Marshal.PtrToStructure(albumPtr, typeof(FfiAlbum));
+            return new LibrespotAlbumData
+            {
+                Id = ReadString(album.id),
+                Uri = ReadString(album.uri),
+                Name = ReadString(album.name),
+                AlbumType = ReadString(album.album_type),
+                ReleaseDate = ReadString(album.release_date),
+                TotalTracks = album.total_tracks,
+                Images = ReadList<FfiImage, LibrespotImageData>(album.images, album.image_count, ReadImage),
+                Artists = ReadList<FfiArtistSummary, LibrespotArtistSummaryData>(album.artists, album.artist_count, ReadArtistSummary),
+                Tracks = ReadList<FfiSimpleTrack, LibrespotSimpleTrackData>(album.tracks, album.track_count, ReadSimpleTrack)
+            };
+        }
+
+        private static LibrespotArtistData ReadArtist(IntPtr artistPtr)
+        {
+            var artist = (FfiArtist)Marshal.PtrToStructure(artistPtr, typeof(FfiArtist));
+            return new LibrespotArtistData
+            {
+                Id = ReadString(artist.id),
+                Uri = ReadString(artist.uri),
+                Name = ReadString(artist.name),
+                Images = ReadList<FfiImage, LibrespotImageData>(artist.images, artist.image_count, ReadImage),
+                Albums = ReadList<FfiAlbumSummary, LibrespotAlbumSummaryData>(artist.albums, artist.album_count, ReadAlbumSummary)
+            };
+        }
+
+        private static LibrespotOwnerData ReadOwner(IntPtr ownerPtr)
+        {
+            if (ownerPtr == IntPtr.Zero)
+                return null;
+
+            var owner = (FfiOwner)Marshal.PtrToStructure(ownerPtr, typeof(FfiOwner));
+            return new LibrespotOwnerData
+            {
+                Id = ReadString(owner.id),
+                DisplayName = ReadString(owner.display_name)
+            };
+        }
+
+        private static LibrespotPlaylistSummaryData ReadPlaylistSummary(FfiPlaylistSummary playlist)
+        {
+            return new LibrespotPlaylistSummaryData
+            {
+                Id = ReadString(playlist.id),
+                Uri = ReadString(playlist.uri),
+                Name = ReadString(playlist.name),
+                Images = ReadList<FfiImage, LibrespotImageData>(playlist.images, playlist.image_count, ReadImage)
+            };
+        }
+
+        private static LibrespotPlaylistData ReadPlaylist(IntPtr playlistPtr)
+        {
+            var playlist = (FfiPlaylist)Marshal.PtrToStructure(playlistPtr, typeof(FfiPlaylist));
+            return new LibrespotPlaylistData
+            {
+                Id = ReadString(playlist.id),
+                Uri = ReadString(playlist.uri),
+                Name = ReadString(playlist.name),
+                Images = ReadList<FfiImage, LibrespotImageData>(playlist.images, playlist.image_count, ReadImage),
+                Owner = ReadOwner(playlist.owner),
+                Tracks = ReadList<FfiTrack, LibrespotTrackData>(playlist.tracks, playlist.track_count, ReadTrackValue)
+            };
+        }
+
+        private static LibrespotUserProfileData ReadUserProfile(IntPtr profilePtr)
+        {
+            var profile = (FfiUserProfile)Marshal.PtrToStructure(profilePtr, typeof(FfiUserProfile));
+            return new LibrespotUserProfileData
+            {
+                Id = ReadString(profile.id),
+                Uri = ReadString(profile.uri),
+                DisplayName = ReadString(profile.display_name),
+                Email = ReadString(profile.email),
+                Country = ReadString(profile.country),
+                Images = ReadList<FfiImage, LibrespotImageData>(profile.images, profile.image_count, ReadImage)
+            };
+        }
+
+        private static LibrespotPlaylistListData ReadPlaylistList(IntPtr listPtr)
+        {
+            var list = (FfiPlaylistList)Marshal.PtrToStructure(listPtr, typeof(FfiPlaylistList));
+            return new LibrespotPlaylistListData
+            {
+                Items = ReadList<FfiPlaylistSummary, LibrespotPlaylistSummaryData>(list.items, list.item_count, ReadPlaylistSummary)
+            };
+        }
+
+        private static LibrespotTrackListData ReadTrackList(IntPtr listPtr)
+        {
+            var list = (FfiTrackList)Marshal.PtrToStructure(listPtr, typeof(FfiTrackList));
+            return new LibrespotTrackListData
+            {
+                Items = ReadList<FfiTrack, LibrespotTrackData>(list.items, list.item_count, ReadTrackValue)
+            };
+        }
+
+        private static LibrespotArtistListData ReadArtistList(IntPtr listPtr)
+        {
+            var list = (FfiArtistList)Marshal.PtrToStructure(listPtr, typeof(FfiArtistList));
+            return new LibrespotArtistListData
+            {
+                Items = ReadList<FfiArtistSummary, LibrespotArtistSummaryData>(list.items, list.item_count, ReadArtistSummary)
+            };
+        }
+
+        private static LibrespotSearchData ReadSearch(IntPtr searchPtr)
+        {
+            var search = (FfiSearch)Marshal.PtrToStructure(searchPtr, typeof(FfiSearch));
+            return new LibrespotSearchData
+            {
+                Tracks = ReadList<FfiTrack, LibrespotTrackData>(search.tracks, search.track_count, ReadTrackValue),
+                Albums = ReadList<FfiAlbumSummary, LibrespotAlbumSummaryData>(search.albums, search.album_count, ReadAlbumSummary),
+                Artists = ReadList<FfiArtistSummary, LibrespotArtistSummaryData>(search.artists, search.artist_count, ReadArtistSummary),
+                Playlists = ReadList<FfiPlaylistSummary, LibrespotPlaylistSummaryData>(search.playlists, search.playlist_count, ReadPlaylistSummary)
+            };
         }
 
         public async Task LoadAndPlayAsync(string contextUri, string startUri = null)

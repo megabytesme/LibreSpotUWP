@@ -127,6 +127,8 @@ namespace LibreSpotUWP.Views
             if (ViewModel.Album == null || ViewModel.Tracks?.Items == null)
                 return;
 
+            await EnsureAllAlbumTracksLoadedAsync();
+
             var persisted = App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album.Id);
             await App.OfflineCatalog.SetAlbumPersistedAsync(ViewModel.Album, ViewModel.Tracks.Items, !persisted);
             PlayActions.SetPersisted(!persisted);
@@ -153,6 +155,14 @@ namespace LibreSpotUWP.Views
         private MainPage GetMainPage()
         {
             return (Window.Current.Content as Frame)?.Content as MainPage;
+        }
+
+        private async Task EnsureAllAlbumTracksLoadedAsync()
+        {
+            while (ViewModel.HasMoreTracks)
+            {
+                await ViewModel.LoadMoreTracksAsync();
+            }
         }
 
         private static string BuildCacheTooltip(DateTimeOffset? cachedAt)

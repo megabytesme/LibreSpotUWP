@@ -2,7 +2,12 @@
     x:Class="LibreSpotUWP.Controls.AlbumGridControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:controls="using:LibreSpotUWP.Controls">
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    xmlns:converters="using:LibreSpotUWP.Converters">
+
+    <UserControl.Resources>
+        <converters:ImageCollectionToUrlConverter x:Key="ImageCollectionToUrlConverter" />
+    </UserControl.Resources>
 
     <Grid>
         <ItemsControl x:Name="AlbumItems">
@@ -26,7 +31,7 @@
                             <Image
                                 Width="140"
                                 Height="140"
-                                Source="{Binding Images[0].Url}"
+                                Source="{Binding Images, Converter={StaticResource ImageCollectionToUrlConverter}}"
                                 Stretch="UniformToFill" />
 
                             <TextBlock

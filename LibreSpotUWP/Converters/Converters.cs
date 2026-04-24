@@ -1,6 +1,6 @@
 ﻿using SpotifyAPI.Web;
 using System;
-using System.Collections.Generic;
+using System.Collections;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Media.Imaging;
@@ -51,12 +51,17 @@ namespace LibreSpotUWP.Converters
     {
         public object Convert(object value, Type targetType, object parameter, string language)
         {
-            if (value is IList<Image> images && images.Count > 0)
+            if (value is IList images && images.Count > 0)
             {
-                var url = images[0].Url;
-                if (!string.IsNullOrEmpty(url))
+                var first = images[0];
+                if (first != null)
                 {
-                    return new BitmapImage(new Uri(url));
+                    var urlProperty = first.GetType().GetProperty("Url");
+                    var url = urlProperty?.GetValue(first) as string;
+                    if (!string.IsNullOrEmpty(url))
+                    {
+                        return new BitmapImage(new Uri(url));
+                    }
                 }
             }
             return null;
