@@ -4,6 +4,7 @@ using LibreSpotUWP.Services;
 using LibreSpotUWP.Views;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.System;
 using Windows.UI.Core;
@@ -25,6 +26,8 @@ namespace LibreSpotUWP
 
         private DispatcherTimer _searchDebounceTimer;
         private string _pendingSearchQuery;
+        private Func<Task> _cacheRefreshAction;
+        private bool _suppressNextNavSelectionChange;
 
         public MainPage()
         {
@@ -131,8 +134,10 @@ namespace LibreSpotUWP
 
         public void NavigateToPlaylist(string id) => NavigateTo("Playlist:" + id);
 
-        public async void NavigateTo(string pageTag)
+        public async void NavigateTo(string pageTag, bool forceReload = false)
         {
+            ClearCacheStatus();
+
             if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
                 _history.Add(pageTag);
 
@@ -208,7 +213,7 @@ namespace LibreSpotUWP
             }
 
             var pageType = NavigationHelper.GetPageType(pageTag);
-            if (ContentFrame.CurrentSourcePageType != pageType)
+            if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
                 ContentFrame.Navigate(pageType);
 
             UpdateBackButton();
@@ -221,6 +226,12 @@ namespace LibreSpotUWP
 
         private async void NavListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_suppressNextNavSelectionChange)
+            {
+                _suppressNextNavSelectionChange = false;
+                return;
+            }
+
             var listBox = sender as ListBox;
             if (listBox == null || listBox.SelectedItem == null)
                 return;
@@ -477,22 +488,40 @@ namespace LibreSpotUWP
             }
         }
 
-        private void HomeItem_Tapped(object sender, TappedRoutedEventArgs e)
+        private void NavItem_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            if (ContentFrame.CurrentSourcePageType == NavigationHelper.GetPageType("Home"))
+            _suppressNextNavSelectionChange = true;
+
+            if (!(sender is ListBoxItem item))
+                return;
+
+            var tag = item.Tag?.ToString();
+            if (string.IsNullOrWhiteSpace(tag))
+                return;
+
+            if (tag == "Account")
             {
-                ForceNavigateHome();
+                FlyoutBase.ShowAttachedFlyout(item);
+                return;
             }
-            else
+
+            if (tag == "Home")
             {
-                NavigateTo("Home");
+                if (ContentFrame.CurrentSourcePageType == NavigationHelper.GetPageType("Home"))
+                    ForceNavigateHome();
+                else
+                    NavigateTo("Home", true);
+                return;
             }
+
+            NavigateTo(tag, true);
         }
 
         private void ForceNavigateHome()
         {
             _history.Clear();
             _history.Add("Home");
+            ClearCacheStatus();
 
             HidePlayer();
 
@@ -503,6 +532,41 @@ namespace LibreSpotUWP
             BottomNavListBox.SelectedIndex = -1;
 
             UpdateBackButton();
+        }
+
+        public void SetCacheStatus(string tooltip, bool showRefreshButton, Func<Task> refreshAction)
+        {
+            CacheStatusPanel.Visibility = Visibility.Visible;
+            CacheStatusText.Text = "Cached Content";
+            CacheRefreshButton.Visibility = showRefreshButton ? Visibility.Visible : Visibility.Collapsed;
+            ToolTipService.SetToolTip(CacheStatusPanel, tooltip);
+            _cacheRefreshAction = refreshAction;
+        }
+
+        public void ClearCacheStatus()
+        {
+            CacheStatusPanel.Visibility = Visibility.Collapsed;
+            ToolTipService.SetToolTip(CacheStatusPanel, null);
+            _cacheRefreshAction = null;
+        }
+
+        private async void CacheRefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            var action = _cacheRefreshAction;
+            if (action == null)
+                return;
+
+            try
+            {
+                await action();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "Cache refresh action failed");
+            }
         }
     }
 }
