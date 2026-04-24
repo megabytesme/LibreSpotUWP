@@ -545,7 +545,7 @@ namespace LibreSpotUWP.Services
             ThrowIfDisposed();
             if (_instance != IntPtr.Zero)
             {
-                Librespot.librespot_pause(_instance);
+                Librespot.librespot_stop(_instance);
             }
             return Task.CompletedTask;
         }
