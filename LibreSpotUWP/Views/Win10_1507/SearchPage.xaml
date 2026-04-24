@@ -71,7 +71,40 @@
     </Page.Resources>
 
     <Grid>
-        <SemanticZoom>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel
+            x:Name="CacheIndicator"
+            Grid.Row="0"
+            Margin="16,16,16,0"
+            Orientation="Horizontal"
+            Spacing="8"
+            Visibility="Collapsed">
+            <FontIcon
+                Foreground="{ThemeResource SystemAccentColor}"
+                FontFamily="Segoe MDL2 Assets"
+                Glyph="&#xE946;" />
+            <TextBlock
+                x:Name="CacheIndicatorText"
+                Foreground="{ThemeResource SystemAccentColor}"
+                Text="Cached" />
+            <Button
+                x:Name="RefreshButton"
+                Width="28"
+                Height="28"
+                Background="Transparent"
+                Click="RefreshButton_Click">
+                <FontIcon
+                    Foreground="{ThemeResource SystemAccentColor}"
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE72C;" />
+            </Button>
+        </StackPanel>
+
+        <SemanticZoom Grid.Row="1">
             <SemanticZoom.ZoomedInView>
                 <GridView
                     Padding="16"
