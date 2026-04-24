@@ -155,6 +155,7 @@ namespace LibreSpotUWP.Services
         public async Task PlayAsync(string contextUri, string startUri = null)
         {
             var isOffline = !ConnectivityHelper.HasInternetAccess();
+            var wasOffline = Current.IsOffline;
             var originalContextUri = contextUri;
             var directTrackUri = !string.IsNullOrWhiteSpace(startUri) ? startUri : contextUri;
             var isDirectTrack = !string.IsNullOrWhiteSpace(directTrackUri) &&
@@ -202,6 +203,9 @@ namespace LibreSpotUWP.Services
                 return;
             }
 
+            if (!isOffline && wasOffline)
+                await StopOfflinePlaybackForOnlineTransitionAsync();
+
             var librespotReady = (_librespot as LibrespotService)?.HasInstance == true;
             var requiresOnlineReconnect = !isOffline && !_librespot.Session.IsConnected;
             if (!librespotReady || requiresOnlineReconnect)
@@ -246,6 +250,25 @@ namespace LibreSpotUWP.Services
             await EnsureRingPlayerAsync();
 
             _ringPlayer.Start();
+        }
+
+        private async Task StopOfflinePlaybackForOnlineTransitionAsync()
+        {
+            LogService.Info("[MediaService.StopOfflinePlaybackForOnlineTransitionAsync] Stopping offline playback before switching back online.");
+
+            _offlineQueue = Array.Empty<string>();
+            _offlineQueueIndex = -1;
+
+            _ringPlayer?.Stop();
+            _mediaPlayer?.Pause();
+
+            await _librespot.StopAsync();
+
+            UpdateState(s =>
+            {
+                s.PlaybackState = LibrespotPlaybackState.Stopped;
+                s.PositionMs = 0;
+            });
         }
 
         public async Task PauseAsync()
