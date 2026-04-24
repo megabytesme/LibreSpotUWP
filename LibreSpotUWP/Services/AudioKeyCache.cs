@@ -43,22 +43,33 @@ namespace LibreSpotUWP.Services
 
         public byte[] GetKeySync(string trackId)
         {
-            return _hotCache.TryGetValue(trackId, out var key) ? key : null;
+            trackId = NormalizeTrackId(trackId);
+            if (_hotCache.TryGetValue(trackId, out var key))
+            {
+                LogService.Info($"[AudioKeyCache.GetKeySync] Key hit for trackId={trackId}.");
+                return key;
+            }
+
+            LogService.Warn($"[AudioKeyCache.GetKeySync] Key miss for trackId={trackId}.");
+            return null;
         }
 
         public bool IsPersisted(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             return _persistedTrackIndex.ContainsKey(trackId);
         }
 
         public void MarkPersisted(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             if (!string.IsNullOrWhiteSpace(trackId))
                 _persistedTrackIndex[trackId] = 1;
         }
 
         public void MarkVolatile(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             if (!string.IsNullOrWhiteSpace(trackId))
                 _persistedTrackIndex.TryRemove(trackId, out _);
         }
@@ -91,15 +102,18 @@ namespace LibreSpotUWP.Services
                 _initLock.Release();
 
                 System.Diagnostics.Debug.WriteLine("[KeyCache] Volatile + Persisted databases ready.");
+                LogService.Info($"[AudioKeyCache.InitializeAsync] Loaded {persistedKeys.Count} persisted and {volatileKeys.Count} volatile keys.");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Init Error: {ex.Message}");
+                LogService.Error(ex, "[AudioKeyCache.InitializeAsync] Failed to initialize key cache.");
             }
         }
 
         private async Task DecryptAndCacheAsync(string trackId, byte[] protectedData, bool persisted)
         {
+            trackId = NormalizeTrackId(trackId);
             try
             {
                 IBuffer unprotectedBuffer = await _protector.UnprotectAsync(protectedData.AsBuffer());
@@ -113,6 +127,7 @@ namespace LibreSpotUWP.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Decryption failed for {trackId}: {ex.Message}");
+                LogService.Error(ex, $"[AudioKeyCache.DecryptAndCacheAsync] Failed to decrypt key for trackId={trackId}.");
             }
         }
 
@@ -123,6 +138,7 @@ namespace LibreSpotUWP.Services
 
         public async Task AddVolatileKeyAsync(string trackId, byte[] rawKey)
         {
+            trackId = NormalizeTrackId(trackId);
             if (!_isInitialized)
             {
                 await _initLock.WaitAsync();
@@ -154,6 +170,7 @@ namespace LibreSpotUWP.Services
 
         public async Task AddPersistedKeyAsync(string trackId, byte[] rawKey)
         {
+            trackId = NormalizeTrackId(trackId);
             if (!_isInitialized)
             {
                 await _initLock.WaitAsync();
@@ -185,6 +202,7 @@ namespace LibreSpotUWP.Services
 
         public async Task RemoveKeyAsync(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             _hotCache.TryRemove(trackId, out _);
             _persistedTrackIndex.TryRemove(trackId, out _);
 
@@ -202,6 +220,7 @@ namespace LibreSpotUWP.Services
 
         public async Task RemoveVolatileKeyAsync(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             try
             {
                 await _volatileDb.DeleteAsync<CachedKey>(trackId);
@@ -221,6 +240,7 @@ namespace LibreSpotUWP.Services
 
         public async Task RemovePersistedKeyAsync(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             try
             {
                 await _persistedDb.DeleteAsync<CachedKey>(trackId);
@@ -245,6 +265,7 @@ namespace LibreSpotUWP.Services
 
         public async Task MoveKeyToPersistedAsync(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             if (!_isInitialized)
             {
                 await _initLock.WaitAsync();
@@ -275,6 +296,7 @@ namespace LibreSpotUWP.Services
 
         public async Task MoveKeyToVolatileAsync(string trackId)
         {
+            trackId = NormalizeTrackId(trackId);
             if (!_isInitialized)
             {
                 await _initLock.WaitAsync();
@@ -301,6 +323,14 @@ namespace LibreSpotUWP.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] MoveKeyToVolatileAsync Error: {ex.Message}");
             }
+        }
+
+        private static string NormalizeTrackId(string trackId)
+        {
+            if (string.IsNullOrWhiteSpace(trackId))
+                return trackId;
+
+            return trackId.Trim().ToLowerInvariant().PadLeft(32, '0');
         }
     }
 }

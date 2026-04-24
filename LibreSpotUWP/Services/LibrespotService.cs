@@ -41,6 +41,7 @@ namespace LibreSpotUWP.Services
         private string ts = DateTime.Now.ToString("HH:mm:ss");
 
         public AudioEncodingProperties EncodingProperties => _audioFormat?.EncodingProperties;
+        public bool HasInstance => _instance != IntPtr.Zero;
         public LibrespotSessionState Session => _session;
         public LibrespotPlaybackState PlaybackState => _playbackState;
         public LibrespotTrackInfo CurrentTrack => _currentTrack;
@@ -56,6 +57,7 @@ namespace LibreSpotUWP.Services
         public event EventHandler<LibrespotTrackInfo> TrackChanged;
         public event EventHandler<LibrespotPlaybackState> PlaybackStateChanged;
         public event EventHandler<ushort> VolumeChanged;
+        public event EventHandler<string> EndOfTrack;
         public event EventHandler<string> LogMessage;
         public event EventHandler<string> Panic;
         public event EventHandler<bool> ShuffleChanged;
@@ -100,9 +102,11 @@ namespace LibreSpotUWP.Services
             if (key != null)
             {
                 Marshal.Copy(key, 0, keyOutPtr, 16);
+                LogService.Info($"[LibrespotService.OnKeyRequested] Cache hit for trackId={trackIdHex}.");
                 return true;
             }
 
+            LogService.Warn($"[LibrespotService.OnKeyRequested] Cache miss for trackId={trackIdHex}.");
             return false;
         }
 
@@ -116,6 +120,7 @@ namespace LibreSpotUWP.Services
 
             string trackIdHex = BitConverter.ToString(trackIdBytes).Replace("-", "").ToLowerInvariant();
 
+            LogService.Info($"[LibrespotService.OnKeyReceived] Saving key for trackId={trackIdHex}.");
             if (_audioKeyCache.IsPersisted(trackIdHex))
                 _ = _audioKeyCache.AddPersistedKeyAsync(trackIdHex, keyBytes);
             else
@@ -128,6 +133,7 @@ namespace LibreSpotUWP.Services
             Marshal.Copy(trackIdPtr, trackId, 0, 16);
             string trackIdHex = BitConverter.ToString(trackId).Replace("-", "").ToLowerInvariant();
 
+            LogService.Info($"[LibrespotService.OnKeyRemoved] Removing volatile key for trackId={trackIdHex}.");
             _ = _audioKeyCache.RemoveVolatileKeyAsync(trackIdHex);
         }
 
@@ -140,6 +146,7 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrWhiteSpace(accessToken))
                 throw new ArgumentException("Access token must not be null or empty.", nameof(accessToken));
 
+            LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token.");
             await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
         }
 
@@ -148,6 +155,8 @@ namespace LibreSpotUWP.Services
             ThrowIfDisposed();
             if (!_initialized) throw new InvalidOperationException("Not initialized.");
             if (_instance == IntPtr.Zero) throw new InvalidOperationException("Not connected.");
+
+            LogService.Info($"[LibrespotService.LoadAndPlayAsync] context={contextUri}, start={startUri ?? "(null)"}.");
 
             IntPtr contextPtr = Marshal.StringToHGlobalAnsi(contextUri);
             IntPtr startPtr = startUri != null ? Marshal.StringToHGlobalAnsi(startUri) : IntPtr.Zero;
@@ -285,6 +294,48 @@ namespace LibreSpotUWP.Services
             }
         }
 
+        public async Task SetTrackPersistedAsync(string trackUri, bool persisted)
+        {
+            ThrowIfDisposed();
+            if (!_initialized) throw new InvalidOperationException("Not initialized.");
+            if (_instance == IntPtr.Zero) throw new InvalidOperationException("Not connected.");
+            if (string.IsNullOrWhiteSpace(trackUri))
+                throw new ArgumentException("trackUri must not be null or empty.", nameof(trackUri));
+
+            LogService.Info($"[LibrespotService.SetTrackPersistedAsync] Persisted={persisted} track={trackUri}.");
+
+            var trackIdHex = SpotifyIdHelper.TrackUriToHexId(trackUri);
+            if (string.IsNullOrWhiteSpace(trackIdHex))
+                throw new InvalidOperationException("Unable to derive Spotify track ID from URI.");
+
+            IntPtr trackUriPtr = Marshal.StringToHGlobalAnsi(trackUri);
+
+            try
+            {
+                if (persisted)
+                    _audioKeyCache.MarkPersisted(trackIdHex);
+                else
+                    _audioKeyCache.MarkVolatile(trackIdHex);
+
+                bool ok = await Task.Run(() =>
+                    Librespot.librespot_track_set_persisted(_instance, trackUriPtr, persisted)).ConfigureAwait(false);
+                if (!ok)
+                    throw new InvalidOperationException("librespot_track_set_persisted returned false.");
+
+                // Give librespot a brief window to request/save the audio key before we move it.
+                await Task.Delay(150).ConfigureAwait(false);
+
+                if (persisted)
+                    await _audioKeyCache.MoveKeyToPersistedAsync(trackIdHex).ConfigureAwait(false);
+                else
+                    await _audioKeyCache.MoveKeyToVolatileAsync(trackIdHex).ConfigureAwait(false);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(trackUriPtr);
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
@@ -363,13 +414,15 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.PlaybackStopped:
+                case EventType.PlaybackUnavailable:
                     Debug.WriteLine($"{logPrefix} Playback Stopped.");
                     UpdatePlaybackState(LibrespotPlaybackState.Stopped);
                     break;
 
                 case EventType.EndOfTrack:
-                    Debug.WriteLine($"{logPrefix} Reached end of track URI: {Marshal.PtrToStringAnsi(evt.data.track_uri)}");
-                    OnEndOfTrack();
+                    var endedTrackUri = Marshal.PtrToStringAnsi(evt.data.track_uri);
+                    LogService.Info($"{logPrefix} Reached end of track URI: {endedTrackUri}");
+                    OnEndOfTrack(endedTrackUri);
                     break;
 
                 case EventType.VolumeChanged:
@@ -484,7 +537,13 @@ namespace LibreSpotUWP.Services
 
         private void OnEndOfTrack()
         {
-            Debug.WriteLine("[LibreSpot] End of track reached.");
+            OnEndOfTrack(null);
+        }
+
+        private void OnEndOfTrack(string trackUri)
+        {
+            LogService.Info($"[LibreSpot] End of track reached. {trackUri}");
+            EndOfTrack?.Invoke(this, trackUri);
         }
 
         private void UpdateClientInfo(string clientName)
