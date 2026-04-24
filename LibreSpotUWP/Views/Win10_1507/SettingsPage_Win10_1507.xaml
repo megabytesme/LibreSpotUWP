@@ -68,6 +68,24 @@
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">
                     <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Playback" />
+
+                    <ToggleSwitch
+                        x:Name="OfflineModeToggle"
+                        Header="Offline Mode"
+                        Toggled="OfflineModeToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Force the app to behave as offline even when internet is available." />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
                         x:Name="LibrespotStatusText"
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"

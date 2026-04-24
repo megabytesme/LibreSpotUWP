@@ -33,6 +33,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             _media = App.Media;
             _auth = App.SpotifyAuth;
+            OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
 
             if (_auth != null)
             {
@@ -44,6 +45,11 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
 
             UpdateSpotifyApiStatus(_auth?.Current);
+        }
+
+        private void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            ConnectivityHelper.SetManualOfflineModeEnabled(OfflineModeToggle.IsOn);
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)

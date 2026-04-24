@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
@@ -30,6 +31,8 @@ namespace LibreSpotUWP
         public static ISpotifyAuthService SpotifyAuth { get; private set; }
         public static ISpotifyWebService SpotifyWeb { get; private set; }
         public static IMediaService Media { get; private set; }
+        public static IOfflineCatalogService OfflineCatalog { get; private set; }
+        public static DownloadTrackerService Downloads { get; private set; }
         public static IBackgroundExecutionManager BackgroundExecution { get; private set; }
         private ISecureStorage _secureStorage;
         private IFileSystem _fileSystem;
@@ -42,36 +45,45 @@ namespace LibreSpotUWP
         /// </summary>
         public App()
         {
-            this.InitializeComponent();
-            this.Suspending += OnSuspending;
+            InitializeComponent();
+            Suspending += OnSuspending;
+            UnhandledException += App_UnhandledException;
+            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
         }
 
         protected override async void OnActivated(IActivatedEventArgs args)
         {
-            if (args.Kind == ActivationKind.Protocol)
+            try
             {
-                var p = (ProtocolActivatedEventArgs)args;
-                var uri = p.Uri;
-
-                System.Diagnostics.Debug.WriteLine("PKCE Callback URI: " + uri);
-
-                var query = uri.Query;
-                var parsed = System.Web.HttpUtility.ParseQueryString(query);
-
-                var code = parsed["code"];
-                var error = parsed["error"];
-
-                if (!string.IsNullOrEmpty(error))
+                if (args.Kind == ActivationKind.Protocol)
                 {
-                    System.Diagnostics.Debug.WriteLine("PKCE Error: " + error);
-                }
-                else if (!string.IsNullOrEmpty(code))
-                {
-                    System.Diagnostics.Debug.WriteLine("PKCE Code received: " + code);
-                    await SpotifyAuth.ExchangePkceCodeAsync(code);
-                }
+                    var p = (ProtocolActivatedEventArgs)args;
+                    var uri = p.Uri;
+                    LogService.Info("PKCE Callback URI: " + uri);
 
-                Window.Current.Activate();
+                    var query = uri.Query;
+                    var parsed = System.Web.HttpUtility.ParseQueryString(query);
+
+                    var code = parsed["code"];
+                    var error = parsed["error"];
+
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        LogService.Warn("PKCE Error: " + error);
+                    }
+                    else if (!string.IsNullOrEmpty(code))
+                    {
+                        LogService.Info("PKCE Code received.");
+                        await SpotifyAuth.ExchangePkceCodeAsync(code);
+                    }
+
+                    Window.Current.Activate();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "Unhandled exception during activation");
+                await ShowFatalErrorAsync(ex);
             }
         }
 
@@ -82,54 +94,62 @@ namespace LibreSpotUWP
         /// <param name="e">Details about the launch request and process.</param>
         protected override async void OnLaunched(LaunchActivatedEventArgs e)
         {
-            _fileSystem = new FileSystem();
-            _metadataCache = new FileMetadataCache(_fileSystem);
-            _secureStorage = new SecureStorage();
-            KeyCache = new AudioKeyCache();
-            await KeyCache.InitializeAsync();
-            Librespot = new LibrespotService(KeyCache);
-            SpotifyAuth = new SpotifyAuthService(_secureStorage);
-            SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache);
-            Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
-            BackgroundExecution = new UwpBackgroundExecutionManager();
-
-            await Librespot.InitializeAsync();
-            var token = await SpotifyAuth.EnsureValidAccessTokenAsync();
-            if (!string.IsNullOrEmpty(token))
-                await Librespot.ConnectWithAccessTokenAsync(token);
-            await Media.InitializeAsync();
-
-            Frame rootFrame = Window.Current.Content as Frame;
-
-            // Do not repeat app initialization when the Window already has content,
-            // just ensure that the window is active
-            if (rootFrame == null)
+            try
             {
-                // Create a Frame to act as the navigation context and navigate to the first page
-                rootFrame = new Frame();
+                await LogService.InitializeAsync();
+                _fileSystem = new FileSystem();
+                _metadataCache = new FileMetadataCache(_fileSystem);
+                _secureStorage = new SecureStorage();
+                KeyCache = new AudioKeyCache();
+                await KeyCache.InitializeAsync();
+                Librespot = new LibrespotService(KeyCache);
+                SpotifyAuth = new SpotifyAuthService(_secureStorage);
+                SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache);
+                OfflineCatalog = new OfflineCatalogService();
+                Downloads = new DownloadTrackerService();
+                Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
+                BackgroundExecution = new UwpBackgroundExecutionManager();
 
-                rootFrame.NavigationFailed += OnNavigationFailed;
+                await Librespot.InitializeAsync();
+                await OfflineCatalog.InitializeAsync();
 
-                if (e.PreviousExecutionState == ApplicationExecutionState.Terminated)
+                var hasInternet = ConnectivityHelper.HasInternetAccess();
+                var token = hasInternet
+                    ? await SpotifyAuth.EnsureValidAccessTokenAsync()
+                    : await SpotifyAuth.GetAccessToken();
+
+                if (!string.IsNullOrEmpty(token))
+                    await Librespot.ConnectWithAccessTokenAsync(token);
+
+                await Media.InitializeAsync();
+
+                Frame rootFrame = Window.Current.Content as Frame;
+                if (rootFrame == null)
                 {
-                    //TODO: Load state from previously suspended application
+                    rootFrame = new Frame();
+                    rootFrame.NavigationFailed += OnNavigationFailed;
+
+                    if (e.PreviousExecutionState == ApplicationExecutionState.Terminated)
+                    {
+                    }
+
+                    Window.Current.Content = rootFrame;
                 }
 
-                // Place the frame in the current Window
-                Window.Current.Content = rootFrame;
+                if (e.PrelaunchActivated == false)
+                {
+                    if (rootFrame.Content == null)
+                    {
+                        rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                    }
+
+                    Window.Current.Activate();
+                }
             }
-
-            if (e.PrelaunchActivated == false)
+            catch (Exception ex)
             {
-                if (rootFrame.Content == null)
-                {
-                    // When the navigation stack isn't restored navigate to the first page,
-                    // configuring the new page by passing required information as a navigation
-                    // parameter
-                    rootFrame.Navigate(typeof(MainPage), e.Arguments);
-                }
-                // Ensure the current window is active
-                Window.Current.Activate();
+                LogService.Error(ex, "Unhandled exception during launch");
+                await ShowFatalErrorAsync(ex);
             }
         }
 
@@ -153,8 +173,42 @@ namespace LibreSpotUWP
         private void OnSuspending(object sender, SuspendingEventArgs e)
         {
             var deferral = e.SuspendingOperation.GetDeferral();
-            //TODO: Save application state and stop any background activity
             deferral.Complete();
+        }
+
+        private async void App_UnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            LogService.Error(e.Exception, "Application unhandled exception");
+            e.Handled = true;
+            await ShowFatalErrorAsync(e.Exception);
+        }
+
+        private async void TaskScheduler_UnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
+        {
+            LogService.Error(e.Exception, "Unobserved task exception");
+            e.SetObserved();
+            await ShowFatalErrorAsync(e.Exception);
+        }
+
+        private static async Task ShowFatalErrorAsync(Exception ex)
+        {
+            try
+            {
+                if (Window.Current?.Content is Frame frame && frame.Content is ContentDialog)
+                    return;
+
+                var dialog = new ContentDialog
+                {
+                    Title = "Something went wrong",
+                    Content = $"An error occurred.\n\n{ex.Message}\n\nLog: {LogService.LogPath}",
+                    CloseButtonText = "Close"
+                };
+
+                await dialog.ShowAsync();
+            }
+            catch
+            {
+            }
         }
     }
 }
