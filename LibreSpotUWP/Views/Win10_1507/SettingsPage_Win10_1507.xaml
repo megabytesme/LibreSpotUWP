@@ -110,6 +110,33 @@
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Text="Force the app to behave as offline even when internet is available." />
+
+                    <ToggleSwitch
+                        x:Name="AbsoluteVolumeToggle"
+                        Margin="0,16,0,0"
+                        Header="Absolute Volume Control"
+                        Toggled="AbsoluteVolumeToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Use app output gain instead of librespot's internal volume." />
+
+                    <ComboBox
+                        x:Name="AudioEffectsComboBox"
+                        Margin="0,16,0,0"
+                        SelectionChanged="AudioEffectsComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Off" Tag="None" />
+                        <ComboBoxItem Content="Echo" Tag="Echo" />
+                        <ComboBoxItem Content="Reverb" Tag="Reverb" />
+                    </ComboBox>
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Applies an audio effect to the playback graph." />
                 </StackPanel>
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">

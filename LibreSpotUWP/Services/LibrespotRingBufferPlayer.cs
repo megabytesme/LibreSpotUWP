@@ -17,6 +17,10 @@ namespace LibreSpotUWP.Services
         private readonly AudioEncodingProperties _props;
         private AudioGraph _graph;
         private AudioFrameInputNode _inputNode;
+        private EchoEffectDefinition _echoEffect;
+        private ReverbEffectDefinition _reverbEffect;
+        private double _outgoingGain = 1.0;
+        private string _audioEffectsPreset = "None";
 
         private IntPtr _bufferPtr;
         private int _capacityBytes;
@@ -77,6 +81,8 @@ namespace LibreSpotUWP.Services
             _graph = result.Graph;
             var outResult = await _graph.CreateDeviceOutputNodeAsync();
             _inputNode = _graph.CreateFrameInputNode(_props);
+            _inputNode.OutgoingGain = _outgoingGain;
+            ApplyAudioEffectsPreset(_audioEffectsPreset);
 
             _inputNode.QuantumStarted += OnQuantumStarted;
             _inputNode.AddOutgoingConnection(outResult.DeviceOutputNode);
@@ -140,6 +146,19 @@ namespace LibreSpotUWP.Services
         public void Start() => _graph?.Start();
         public void Stop() => _graph?.Stop();
 
+        public void SetOutgoingGain(double gain)
+        {
+            _outgoingGain = Math.Max(0d, gain);
+
+            if (_inputNode != null)
+                _inputNode.OutgoingGain = _outgoingGain;
+        }
+
+        public void SetAudioEffectsPreset(string preset)
+        {
+            _audioEffectsPreset = NormalizePreset(preset);
+            ApplyAudioEffectsPreset(_audioEffectsPreset);
+        }
         public void Dispose()
         {
             _inputNode?.Stop();
@@ -147,6 +166,56 @@ namespace LibreSpotUWP.Services
             _inputNode?.Dispose();
             _graph?.Dispose();
             while (_framePool.TryDequeue(out var frame)) frame.Dispose();
+        }
+
+        private void ApplyAudioEffectsPreset(string preset)
+        {
+            if (_inputNode == null || _graph == null)
+                return;
+
+            DisableAllEffects();
+
+            switch (NormalizePreset(preset))
+            {
+                case "Echo":
+                    _echoEffect = _echoEffect ?? new EchoEffectDefinition(_graph);
+                    _inputNode.EnableEffectsByDefinition(_echoEffect);
+                    break;
+                case "Reverb":
+                    _reverbEffect = _reverbEffect ?? new ReverbEffectDefinition(_graph);
+                    _inputNode.EnableEffectsByDefinition(_reverbEffect);
+                    break;
+            }
+        }
+
+        private static string NormalizePreset(string preset)
+        {
+            if (string.IsNullOrWhiteSpace(preset))
+                return "None";
+
+            if (string.Equals(preset, "Echo", StringComparison.OrdinalIgnoreCase))
+                return "Echo";
+
+            if (string.Equals(preset, "Reverb", StringComparison.OrdinalIgnoreCase))
+                return "Reverb";
+
+            return "None";
+        }
+
+        private void DisableAllEffects()
+        {
+            if (_inputNode == null)
+                return;
+
+            if (_echoEffect != null)
+                _inputNode.DisableEffectsByDefinition(_echoEffect);
+            if (_reverbEffect != null)
+                _inputNode.DisableEffectsByDefinition(_reverbEffect);
+        }
+
+        private static double GetBandGain(string preset, double frequencyCenter)
+        {
+            return 0.0;
         }
 
         [ComImport]
