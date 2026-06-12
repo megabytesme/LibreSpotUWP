@@ -236,7 +236,11 @@ namespace LibreSpotUWP.Services
                     imageIdHex = imageIdHex
                 });
 
-            return GetAppDataPayloadAsync(argument, kind, payload => JsonConvert.DeserializeObject<LibrespotLyricsData>(payload));
+            return GetAppDataPayloadAsync(argument, kind, payload =>
+            {
+                var wrapper = JsonConvert.DeserializeObject<LibrespotAppDataResponse<LibrespotLyricsData>>(payload);
+                return wrapper?.Data;
+            });
         }
 
         public Task<LibrespotSearchData> SearchAsync(string query)
@@ -294,6 +298,9 @@ namespace LibreSpotUWP.Services
                     if (string.IsNullOrWhiteSpace(json))
                         throw new InvalidOperationException("App data payload was empty.");
 
+                    if (kind == LibrespotAppDataKind.Lyrics || kind == LibrespotAppDataKind.LyricsForImage)
+                        LogService.Info($"[LibrespotService.GetAppDataPayloadAsync] Lyrics payload received for kind={(int)kind}, argument={argument}, length={json.Length}, prefix={json.Substring(0, Math.Min(240, json.Length))}.");
+
                     return mapper(json);
                 }
                 finally
@@ -305,6 +312,12 @@ namespace LibreSpotUWP.Services
                         Marshal.FreeHGlobal(argumentPtr);
                 }
             });
+        }
+
+        private sealed class LibrespotAppDataResponse<T>
+        {
+            public string Kind { get; set; }
+            public T Data { get; set; }
         }
 
         private Task<T> GetTypedPayloadAsync<T>(

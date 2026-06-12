@@ -11,19 +11,35 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Spacing="8">
+        <StackPanel MaxWidth="840" HorizontalAlignment="Center">
             <TextBlock
                 x:Name="TrackTitleText"
+                MaxWidth="720"
+                HorizontalAlignment="Center"
                 Style="{StaticResource TitleTextBlockStyle}"
-                Text="Lyrics" />
+                Text="Lyrics"
+                TextAlignment="Center"
+                TextWrapping="WrapWholeWords" />
 
             <TextBlock
                 x:Name="TrackSubtitleText"
+                MaxWidth="720"
+                HorizontalAlignment="Center"
                 Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                 Style="{StaticResource BodyTextBlockStyle}"
-                Text="Waiting for the current track..." />
+                Text="Waiting for the current track..."
+                TextAlignment="Center"
+                TextWrapping="WrapWholeWords" />
 
-            <StackPanel Orientation="Horizontal" Spacing="16">
+            <Grid
+                MaxWidth="720"
+                Margin="0,16,0,0"
+                ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
                 <ToggleSwitch
                     x:Name="AutoScrollToggle"
                     Header="Auto-scroll"
@@ -31,32 +47,70 @@
 
                 <TextBlock
                     x:Name="StatusText"
+                    Grid.Column="1"
                     VerticalAlignment="Center"
                     Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                    Style="{StaticResource CaptionTextBlockStyle}" />
-            </StackPanel>
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextWrapping="WrapWholeWords" />
+            </Grid>
         </StackPanel>
 
-        <ListView
-            x:Name="LyricsListView"
+        <ScrollViewer
+            x:Name="LyricsScrollViewer"
             Grid.Row="1"
-            Margin="0,20,0,0"
-            HorizontalContentAlignment="Stretch"
-            IsItemClickEnabled="False"
-            SelectionMode="Single">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="models:LibrespotLyricsLineData">
-                    <Border
-                        Margin="0,0,0,8"
-                        Padding="16"
-                        Background="{ThemeResource SystemControlBackgroundChromeLowBrush}"
-                        CornerRadius="8">
-                        <TextBlock
-                            Text="{x:Bind Words}"
-                            TextWrapping="WrapWholeWords" />
-                    </Border>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+            Margin="0,10,0,0"
+            HorizontalScrollBarVisibility="Disabled"
+            HorizontalScrollMode="Disabled"
+            VerticalScrollBarVisibility="Auto"
+            ViewChanged="LyricsScrollViewer_ViewChanged">
+            <StackPanel
+                x:Name="LyricsStack"
+                MaxWidth="840"
+                HorizontalAlignment="Center"
+                Spacing="8">
+                <ListView
+                    x:Name="LyricsListView"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
+                    IsItemClickEnabled="True"
+                    ItemClick="LyricsListView_ItemClick"
+                    SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="MinHeight" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:LibrespotLyricsLineData">
+                            <Grid Margin="0,0,0,4">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Border
+                                    x:Name="LineCard"
+                                    Margin="0"
+                                    Padding="20,16"
+                                    Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+                                    CornerRadius="0">
+                                    <TextBlock
+                                        x:Name="LineText"
+                                        MaxWidth="760"
+                                        HorizontalAlignment="Center"
+                                        FontSize="24"
+                                        FontWeight="SemiBold"
+                                        LineHeight="30"
+                                        LineStackingStrategy="BlockLineHeight"
+                                        Text="{x:Bind Words}"
+                                        TextAlignment="Center"
+                                        TextWrapping="WrapWholeWords" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Page>

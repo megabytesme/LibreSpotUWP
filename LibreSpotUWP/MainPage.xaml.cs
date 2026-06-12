@@ -238,7 +238,7 @@ namespace LibreSpotUWP
             if (pageTag == "Lyrics")
             {
                 ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag));
-                SetSelectedNavigationTag(null);
+                SetSelectedNavigationTag(pageTag);
                 UpdateBackButton();
                 return;
             }
@@ -374,7 +374,7 @@ namespace LibreSpotUWP
             if (previous == "Lyrics")
             {
                 ContentFrame.Navigate(NavigationHelper.GetPageType(previous));
-                SetSelectedNavigationTag(null);
+                SetSelectedNavigationTag(previous);
                 UpdateBackButton();
                 return;
             }

@@ -92,15 +92,6 @@
                                         Text="Home" />
                                 </StackPanel>
                             </ListBoxItem>
-                            <ListBoxItem Tag="Player" Tapped="NavItem_Tapped">
-                                <StackPanel Padding="2" Orientation="Horizontal">
-                                    <SymbolIcon x:Name="PlayPauseIcon" Symbol="MusicInfo" />
-                                    <TextBlock
-                                        Margin="16,0,0,0"
-                                        VerticalAlignment="Center"
-                                        Text="Currently Playing" />
-                                </StackPanel>
-                            </ListBoxItem>
                             <ListBoxItem Tag="LikedSongs" Tapped="NavItem_Tapped">
                                 <StackPanel Padding="2" Orientation="Horizontal">
                                     <FontIcon
@@ -111,6 +102,24 @@
                                         Margin="16,0,0,0"
                                         VerticalAlignment="Center"
                                         Text="Liked Songs" />
+                                </StackPanel>
+                            </ListBoxItem>
+                            <ListBoxItem Tag="Player" Tapped="NavItem_Tapped">
+                                <StackPanel Padding="2" Orientation="Horizontal">
+                                    <SymbolIcon x:Name="PlayPauseIcon" Symbol="MusicInfo" />
+                                    <TextBlock
+                                        Margin="16,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Text="Currently Playing" />
+                                </StackPanel>
+                            </ListBoxItem>
+                            <ListBoxItem Tag="Lyrics" Tapped="NavItem_Tapped">
+                                <StackPanel Padding="2" Orientation="Horizontal">
+                                    <SymbolIcon Symbol="Microphone" />
+                                    <TextBlock
+                                        Margin="16,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Text="Lyrics" />
                                 </StackPanel>
                             </ListBoxItem>
                         </ListBox>
