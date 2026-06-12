@@ -64,6 +64,18 @@
                         Content="Windows 11"
                         GroupName="AppearanceGroup"
                         Tag="11" />
+
+                    <ToggleSwitch
+                        x:Name="LyricsThemeToggle"
+                        Margin="0,12,0,0"
+                        Header="Use Spotify theming for Lyrics"
+                        Toggled="LyricsThemeToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Use Spotify-supplied lyric colors when available instead of Windows accent styling." />
                 </StackPanel>
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">

@@ -18,6 +18,7 @@ namespace LibreSpotUWP.Helpers
         private const string RememberLastPlaybackStateKey = "RememberLastPlaybackState";
         private const string ResumeLastPlaybackIfWasPlayingKey = "ResumeLastPlaybackIfWasPlaying";
         private const string RememberLastPageKey = "RememberLastPage";
+        private const string LyricsUseSpotifyThemeKey = "LyricsUseSpotifyTheme";
 
         public static readonly string[] DefaultHomeSectionOrder =
         {
@@ -93,6 +94,12 @@ namespace LibreSpotUWP.Helpers
         {
             get => ApplicationData.Current.LocalSettings.Values.TryGetValue(ResumeLastPlaybackIfWasPlayingKey, out object value) && value is bool enabled && enabled;
             set => ApplicationData.Current.LocalSettings.Values[ResumeLastPlaybackIfWasPlayingKey] = value;
+        }
+
+        public static bool LyricsUseSpotifyTheme
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(LyricsUseSpotifyThemeKey, out object value) && value is bool enabled && enabled;
+            set => ApplicationData.Current.LocalSettings.Values[LyricsUseSpotifyThemeKey] = value;
         }
 
         public static double[] GetEqualizerBandGains()

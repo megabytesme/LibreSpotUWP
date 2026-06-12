@@ -18,6 +18,18 @@ namespace LibreSpotUWP.Models
 
         public long StartTimeMsValue => long.TryParse(StartTimeMs, out var value) ? value : 0;
         public long EndTimeMsValue => long.TryParse(EndTimeMs, out var value) ? value : StartTimeMsValue;
+        public bool IsSpacer => string.IsNullOrWhiteSpace(Words);
+        public string DisplayWords => NormalizeWords(Words);
+
+        private static string NormalizeWords(string words)
+        {
+            if (string.IsNullOrEmpty(words))
+                return string.Empty;
+
+            return words
+                .Replace("â™ª", "♪")
+                .Replace("â™", "♪");
+        }
     }
 
     public sealed class LibrespotLyricsData
