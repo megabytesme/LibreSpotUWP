@@ -65,6 +65,8 @@ namespace LibreSpotUWP
             };
         }
 
+        public string CurrentPageTag => _currentNavTag;
+
         private void UpdateMediaBarVisibility()
         {
             double currentWidth = Window.Current.Bounds.Width;
@@ -87,9 +89,27 @@ namespace LibreSpotUWP
 
             UpdateMediaBarVisibility();
             if (ContentFrame.Content == null)
-                NavigateTo("Home", true);
+                NavigateTo(GetStartupPageTag(), true);
 
             await HeaderAccountControl.Initialize();
+        }
+
+        private string GetStartupPageTag()
+        {
+            if (App.SpotifyAuth?.Current == null || App.SpotifyAuth.Current.IsExpired)
+                return "Settings";
+
+            if (UserSettings.RememberLastPage)
+            {
+                var lastPage = Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("LastOpenPage", out object value)
+                    ? value as string
+                    : null;
+
+                if (!string.IsNullOrWhiteSpace(lastPage))
+                    return lastPage;
+            }
+
+            return "Home";
         }
 
         private void ApplyAppearanceStyling()
@@ -142,6 +162,7 @@ namespace LibreSpotUWP
         public async void NavigateTo(string pageTag, bool forceReload = false)
         {
             ClearCacheStatus();
+            PersistLastOpenPage(pageTag);
 
             if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
                 _history.Add(pageTag);
@@ -573,6 +594,14 @@ namespace LibreSpotUWP
             ToolTipService.SetToolTip(CacheRefreshButton, tooltip);
             _cacheStatusTooltip = tooltip;
             _cacheRefreshAction = refreshAction;
+        }
+
+        private static void PersistLastOpenPage(string pageTag)
+        {
+            if (!UserSettings.RememberLastPage)
+                return;
+
+            Windows.Storage.ApplicationData.Current.LocalSettings.Values["LastOpenPage"] = pageTag;
         }
 
         public void ClearCacheStatus()

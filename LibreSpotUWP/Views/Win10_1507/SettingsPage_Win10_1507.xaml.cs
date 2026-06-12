@@ -42,6 +42,12 @@ namespace LibreSpotUWP.Views.Win10_1507
             _media = App.Media;
             _auth = App.SpotifyAuth;
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
+            RememberLastPlaybackToggle.IsOn = UserSettings.RememberLastPlaybackState;
+            ResumeLastPlaybackToggle.IsOn = UserSettings.ResumeLastPlaybackIfWasPlaying;
+            var resumeVisible = RememberLastPlaybackToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+            ResumeLastPlaybackToggle.Visibility = resumeVisible;
+            ResumeLastPlaybackDescription.Visibility = resumeVisible;
+            RememberLastPageToggle.IsOn = UserSettings.RememberLastPage;
             SelectAudioEffectsPreset(UserSettings.AudioEffectsPreset);
             LoadAudioEffectSettings();
             LoadHomeOrderSettings();
@@ -89,6 +95,39 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
 
             UpdateLibrespotStatus(App.Librespot.Session);
+        }
+
+        private void RememberLastPlaybackToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.RememberLastPlaybackState = RememberLastPlaybackToggle.IsOn;
+            var resumeVisible = RememberLastPlaybackToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+            ResumeLastPlaybackToggle.Visibility = resumeVisible;
+            ResumeLastPlaybackDescription.Visibility = resumeVisible;
+
+            if (!RememberLastPlaybackToggle.IsOn)
+            {
+                ResumeLastPlaybackToggle.IsOn = false;
+                UserSettings.ResumeLastPlaybackIfWasPlaying = false;
+            }
+        }
+
+        private void RememberLastPageToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.RememberLastPage = RememberLastPageToggle.IsOn;
+        }
+
+        private void ResumeLastPlaybackToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.ResumeLastPlaybackIfWasPlaying = ResumeLastPlaybackToggle.IsOn;
         }
 
         private async void AudioEffectsComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
