@@ -67,12 +67,7 @@ namespace LibreSpotUWP.Views
             if (string.IsNullOrWhiteSpace(trackUri))
                 return;
 
-            var currentUser = await App.SpotifyWeb.GetCurrentUserProfileAsync(forceRefresh: false);
-            var contextUri = string.IsNullOrWhiteSpace(currentUser?.Value?.Id)
-                ? null
-                : $"spotify:user:{currentUser.Value.Id}:collection";
-
-            await App.Media.PlayAsync(contextUri ?? trackUri, trackUri);
+            await App.Media.PlayAsync("spotify:collection:tracks", trackUri);
         }
 
         private async void OnTrackPersistRequested(object sender, TrackClickedEventArgs e)
