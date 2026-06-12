@@ -105,7 +105,7 @@ namespace LibreSpotUWP
                     ? value as string
                     : null;
 
-                if (!string.IsNullOrWhiteSpace(lastPage))
+                if (!string.IsNullOrWhiteSpace(lastPage) && !string.Equals(lastPage, "Player", StringComparison.OrdinalIgnoreCase))
                     return lastPage;
             }
 
@@ -162,7 +162,6 @@ namespace LibreSpotUWP
         public async void NavigateTo(string pageTag, bool forceReload = false)
         {
             ClearCacheStatus();
-            PersistLastOpenPage(pageTag);
 
             if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
                 _history.Add(pageTag);
@@ -176,6 +175,7 @@ namespace LibreSpotUWP
             }
 
             HidePlayer();
+            PersistLastOpenPage(pageTag);
 
             bool requiresAuth = pageTag == "Home";
 
@@ -598,7 +598,8 @@ namespace LibreSpotUWP
 
         private static void PersistLastOpenPage(string pageTag)
         {
-            if (!UserSettings.RememberLastPage)
+            if (!UserSettings.RememberLastPage ||
+                string.Equals(pageTag, "Player", StringComparison.OrdinalIgnoreCase))
                 return;
 
             Windows.Storage.ApplicationData.Current.LocalSettings.Values["LastOpenPage"] = pageTag;
