@@ -763,14 +763,7 @@ namespace LibreSpotUWP.Services
                 async () =>
                 {
                     ct.ThrowIfCancellationRequested();
-                    var payload = await _librespot.GetSavedTracksAsync(_userId).ConfigureAwait(false);
-
-                    var items = payload.Items?.Select(MapSavedTrack).ToList() ?? new List<SavedTrack>();
-                    return new Paging<SavedTrack>
-                    {
-                        Items = items,
-                        Total = items.Count
-                    };
+                    return await ExecuteAsync(c => c.Library.GetTracks(ct), ct).ConfigureAwait(false);
                 },
                 TtlSession,
                 forceRefresh);
