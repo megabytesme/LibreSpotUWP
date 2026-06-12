@@ -376,6 +376,28 @@ namespace LibreSpotUWP.Services
             _ringPlayer?.SetAudioEffectsPreset(UserSettings.AudioEffectsPreset);
             return Task.CompletedTask;
         }
+
+        public async Task RefreshCurrentTrackMetadataAsync()
+        {
+            var trackUri = Current?.Track?.Uri;
+            if (string.IsNullOrWhiteSpace(trackUri) || !trackUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var id = trackUri.Replace("spotify:track:", "");
+            var metadata = await _web.GetTrackAsync(id, true);
+
+            UpdateState(state =>
+            {
+                state.Metadata = metadata?.Value;
+                state.IsTrackMetadataFromCache = metadata?.IsFromCache == true;
+                state.ArtworkUri = ResolveArtworkUri(metadata?.Value, state.Track, null);
+                state.StatusMessage = metadata?.IsFromCache == true
+                    ? "Showing refreshed track details from cache."
+                    : null;
+            });
+
+            UpdateSmtcDisplay();
+        }
         public void Next()
         {
             if (TryPlayOfflineRelativeTrack(1))

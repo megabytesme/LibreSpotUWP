@@ -250,11 +250,10 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private async void RefreshButton_Click(object sender, RoutedEventArgs e)
         {
-            var trackUri = Media?.Current?.Track?.Uri;
-            if (string.IsNullOrWhiteSpace(trackUri) || Media.Current.IsOffline)
+            if (Media?.Current == null || Media.Current.IsOffline)
                 return;
 
-            await App.Media.PlayAsync(trackUri, null);
+            await Media.RefreshCurrentTrackMetadataAsync();
         }
 
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

@@ -175,7 +175,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             return cachedAt.HasValue
                 ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
-                : "Cached data is being shown.";
+                : "Cached data is being shown. Last refresh: Unknown.";
         }
     }
 }

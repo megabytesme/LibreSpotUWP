@@ -94,12 +94,18 @@ namespace LibreSpotUWP.Views
             if (ViewModel.Artist == null)
                 return;
 
-            await ViewModel.LoadAsync(ViewModel.Artist.Id, true);
-            if (ViewModel.Artist != null)
-                HeaderControl.SetArtist(ViewModel.Artist);
-            UpdateStatusBanner();
-            TrackList.AddTracks(ViewModel.TopTracks ?? new System.Collections.Generic.List<FullTrack>(), true);
-            AlbumsGrid.SetAlbums(ViewModel.Albums?.Items ?? new System.Collections.Generic.List<SimpleAlbum>());
+            try
+            {
+                await ViewModel.LoadAsync(ViewModel.Artist.Id, true);
+                if (ViewModel.Artist != null)
+                    HeaderControl.SetArtist(ViewModel.Artist);
+                UpdateStatusBanner();
+                TrackList.AddTracks(ViewModel.TopTracks ?? new System.Collections.Generic.List<FullTrack>(), true);
+                AlbumsGrid.SetAlbums(ViewModel.Albums?.Items ?? new System.Collections.Generic.List<SimpleAlbum>());
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
 
         private MainPage GetMainPage()
@@ -111,7 +117,7 @@ namespace LibreSpotUWP.Views
         {
             return cachedAt.HasValue
                 ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
-                : "Cached data is being shown.";
+                : "Cached data is being shown. Last refresh: Unknown.";
         }
     } 
 }

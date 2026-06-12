@@ -26,6 +26,7 @@ namespace LibreSpotUWP
         private DispatcherTimer _searchDebounceTimer;
         private string _pendingSearchQuery;
         private Func<Task> _cacheRefreshAction;
+        private string _cacheStatusTooltip;
         private int _suppressedSelectionChanges;
         private string _currentNavTag = "Home";
 
@@ -569,6 +570,8 @@ namespace LibreSpotUWP
             CacheStatusText.Text = "Cached Content";
             CacheRefreshButton.Visibility = showRefreshButton ? Visibility.Visible : Visibility.Collapsed;
             ToolTipService.SetToolTip(CacheStatusPanel, tooltip);
+            ToolTipService.SetToolTip(CacheRefreshButton, tooltip);
+            _cacheStatusTooltip = tooltip;
             _cacheRefreshAction = refreshAction;
         }
 
@@ -576,7 +579,24 @@ namespace LibreSpotUWP
         {
             CacheStatusPanel.Visibility = Visibility.Collapsed;
             ToolTipService.SetToolTip(CacheStatusPanel, null);
+            ToolTipService.SetToolTip(CacheRefreshButton, null);
+            _cacheStatusTooltip = null;
             _cacheRefreshAction = null;
+        }
+
+        private async void CacheStatusText_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_cacheStatusTooltip))
+                return;
+
+            var dialog = new ContentDialog
+            {
+                Title = "Cached Content",
+                Content = _cacheStatusTooltip,
+                PrimaryButtonText = "OK"
+            };
+
+            await dialog.ShowAsync();
         }
 
         private async void CacheRefreshButton_Click(object sender, RoutedEventArgs e)
