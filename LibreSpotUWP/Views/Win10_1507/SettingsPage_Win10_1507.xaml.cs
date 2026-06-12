@@ -42,6 +42,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             _media = App.Media;
             _auth = App.SpotifyAuth;
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
+            LyricsThemeToggle.IsOn = UserSettings.LyricsUseSpotifyTheme;
             RememberLastPlaybackToggle.IsOn = UserSettings.RememberLastPlaybackState;
             ResumeLastPlaybackToggle.IsOn = UserSettings.ResumeLastPlaybackIfWasPlaying;
             var resumeVisible = RememberLastPlaybackToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
@@ -120,6 +121,14 @@ namespace LibreSpotUWP.Views.Win10_1507
                 return;
 
             UserSettings.RememberLastPage = RememberLastPageToggle.IsOn;
+        }
+
+        private void LyricsThemeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.LyricsUseSpotifyTheme = LyricsThemeToggle.IsOn;
         }
 
         private void ResumeLastPlaybackToggle_Toggled(object sender, RoutedEventArgs e)

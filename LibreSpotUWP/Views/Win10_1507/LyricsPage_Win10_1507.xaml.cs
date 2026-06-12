@@ -25,6 +25,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         private DateTime _ignoreAutoScrollDisableUntil = DateTime.MinValue;
         private DispatcherTimer _ignoreAutoScrollDisableTimer;
         private ScrollViewer _scrollViewer;
+        private LibrespotLyricsData _currentLyrics;
 
         public LyricsPage_Win10_1507()
         {
@@ -44,6 +45,15 @@ namespace LibreSpotUWP.Views.Win10_1507
             _scrollViewer = LyricsScrollViewer;
             if (_scrollViewer != null)
                 _scrollViewer.ViewChanged += LyricsScrollViewer_ViewChanged;
+        }
+
+        private void LyricsListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            if (args.Item is LibrespotLyricsLineData)
+            {
+                var index = args.ItemIndex;
+                UpdateItemVisual(index, index == _currentLineIndex, animate: false);
+            }
         }
 
         private async void Media_MediaStateChanged(object sender, MediaState state)
@@ -151,6 +161,7 @@ namespace LibreSpotUWP.Views.Win10_1507
                     return;
                 }
 
+                _currentLyrics = lyrics;
                 SetStatus(string.IsNullOrWhiteSpace(lyrics.SyncType)
                     ? $"Synced lyrics loaded from {lyrics.ProviderDisplayName ?? "Spotify"}."
                     : $"Synced lyrics loaded from {lyrics.ProviderDisplayName ?? "Spotify"} ({lyrics.SyncType}).");
@@ -158,6 +169,7 @@ namespace LibreSpotUWP.Views.Win10_1507
                 foreach (var line in lyrics.Lines.Where(line => line != null))
                     _lines.Add(line);
 
+                RefreshAllLyricsVisuals();
                 UpdateCurrentLine(App.Media?.Current?.PositionMs ?? 0, animate: false);
             }
             catch (Exception ex)
@@ -181,6 +193,17 @@ namespace LibreSpotUWP.Views.Win10_1507
             _lines.Clear();
             _currentLineIndex = -1;
             LyricsListView.SelectedIndex = -1;
+            _currentLyrics = null;
+            LyricsScrollViewer.Background = null;
+        }
+
+        private void RefreshAllLyricsVisuals()
+        {
+            for (int i = 0; i < _lines.Count; i++)
+            {
+                var isCurrent = i == _currentLineIndex;
+                UpdateItemVisual(i, isCurrent, animate: false);
+            }
         }
 
         private void UpdateCurrentLine(uint positionMs, bool animate)
@@ -206,6 +229,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             UpdateItemVisual(previousIndex, false, animate);
             UpdateItemVisual(index, true, animate);
+            RefreshAllLyricsVisuals();
 
             if (_autoScrollEnabled && index >= 0 && index < _lines.Count)
                 ScrollToLine(index);
@@ -293,6 +317,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             if (index < 0 || index >= _lines.Count)
                 return;
 
+            var line = _lines[index];
             var container = LyricsListView.ContainerFromIndex(index) as ListViewItem;
             if (container == null)
                 return;
@@ -302,12 +327,42 @@ namespace LibreSpotUWP.Views.Win10_1507
             if (border == null || text == null)
                 return;
 
-            var accent = (SolidColorBrush)Application.Current.Resources["SystemControlHighlightAccentBrush"];
-            var baseBrush = (SolidColorBrush)Application.Current.Resources["SystemControlBackgroundChromeMediumLowBrush"];
-            var normalTextBrush = (SolidColorBrush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"];
+            var useSpotifyTheme = UserSettings.LyricsUseSpotifyTheme && _currentLyrics?.Colors != null;
+            var baseBrush = useSpotifyTheme
+                ? BrushFromArgb(_currentLyrics.Colors.Background)
+                : (SolidColorBrush)Application.Current.Resources["SystemControlBackgroundChromeMediumLowBrush"];
+            var normalTextBrush = useSpotifyTheme
+                ? BrushFromArgb(_currentLyrics.Colors.Text)
+                : (SolidColorBrush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"];
+            var currentTextBrush = useSpotifyTheme
+                ? BrushFromArgb(_currentLyrics.Colors.HighlightText)
+                : new SolidColorBrush(Colors.White);
+            var accentBrush = (SolidColorBrush)Application.Current.Resources["SystemControlHighlightAccentBrush"];
+            var inactiveBackgroundBrush = useSpotifyTheme
+                ? baseBrush
+                : WithOpacity(accentBrush, 0.28);
+            var currentBackgroundBrush = useSpotifyTheme
+                ? baseBrush
+                : accentBrush;
+            var inactiveOpacity = useSpotifyTheme ? 0.88 : 0.82;
+            var activeOpacity = 1.0;
 
-            border.Background = isCurrent ? accent : baseBrush;
-            text.Foreground = isCurrent ? new SolidColorBrush(Colors.White) : normalTextBrush;
+            if (line.IsSpacer)
+            {
+                border.Background = new SolidColorBrush(Colors.Transparent);
+                border.Opacity = 1.0;
+                text.Visibility = Visibility.Collapsed;
+                border.Padding = new Thickness(0);
+                border.Height = 18;
+                return;
+            }
+
+            text.Visibility = Visibility.Visible;
+            border.Padding = new Thickness(20, 16, 20, 16);
+            border.Height = double.NaN;
+
+            border.Background = isCurrent ? currentBackgroundBrush : inactiveBackgroundBrush;
+            text.Foreground = isCurrent ? currentTextBrush : normalTextBrush;
 
             EnsureScale(border);
             var scale = border.RenderTransform as ScaleTransform;
@@ -317,13 +372,13 @@ namespace LibreSpotUWP.Views.Win10_1507
             {
                 scale.ScaleX = target;
                 scale.ScaleY = target;
-                border.Opacity = isCurrent ? 1.0 : 0.82;
+                border.Opacity = isCurrent ? activeOpacity : inactiveOpacity;
                 return;
             }
 
             AnimateScale(scale, target);
-            AnimateOpacity(border, isCurrent ? 1.0 : 0.82);
-            text.Foreground = isCurrent ? new SolidColorBrush(Colors.White) : normalTextBrush;
+            AnimateOpacity(border, isCurrent ? activeOpacity : inactiveOpacity);
+            text.Foreground = isCurrent ? currentTextBrush : normalTextBrush;
         }
 
         private void LyricsScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
@@ -343,6 +398,28 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             _ignoreAutoScrollDisableTimer.Stop();
             _ignoreAutoScrollDisableUntil = DateTime.MinValue;
+        }
+
+        private static SolidColorBrush BrushFromArgb(int argb)
+        {
+            unchecked
+            {
+                var a = (byte)((argb >> 24) & 0xFF);
+                var r = (byte)((argb >> 16) & 0xFF);
+                var g = (byte)((argb >> 8) & 0xFF);
+                var b = (byte)(argb & 0xFF);
+                return new SolidColorBrush(Color.FromArgb(a, r, g, b));
+            }
+        }
+
+        private static SolidColorBrush WithOpacity(SolidColorBrush brush, double opacity)
+        {
+            if (brush == null)
+                return new SolidColorBrush(Colors.Transparent);
+
+            var color = brush.Color;
+            var clamped = Math.Max(0.0, Math.Min(1.0, opacity));
+            return new SolidColorBrush(Color.FromArgb((byte)(color.A * clamped), color.R, color.G, color.B));
         }
 
         private static void EnsureScale(Border border)

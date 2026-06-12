@@ -74,6 +74,7 @@
                     HorizontalContentAlignment="Stretch"
                     IsItemClickEnabled="True"
                     ItemClick="LyricsListView_ItemClick"
+                    ContainerContentChanging="LyricsListView_ContainerContentChanging"
                     SelectionMode="Single">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
@@ -102,7 +103,7 @@
                                         FontWeight="SemiBold"
                                         LineHeight="30"
                                         LineStackingStrategy="BlockLineHeight"
-                                        Text="{x:Bind Words}"
+                                        Text="{x:Bind DisplayWords}"
                                         TextAlignment="Center"
                                         TextWrapping="WrapWholeWords" />
                                 </Border>
