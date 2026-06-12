@@ -147,6 +147,7 @@
                                 x:Name="CacheStatusText"
                                 VerticalAlignment="Center"
                                 Foreground="{ThemeResource SystemAccentColor}"
+                                Tapped="CacheStatusText_Tapped"
                                 Text="Cached Content" />
                             <FontIcon
                                 x:Name="CacheStatusIcon"
@@ -163,7 +164,10 @@
                         VerticalAlignment="Bottom"
                         Background="Transparent"
                         SelectionChanged="NavListBox_SelectionChanged">
-                        <ListBoxItem x:Name="AccountItem" Tag="Account" Tapped="NavItem_Tapped">
+                        <ListBoxItem
+                            x:Name="AccountItem"
+                            Tag="Account"
+                            Tapped="NavItem_Tapped">
                             <FlyoutBase.AttachedFlyout>
                                 <Flyout x:Name="AccountFlyout">
                                     <controls:SpotifyAccountControl

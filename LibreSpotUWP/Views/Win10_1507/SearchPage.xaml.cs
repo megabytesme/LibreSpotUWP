@@ -96,15 +96,21 @@ namespace LibreSpotUWP.Views
             if (string.IsNullOrWhiteSpace(_query))
                 return;
 
-            await ViewModel.LoadAsync(_query, true);
-            UpdateStatusBanner();
+            try
+            {
+                await ViewModel.LoadAsync(_query, true);
+                UpdateStatusBanner();
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
 
         private static string BuildCacheTooltip(DateTimeOffset? cachedAt)
         {
             return cachedAt.HasValue
                 ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
-                : "Cached data is being shown.";
+                : "Cached data is being shown. Last refresh: Unknown.";
         }
     }
 }

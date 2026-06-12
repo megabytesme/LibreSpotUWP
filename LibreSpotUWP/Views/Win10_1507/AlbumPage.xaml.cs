@@ -162,6 +162,9 @@ namespace LibreSpotUWP.Views
                 UpdateStatusBanner();
                 TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>()), true, 0);
             }
+            catch (OperationCanceledException)
+            {
+            }
             finally
             {
                 SetIsLoading(false);
@@ -185,7 +188,7 @@ namespace LibreSpotUWP.Views
         {
             return cachedAt.HasValue
                 ? $"Cached on {cachedAt.Value.LocalDateTime:dd MMM yyyy} at {cachedAt.Value.LocalDateTime:HH:mm:ss}"
-                : "Cached data is being shown.";
+                : "Cached data is being shown. Last refresh: Unknown.";
         }
 
         private void SetIsLoading(bool isLoading, string message = null)
