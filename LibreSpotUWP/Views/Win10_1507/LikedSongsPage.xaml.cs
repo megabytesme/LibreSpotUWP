@@ -19,6 +19,7 @@ namespace LibreSpotUWP.Views
         {
             InitializeComponent();
             DataContext = ViewModel;
+            SortComboBox.SelectedIndex = 0;
 
             TrackList.ArtistClicked += (s, artistId) => NavigateToMain("Artist", artistId);
             TrackList.AlbumClicked += (s, albumId) => NavigateToMain("Album", albumId);
@@ -54,8 +55,9 @@ namespace LibreSpotUWP.Views
             await ViewModel.LoadMoreTracksAsync();
             if (ViewModel.LastLoadedBatch.Any())
             {
-                var offset = ViewModel.TotalTracksLoaded - ViewModel.LastLoadedBatch.Count;
-                TrackList.AddTracks(MapToFullTracks(ViewModel.LastLoadedBatch), false, offset);
+                TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
+                TrackList.AddTracks(MapToFullTracks(ViewModel.GetOrderedTracks()), true, 0);
+                UpdateSummary();
             }
         }
 
@@ -65,7 +67,12 @@ namespace LibreSpotUWP.Views
             if (string.IsNullOrWhiteSpace(trackUri))
                 return;
 
-            await App.Media.PlayAsync(trackUri, null);
+            var currentUser = await App.SpotifyWeb.GetCurrentUserProfileAsync(forceRefresh: false);
+            var contextUri = string.IsNullOrWhiteSpace(currentUser?.Value?.Id)
+                ? null
+                : $"spotify:user:{currentUser.Value.Id}:collection";
+
+            await App.Media.PlayAsync(contextUri ?? trackUri, trackUri);
         }
 
         private async void OnTrackPersistRequested(object sender, TrackClickedEventArgs e)
@@ -91,8 +98,9 @@ namespace LibreSpotUWP.Views
             {
                 await ViewModel.LoadAsync(forceRefresh);
                 UpdateStatusBanner();
+                UpdateSummary();
                 TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
-                TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SavedTrack>()), true, 0);
+                TrackList.AddTracks(MapToFullTracks(ViewModel.GetOrderedTracks()), true, 0);
             }
             finally
             {
@@ -130,6 +138,25 @@ namespace LibreSpotUWP.Views
             return savedTracks
                 .Select(item => item?.Track)
                 .Where(track => track != null);
+        }
+
+        private void UpdateSummary()
+        {
+            var duration = ViewModel.LoadedDuration;
+            var durationText = $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}";
+            var approximate = ViewModel.HasMoreTracks ? "+" : string.Empty;
+            SummaryText.Text = $"{ViewModel.SongCount} songs • {durationText}{approximate}";
+        }
+
+        private void SortComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!(SortComboBox.SelectedItem is ComboBoxItem item))
+                return;
+
+            ViewModel.SortDescending = !string.Equals(item.Tag as string, "asc", StringComparison.OrdinalIgnoreCase);
+            TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
+            TrackList.AddTracks(MapToFullTracks(ViewModel.GetOrderedTracks()), true, 0);
+            UpdateSummary();
         }
 
         private static string BuildCacheTooltip(DateTimeOffset? cachedAt)

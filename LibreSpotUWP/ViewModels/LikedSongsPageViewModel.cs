@@ -14,13 +14,30 @@ namespace LibreSpotUWP.ViewModels
     {
         private readonly ISpotifyWebService _web = App.SpotifyWeb;
         private bool _isLoading;
+        private bool _sortDescending = true;
 
         public Paging<SavedTrack> Tracks { get; private set; }
         public string StatusMessage { get; private set; }
         public DateTimeOffset? CachedAt { get; private set; }
         public List<SavedTrack> LastLoadedBatch { get; private set; } = new List<SavedTrack>();
+        public bool SortDescending
+        {
+            get => _sortDescending;
+            set => _sortDescending = value;
+        }
         public bool HasMoreTracks => Tracks != null && Tracks.Items.Count < (Tracks.Total ?? 0);
         public int TotalTracksLoaded => Tracks?.Items?.Count ?? 0;
+        public int SongCount => Tracks?.Total ?? Tracks?.Items?.Count ?? 0;
+        public TimeSpan LoadedDuration => TimeSpan.FromMilliseconds(
+            (Tracks?.Items?.AsEnumerable() ?? Enumerable.Empty<SavedTrack>()).Sum(item => (long)(item?.Track?.DurationMs ?? 0)));
+
+        public IEnumerable<SavedTrack> GetOrderedTracks()
+        {
+            var items = Tracks?.Items?.AsEnumerable() ?? Enumerable.Empty<SavedTrack>();
+            return _sortDescending
+                ? items.OrderByDescending(item => item?.AddedAt ?? DateTime.MinValue)
+                : items.OrderBy(item => item?.AddedAt ?? DateTime.MinValue);
+        }
 
         public async Task LoadAsync(bool forceRefresh = false)
         {

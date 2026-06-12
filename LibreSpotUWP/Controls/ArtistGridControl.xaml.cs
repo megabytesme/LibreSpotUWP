@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media;
+using LibreSpotUWP.Helpers;
 
 namespace LibreSpotUWP.Controls
 {
@@ -25,7 +27,9 @@ namespace LibreSpotUWP.Controls
                 {
                     Id = a.Id,
                     Name = a.Name,
-                    ImageUrl = a.Images?.Count > 0 ? a.Images[0].Url : null
+                    Image = ImageUriHelper.CreateBitmapImage(
+                        a.Images?.Count > 0 ? a.Images[0].Url : null,
+                        useFallback: true)
                 });
             }
 
@@ -42,7 +46,7 @@ namespace LibreSpotUWP.Controls
         {
             public string Id { get; set; }
             public string Name { get; set; }
-            public string ImageUrl { get; set; }
+            public ImageSource Image { get; set; }
         }
     }
 }

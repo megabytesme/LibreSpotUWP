@@ -3,6 +3,7 @@ using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -79,7 +80,8 @@ namespace LibreSpotUWP.Services
                 AccessToken = response.AccessToken,
                 RefreshToken = response.RefreshToken,
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn),
-                LastTokenRefreshAt = DateTimeOffset.UtcNow
+                LastTokenRefreshAt = DateTimeOffset.UtcNow,
+                RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response)
             };
 
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
@@ -121,6 +123,7 @@ namespace LibreSpotUWP.Services
                     Current.RefreshToken = response.RefreshToken;
                 Current.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn);
                 Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
+                Current.RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response);
 
                 await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true).ConfigureAwait(false);
             }
@@ -234,6 +237,31 @@ namespace LibreSpotUWP.Services
             return state == null ||
                 string.IsNullOrEmpty(state.AccessToken) ||
                 state.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(1);
+        }
+
+        private static DateTimeOffset? TryGetRefreshTokenExpiresAt(object response)
+        {
+            if (response == null)
+                return null;
+
+            var property = response.GetType().GetRuntimeProperty("RefreshTokenExpiresIn");
+            if (property == null)
+                return null;
+
+            var value = property.GetValue(response);
+            if (value == null)
+                return null;
+
+            if (value is int secondsInt && secondsInt > 0)
+                return DateTimeOffset.UtcNow.AddSeconds(secondsInt);
+
+            if (value is long secondsLong && secondsLong > 0)
+                return DateTimeOffset.UtcNow.AddSeconds(secondsLong);
+
+            if (value is double secondsDouble && secondsDouble > 0)
+                return DateTimeOffset.UtcNow.AddSeconds(secondsDouble);
+
+            return null;
         }
 
         private async Task<AuthState> GetOrLoadCurrentStateAsync()

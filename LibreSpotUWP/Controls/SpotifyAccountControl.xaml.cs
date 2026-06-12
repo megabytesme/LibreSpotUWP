@@ -1,11 +1,11 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
+using LibreSpotUWP.Helpers;
 using System;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Media.Imaging;
 
 namespace LibreSpotUWP.Controls
 {
@@ -137,7 +137,7 @@ namespace LibreSpotUWP.Controls
                 EmailText.Text = user.Email ?? user.Id;
 
                 var img = user.Images != null && user.Images.Count > 0 ? user.Images[0].Url : null;
-                UserAvatarBrush.ImageSource = img != null ? new BitmapImage(new Uri(img)) : null;
+                UserAvatarBrush.ImageSource = ImageUriHelper.CreateBitmapImage(img, useFallback: true);
 
                 BtnManage.Content = "Manage";
             }

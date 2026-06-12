@@ -33,6 +33,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private void PlayerPage_Loaded(object sender, RoutedEventArgs e)
         {
+            UpdateAlbumArtLayout(new Windows.Foundation.Size(ActualWidth, ActualHeight));
             _dataTransferManager = DataTransferManager.GetForCurrentView();
             _dataTransferManager.DataRequested += DataTransferManager_DataRequested;
 
@@ -59,6 +60,11 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
             if (App.Downloads != null)
                 App.Downloads.TrackStatusChanged -= Downloads_TrackStatusChanged;
+        }
+
+        private void PlayerPage_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateAlbumArtLayout(e.NewSize);
         }
 
         private void OnMediaStateChanged(object sender, MediaState state)
@@ -323,6 +329,16 @@ namespace LibreSpotUWP.Views.Win10_1507
             {
                 mainPage.ClearCacheStatus();
             }
+        }
+
+        private void UpdateAlbumArtLayout(Windows.Foundation.Size size)
+        {
+            if (size.Width <= 0 || size.Height <= 0)
+                return;
+
+            var maxSide = Math.Max(160.0, Math.Min(size.Width * 0.62, size.Height * 0.46));
+            AlbumArt.Width = maxSide;
+            AlbumArt.Height = maxSide;
         }
 
         private MainPage GetMainPage()

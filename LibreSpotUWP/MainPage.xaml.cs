@@ -13,7 +13,6 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
-using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
 using static LibreSpotUWP.Controls.SpotifyAccountControl;
 
@@ -86,6 +85,8 @@ namespace LibreSpotUWP
             base.OnNavigatedTo(e);
 
             UpdateMediaBarVisibility();
+            if (ContentFrame.Content == null)
+                NavigateTo("Home", true);
 
             await HeaderAccountControl.Initialize();
         }
@@ -389,8 +390,7 @@ namespace LibreSpotUWP
                     ? user.Images[0].Url
                     : null;
 
-                AccountProfileBrush.ImageSource =
-                    img != null ? new BitmapImage(new Uri(img)) : null;
+                AccountProfileBrush.ImageSource = ImageUriHelper.CreateBitmapImage(img, useFallback: true);
 
                 AccountNameText.Text =
                     !string.IsNullOrEmpty(user.DisplayName)

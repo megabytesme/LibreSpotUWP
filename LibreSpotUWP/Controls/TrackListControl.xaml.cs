@@ -7,7 +7,6 @@ using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
-using Windows.UI.Xaml.Media.Imaging;
 
 using LibreSpotUWP.Helpers;
 
@@ -102,7 +101,9 @@ namespace LibreSpotUWP.Controls
                     ArtistObjects = t?.Artists?.ToList() ?? new List<SimpleArtist>(),
                     AlbumName = t?.Album?.Name ?? "",
                     AlbumId = t?.Album?.Id,
-                    AlbumArt = t?.Album?.Images?.Count > 0 ? new BitmapImage(new Uri(t.Album.Images[0].Url)) : null,
+                    AlbumArt = ImageUriHelper.CreateBitmapImage(
+                        t?.Album?.Images?.Count > 0 ? t.Album.Images[0].Url : null,
+                        useFallback: true),
                     Duration = TimeSpan.FromMilliseconds(t?.DurationMs ?? 0).ToString(@"m\:ss"),
                     RawTrack = t
                 };
@@ -403,7 +404,7 @@ namespace LibreSpotUWP.Controls
         public List<SimpleArtist> ArtistObjects { get; set; }
         public string AlbumName { get; set; }
         public string AlbumId { get; set; }
-        public BitmapImage AlbumArt { get; set; }
+        public ImageSource AlbumArt { get; set; }
         public string Duration { get; set; }
         public object RawTrack { get; set; }
     }

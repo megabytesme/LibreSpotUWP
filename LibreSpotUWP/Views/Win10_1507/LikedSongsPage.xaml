@@ -18,8 +18,16 @@
                 FontWeight="SemiBold"
                 Text="Liked Songs" />
             <TextBlock
+                x:Name="SummaryText"
                 Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                 Text="Your saved tracks in one place." />
+            <ComboBox
+                x:Name="SortComboBox"
+                Width="220"
+                SelectionChanged="SortComboBox_SelectionChanged">
+                <ComboBoxItem Content="Newest first" Tag="desc" />
+                <ComboBoxItem Content="Oldest first" Tag="asc" />
+            </ComboBox>
         </StackPanel>
 
         <StackPanel
