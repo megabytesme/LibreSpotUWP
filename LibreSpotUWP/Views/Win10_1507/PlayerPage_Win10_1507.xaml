@@ -213,8 +213,10 @@
                 Grid.Column="1"
                 Maximum="100"
                 Minimum="0"
+                IsThumbToolTipEnabled="True"
                 PointerCaptureLost="PositionSlider_PointerCaptureLost"
                 PointerPressed="PositionSlider_PointerPressed"
+                ThumbToolTipValueConverter="{StaticResource TimeConverter}"
                 ValueChanged="PositionSlider_ValueChanged" />
 
             <TextBlock
