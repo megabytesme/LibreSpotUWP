@@ -154,8 +154,12 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private void PositionSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
-            _dragging = false;
-            Media.Seek((uint)PositionSlider.Value);
+            CommitPositionSeek();
+        }
+
+        private void PositionSlider_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            CommitPositionSeek();
         }
 
         private void PositionSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -164,6 +168,15 @@ namespace LibreSpotUWP.Views.Win10_1507
             {
                 ElapsedTime.Text = Format((uint)e.NewValue);
             }
+        }
+
+        private void CommitPositionSeek()
+        {
+            if (PositionSlider == null)
+                return;
+
+            _dragging = false;
+            Media.Seek((uint)PositionSlider.Value);
         }
 
         private void PrevButton_Click(object sender, RoutedEventArgs e)

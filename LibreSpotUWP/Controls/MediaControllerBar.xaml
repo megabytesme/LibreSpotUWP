@@ -144,6 +144,7 @@
                         IsThumbToolTipEnabled="True"
                         PointerCaptureLost="PositionSlider_PointerCaptureLost"
                         PointerPressed="PositionSlider_PointerPressed"
+                        PointerReleased="PositionSlider_PointerReleased"
                         ThumbToolTipValueConverter="{StaticResource TimeConverter}"
                         ValueChanged="PositionSlider_ValueChanged" />
                     <TextBlock
