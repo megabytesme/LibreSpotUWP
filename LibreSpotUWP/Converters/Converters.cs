@@ -3,7 +3,7 @@ using System;
 using System.Collections;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Media.Imaging;
+using LibreSpotUWP.Helpers;
 
 namespace LibreSpotUWP.Converters
 {
@@ -60,11 +60,11 @@ namespace LibreSpotUWP.Converters
                     var url = urlProperty?.GetValue(first) as string;
                     if (!string.IsNullOrEmpty(url))
                     {
-                        return new BitmapImage(new Uri(url));
+                        return ImageUriHelper.CreateBitmapImage(url, useFallback: true);
                     }
                 }
             }
-            return null;
+            return ImageUriHelper.CreateBitmapImage(null, useFallback: true);
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)

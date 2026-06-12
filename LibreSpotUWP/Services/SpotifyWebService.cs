@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -48,42 +49,63 @@ namespace LibreSpotUWP.Services
             await _gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                return await action(_client).ConfigureAwait(false);
-            }
-            catch (APIUnauthorizedException)
-            {
-                await RecoverFromUnauthorizedAsync(ct).ConfigureAwait(false);
-                return await action(_client).ConfigureAwait(false);
-            }
-            catch (APIException apiEx)
-            {
-                var method = action.Method.Name;
-                System.Diagnostics.Debug.WriteLine(
-                    $"Spotify API Error in {method}: {apiEx.Response?.StatusCode} - {apiEx.Message}");
-
-                throw new SpotifyWebException(
-                    $"Spotify API Error: {apiEx.Response?.StatusCode}", apiEx);
-            }
-            catch (HttpRequestException httpEx)
-            {
-                var method = action.Method.Name;
-                System.Diagnostics.Debug.WriteLine(
-                    $"Spotify HTTP Error in {method}: {httpEx.Message}");
-
-                throw new SpotifyWebException("Spotify request failed.", httpEx);
-            }
-            catch (TaskCanceledException canceledEx) when (!ct.IsCancellationRequested)
-            {
-                var method = action.Method.Name;
-                System.Diagnostics.Debug.WriteLine(
-                    $"Spotify request timeout in {method}: {canceledEx.Message}");
-
-                throw new SpotifyWebException("Spotify request timed out.", canceledEx);
+                return await ExecuteWithRetryAsync(action, ct).ConfigureAwait(false);
             }
             finally
             {
                 _gate.Release();
             }
+        }
+
+        private async Task<T> ExecuteWithRetryAsync<T>(Func<SpotifyClient, Task<T>> action, CancellationToken ct)
+        {
+            const int maxAttempts = 3;
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    return await action(_client).ConfigureAwait(false);
+                }
+                catch (APIUnauthorizedException) when (attempt < maxAttempts)
+                {
+                    await RecoverFromUnauthorizedAsync(ct).ConfigureAwait(false);
+                }
+                catch (APIException apiEx) when (IsRateLimited(apiEx) && attempt < maxAttempts)
+                {
+                    var wait = TimeSpan.FromSeconds(Math.Min(5, attempt * 2));
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Spotify API rate limited in {action.Method.Name}, retrying in {wait.TotalSeconds:0.#}s: {apiEx.Message}");
+                    await Task.Delay(wait, ct).ConfigureAwait(false);
+                }
+                catch (APIException apiEx)
+                {
+                    var method = action.Method.Name;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Spotify API Error in {method}: {apiEx.Response?.StatusCode} - {apiEx.Message}");
+
+                    throw new SpotifyWebException(
+                        $"Spotify API Error: {apiEx.Response?.StatusCode}", apiEx);
+                }
+                catch (HttpRequestException httpEx)
+                {
+                    var method = action.Method.Name;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Spotify HTTP Error in {method}: {httpEx.Message}");
+
+                    throw new SpotifyWebException("Spotify request failed.", httpEx);
+                }
+                catch (TaskCanceledException canceledEx) when (!ct.IsCancellationRequested)
+                {
+                    var method = action.Method.Name;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Spotify request timeout in {method}: {canceledEx.Message}");
+
+                    throw new SpotifyWebException("Spotify request timed out.", canceledEx);
+                }
+            }
+
+            throw new SpotifyRateLimitedException(new Exception("Spotify request was rate limited too many times."));
         }
 
         private void OnAuthStateChanged(object sender, AuthState state)
@@ -216,6 +238,11 @@ namespace LibreSpotUWP.Services
                 ex is HttpRequestException ||
                 ex is TaskCanceledException ||
                 ex is InvalidOperationException;
+        }
+
+        private static bool IsRateLimited(APIException apiEx)
+        {
+            return apiEx?.Response != null && apiEx.Response.StatusCode == (HttpStatusCode)429;
         }
 
         private static FullTrack MapFullTrack(LibrespotTrackData payload)

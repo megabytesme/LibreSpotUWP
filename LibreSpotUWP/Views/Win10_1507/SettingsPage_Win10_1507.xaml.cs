@@ -1,16 +1,19 @@
-﻿using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using System;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.Storage;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Documents;
 using Windows.UI.Xaml.Navigation;
 
@@ -18,6 +21,8 @@ namespace LibreSpotUWP.Views.Win10_1507
 {
     public sealed partial class SettingsPage_Win10_1507 : Page
     {
+        private readonly ObservableCollection<string> _homeSectionOrder = new ObservableCollection<string>();
+        private readonly DispatcherTimer _equalizerApplyDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         private IMediaService _media;
         private ISpotifyAuthService _auth;
         private EventHandler<AuthState> _authStateChangedHandler;
@@ -28,6 +33,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         public SettingsPage_Win10_1507()
         {
             InitializeComponent();
+            _equalizerApplyDebounceTimer.Tick += EqualizerApplyDebounceTimer_Tick;
             Loaded += SettingsPage_Loaded;
         }
 
@@ -36,11 +42,9 @@ namespace LibreSpotUWP.Views.Win10_1507
             _media = App.Media;
             _auth = App.SpotifyAuth;
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
-            AbsoluteVolumeToggle.IsOn = UserSettings.AbsoluteVolumeControlEnabled;
             SelectAudioEffectsPreset(UserSettings.AudioEffectsPreset);
-            DefaultHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.Default;
-            PlaylistsFirstHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.PlaylistsFirst;
-            AlphabeticalHomeOrganizationRadio.IsChecked = UserSettings.HomeOrganizationMode == HomeOrganizationMode.Alphabetical;
+            LoadAudioEffectSettings();
+            LoadHomeOrderSettings();
 
             if (_auth != null)
             {
@@ -87,26 +91,6 @@ namespace LibreSpotUWP.Views.Win10_1507
             UpdateLibrespotStatus(App.Librespot.Session);
         }
 
-        private async void AbsoluteVolumeToggle_Toggled(object sender, RoutedEventArgs e)
-        {
-            if (_loading)
-                return;
-
-            UserSettings.AbsoluteVolumeControlEnabled = AbsoluteVolumeToggle.IsOn;
-
-            if (_media == null)
-                return;
-
-            try
-            {
-                await _media.SetAbsoluteVolumeControlEnabledAsync(AbsoluteVolumeToggle.IsOn);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to update absolute volume control: {ex}");
-            }
-        }
-
         private async void AudioEffectsComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading)
@@ -117,6 +101,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             var preset = selectedItem.Tag as string ?? "None";
             UserSettings.AudioEffectsPreset = preset;
+            UpdateAudioEffectVisibility();
 
             if (_media == null)
                 return;
@@ -130,6 +115,7 @@ namespace LibreSpotUWP.Views.Win10_1507
                 Debug.WriteLine($"Failed to update audio effects preset: {ex}");
             }
         }
+
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             base.OnNavigatedFrom(e);
@@ -156,29 +142,206 @@ namespace LibreSpotUWP.Views.Win10_1507
             ApplyAppearanceWithoutRestart();
         }
 
-        protected void HomeOrganizationRadio_Checked(object sender, RoutedEventArgs e)
+        private void SelectAudioEffectsPreset(string preset)
+        {
+            foreach (var item in AudioEffectsComboBox.Items.OfType<ComboBoxItem>())
+            {
+                if (string.Equals(item.Tag as string, preset, StringComparison.OrdinalIgnoreCase))
+                {
+                    AudioEffectsComboBox.SelectedItem = item;
+                    return;
+                }
+            }
+
+            AudioEffectsComboBox.SelectedIndex = 0;
+        }
+
+        private void LoadAudioEffectSettings()
+        {
+            //todo: Fix EQ options before release
+            //ApplyEqualizerSliderRanges();
+
+            SetEffectStrengthSlider(UserSettings.AudioEffectsStrength);
+
+            //todo: Fix EQ options before release
+            /*
+            var gains = UserSettings.GetEqualizerBandGains();
+            if (gains.Length >= 5)
+            {
+                EqualizerLowSlider.Value = ClampSliderToRange(EqualizerLowSlider, gains[0] * 400);
+                EqualizerLowMidSlider.Value = ClampSliderToRange(EqualizerLowMidSlider, gains[1] * 400);
+                EqualizerMidSlider.Value = ClampSliderToRange(EqualizerMidSlider, gains[2] * 400);
+                EqualizerHighMidSlider.Value = ClampSliderToRange(EqualizerHighMidSlider, gains[3] * 400);
+                EqualizerHighSlider.Value = ClampSliderToRange(EqualizerHighSlider, gains[4] * 400);
+            }
+            */
+
+            UpdateAudioEffectVisibility();
+        }
+
+        //todo: Fix EQ options before release
+        /*
+        private void ApplyEqualizerSliderRanges()
+        {
+            var ranges = _media?.GetEqualizerBandRanges();
+            if (ranges == null || ranges.Length < 5)
+                return;
+
+            ApplySliderRange(EqualizerLowSlider, ranges[0]);
+            ApplySliderRange(EqualizerLowMidSlider, ranges[1]);
+            ApplySliderRange(EqualizerMidSlider, ranges[2]);
+            ApplySliderRange(EqualizerHighMidSlider, ranges[3]);
+            ApplySliderRange(EqualizerHighSlider, ranges[4]);
+        }
+        */
+
+        private static void ApplySliderRange(Slider slider, EqualizerBandRange range)
+        {
+            if (slider == null || range == null)
+                return;
+
+            slider.Minimum = Math.Round(range.MinimumGain * 400.0, 2);
+            slider.Maximum = Math.Round(range.MaximumGain * 400.0, 2);
+        }
+
+        private static double ClampSliderToRange(Slider slider, double value)
+        {
+            return Math.Max(slider.Minimum, Math.Min(slider.Maximum, value));
+        }
+
+        private void UpdateAudioEffectVisibility()
+        {
+            var preset = GetSelectedPreset();
+            bool showStrength = preset == "BassBoost" || preset == "VocalBoost" || preset == "Warm" || preset == "Echo" || preset == "Reverb";
+
+            EffectStrengthPanel.Visibility = showStrength ? Visibility.Visible : Visibility.Collapsed;
+            /*
+            //todo: Fix EQ options before release
+            EqualizerPanel.Visibility = string.Equals(preset, "Equalizer", StringComparison.OrdinalIgnoreCase)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            */
+
+            EffectStrengthValueText.Text = $"Strength: {Math.Round(UserSettings.AudioEffectsStrength * 100)}%";
+        }
+
+        private string GetSelectedPreset()
+        {
+            return (AudioEffectsComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "None";
+        }
+
+        private void SetEffectStrengthSlider(double strength)
+        {
+            EffectStrengthSlider.ValueChanged -= EffectStrengthSlider_ValueChanged;
+            EffectStrengthSlider.Value = Math.Max(0, Math.Min(100, strength * 100));
+            EffectStrengthValueText.Text = $"Strength: {Math.Round(EffectStrengthSlider.Value)}%";
+            EffectStrengthSlider.ValueChanged += EffectStrengthSlider_ValueChanged;
+        }
+
+        private void ApplyCurrentAudioEffect()
+        {
+            if (_media == null)
+                return;
+
+            var preset = GetSelectedPreset();
+            _ = _media.SetAudioEffectsPresetAsync(preset);
+        }
+
+        private void EffectStrengthSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
             if (_loading)
                 return;
 
-            if (sender is RadioButton rb && rb.Tag is string tag && Enum.TryParse(tag, out HomeOrganizationMode mode))
-                UserSettings.HomeOrganizationMode = mode;
+            UserSettings.AudioEffectsStrength = e.NewValue / 100.0;
+            EffectStrengthValueText.Text = $"Strength: {Math.Round(e.NewValue)}%";
+            ApplyCurrentAudioEffect();
         }
 
-        private void SelectAudioEffectsPreset(string preset)
+        /*
+        //todo: Fix EQ options before release
+        private void EqualizerSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            switch (preset)
+            if (_loading)
+                return;
+
+            UserSettings.SetEqualizerBandGains(new[]
             {
-                case "Echo":
-                    AudioEffectsComboBox.SelectedIndex = 1;
-                    break;
-                case "Reverb":
-                    AudioEffectsComboBox.SelectedIndex = 2;
-                    break;
-                default:
-                    AudioEffectsComboBox.SelectedIndex = 0;
-                    break;
-            }
+                EqualizerLowSlider.Value / 400.0,
+                EqualizerLowMidSlider.Value / 400.0,
+                EqualizerMidSlider.Value / 400.0,
+                EqualizerHighMidSlider.Value / 400.0,
+                EqualizerHighSlider.Value / 400.0,
+            });
+
+            _equalizerApplyDebounceTimer.Stop();
+            _equalizerApplyDebounceTimer.Start();
+        }
+        */
+
+        private void EqualizerApplyDebounceTimer_Tick(object sender, object e)
+        {
+            _equalizerApplyDebounceTimer.Stop();
+            ApplyCurrentAudioEffect();
+        }
+
+        private void LoadHomeOrderSettings()
+        {
+            _homeSectionOrder.Clear();
+            foreach (var section in UserSettings.GetHomeSectionOrder())
+                _homeSectionOrder.Add(section);
+
+            HomeOrderList.ItemsSource = _homeSectionOrder;
+            HomeOrderList.SelectedIndex = _homeSectionOrder.Count > 0 ? 0 : -1;
+            UpdateHomeOrderButtons();
+        }
+
+        private void HomeOrderList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UpdateHomeOrderButtons();
+        }
+
+        private void UpdateHomeOrderButtons()
+        {
+            var index = HomeOrderList.SelectedIndex;
+            HomeOrderUpButton.IsEnabled = index > 0;
+            HomeOrderDownButton.IsEnabled = index >= 0 && index < _homeSectionOrder.Count - 1;
+        }
+
+        private void MoveHomeOrderSelection(int offset)
+        {
+            if (HomeOrderList.SelectedIndex < 0)
+                return;
+
+            int sourceIndex = HomeOrderList.SelectedIndex;
+            int targetIndex = sourceIndex + offset;
+            if (targetIndex < 0 || targetIndex >= _homeSectionOrder.Count)
+                return;
+
+            var item = _homeSectionOrder[sourceIndex];
+            _homeSectionOrder.RemoveAt(sourceIndex);
+            _homeSectionOrder.Insert(targetIndex, item);
+            HomeOrderList.SelectedIndex = targetIndex;
+            UserSettings.SetHomeSectionOrder(_homeSectionOrder);
+            UpdateHomeOrderButtons();
+        }
+
+        private void HomeOrderUpButton_Click(object sender, RoutedEventArgs e)
+        {
+            MoveHomeOrderSelection(-1);
+        }
+
+        private void HomeOrderDownButton_Click(object sender, RoutedEventArgs e)
+        {
+            MoveHomeOrderSelection(1);
+        }
+
+        private void ResetHomeOrderButton_Click(object sender, RoutedEventArgs e)
+        {
+            UserSettings.ResetHomeSectionOrder();
+            LoadHomeOrderSettings();
         }
 
         protected void ApplyAppearanceWithoutRestart()
@@ -238,7 +401,7 @@ namespace LibreSpotUWP.Views.Win10_1507
                 await ShowSimpleDialogAsync("Restart Required", "The app will now close. Please restart it to apply the reset.");
                 Application.Current.Exit();
 #else
-                
+
                 await ShowSimpleDialogAsync("Restarting", "The app will now restart to apply the reset.");
                 await CoreApplication.RequestRestartAsync("");
 #endif
@@ -384,6 +547,15 @@ namespace LibreSpotUWP.Views.Win10_1507
             LastTokenRefreshText.Text = state?.LastTokenRefreshAt.HasValue == true
                 ? $"Last token refresh: {state.LastTokenRefreshAt.Value.LocalDateTime:G}"
                 : "Last token refresh: Never";
+            TokenValidUntilText.Text = state != null
+                ? $"Token valid until: {state.ExpiresAt.LocalDateTime:G}"
+                : "Token valid until: Unknown";
+            RefreshTokenValidUntilText.Visibility = state?.RefreshTokenExpiresAt.HasValue == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            RefreshTokenValidUntilText.Text = state?.RefreshTokenExpiresAt.HasValue == true
+                ? $"Refresh token expiry: {state.RefreshTokenExpiresAt.Value.LocalDateTime:G}"
+                : string.Empty;
         }
 
         private async Task RefreshStorageStatusAsync()

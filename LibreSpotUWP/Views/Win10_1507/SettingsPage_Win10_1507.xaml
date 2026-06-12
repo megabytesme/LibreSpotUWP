@@ -70,28 +70,38 @@
                     <TextBlock
                         Margin="0,0,0,8"
                         Style="{StaticResource SubtitleTextBlockStyle}"
-                        Text="Home Organization" />
+                        Text="Home Order" />
 
-                    <RadioButton
-                        x:Name="DefaultHomeOrganizationRadio"
-                        Checked="HomeOrganizationRadio_Checked"
-                        Content="Default order"
-                        GroupName="HomeOrganizationGroup"
-                        Tag="Default" />
+                    <TextBlock
+                        Margin="0,0,0,10"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Move sections up or down to decide how Home is assembled." />
 
-                    <RadioButton
-                        x:Name="PlaylistsFirstHomeOrganizationRadio"
-                        Checked="HomeOrganizationRadio_Checked"
-                        Content="Playlists first"
-                        GroupName="HomeOrganizationGroup"
-                        Tag="PlaylistsFirst" />
+                    <ListView
+                        x:Name="HomeOrderList"
+                        Height="260"
+                        Margin="0,0,0,12"
+                        SelectionChanged="HomeOrderList_SelectionChanged"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="WrapWholeWords" />
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
 
-                    <RadioButton
-                        x:Name="AlphabeticalHomeOrganizationRadio"
-                        Checked="HomeOrganizationRadio_Checked"
-                        Content="Alphabetical"
-                        GroupName="HomeOrganizationGroup"
-                        Tag="Alphabetical" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="HomeOrderUpButton"
+                            Click="HomeOrderUpButton_Click"
+                            Content="Move up" />
+                        <Button
+                            x:Name="HomeOrderDownButton"
+                            Click="HomeOrderDownButton_Click"
+                            Content="Move down" />
+                        <Button Click="ResetHomeOrderButton_Click" Content="Reset order" />
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">
@@ -111,32 +121,101 @@
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Text="Force the app to behave as offline even when internet is available." />
 
-                    <ToggleSwitch
-                        x:Name="AbsoluteVolumeToggle"
-                        Margin="0,16,0,0"
-                        Header="Absolute Volume Control"
-                        Toggled="AbsoluteVolumeToggle_Toggled" />
-
                     <TextBlock
-                        Margin="0,6,0,0"
-                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}"
-                        Text="Use app output gain instead of librespot's internal volume." />
+                        Margin="0,16,0,0"
+                        Style="{StaticResource BodyTextBlockStyle}"
+                        Text="Equaliser" />
 
                     <ComboBox
                         x:Name="AudioEffectsComboBox"
-                        Margin="0,16,0,0"
+                        Margin="0,8,0,0"
                         SelectionChanged="AudioEffectsComboBox_SelectionChanged">
-                        <ComboBoxItem Content="Off" Tag="None" />
+                        <ComboBoxItem Content="None" Tag="None" />
+
+                        <!-- todo: Fix EQ options before release
+                        <ComboBoxItem Content="Bass Boost" Tag="BassBoost" />
+                        <ComboBoxItem Content="Vocal Boost" Tag="VocalBoost" />
+                        <ComboBoxItem Content="Warm" Tag="Warm" />
+                        -->
+
                         <ComboBoxItem Content="Echo" Tag="Echo" />
                         <ComboBoxItem Content="Reverb" Tag="Reverb" />
+
+                        <!-- todo: Fix EQ options before release
+                        <ComboBoxItem Content="Equalizer" Tag="Equalizer" />
+                        -->
+
+                        <ComboBoxItem Content="Limiter" Tag="Limiter" />
                     </ComboBox>
 
                     <TextBlock
                         Margin="0,6,0,0"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}"
-                        Text="Applies an audio effect to the playback graph." />
+                        Text="Applies a playback effect to the audio." />
+
+                    <StackPanel
+                        x:Name="EffectStrengthPanel"
+                        Margin="0,14,0,0"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            Margin="0,0,0,6"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Text="Effect strength" />
+                        <Slider
+                            x:Name="EffectStrengthSlider"
+                            Maximum="100"
+                            Minimum="0"
+                            ValueChanged="EffectStrengthSlider_ValueChanged" />
+                        <TextBlock
+                            x:Name="EffectStrengthValueText"
+                            Margin="0,4,0,0"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- todo: Fix EQ options before release
+                    <StackPanel
+                        x:Name="EqualizerPanel"
+                        Margin="0,14,0,0"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            Margin="0,0,0,6"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Text="Custom equalizer" />
+
+                        <TextBlock Text="Low" />
+                        <Slider
+                            x:Name="EqualizerLowSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="Low-Mid" />
+                        <Slider
+                            x:Name="EqualizerLowMidSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="Mid" />
+                        <Slider
+                            x:Name="EqualizerMidSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="High-Mid" />
+                        <Slider
+                            x:Name="EqualizerHighMidSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="High" />
+                        <Slider
+                            x:Name="EqualizerHighSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                    </StackPanel>
+                    -->
                 </StackPanel>
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">
@@ -159,6 +238,18 @@
 
                     <TextBlock
                         x:Name="LastTokenRefreshText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="TokenValidUntilText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="RefreshTokenValidUntilText"
                         Margin="0,0,0,4"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                         Style="{StaticResource CaptionTextBlockStyle}" />

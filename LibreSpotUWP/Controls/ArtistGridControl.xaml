@@ -17,7 +17,7 @@
                     <Image
                         Width="140"
                         Height="140"
-                        Source="{Binding ImageUrl}"
+                        Source="{Binding Image}"
                         Stretch="UniformToFill" />
                     <TextBlock
                         Margin="0,8,0,0"

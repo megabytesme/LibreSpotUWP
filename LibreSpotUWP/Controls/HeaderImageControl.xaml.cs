@@ -4,7 +4,7 @@ using System.Linq;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Documents;
-using Windows.UI.Xaml.Media.Imaging;
+using LibreSpotUWP.Helpers;
 
 namespace LibreSpotUWP.Controls {
     public static class HyperlinkTag
@@ -112,7 +112,7 @@ namespace LibreSpotUWP.Controls {
             }
 
             var img = album.Images?.FirstOrDefault()?.Url;
-            MainImage.Source = img != null ? new BitmapImage(new Uri(img)) : null;
+            MainImage.Source = ImageUriHelper.CreateBitmapImage(img, useFallback: true);
             MetadataPanel.Children.Clear();
             MetadataPanel.Children.Add(new TextBlock { Text = $"Released: {album.ReleaseDate}", TextWrapping = TextWrapping.Wrap });
             MetadataPanel.Children.Add(new TextBlock { Text = $"Label: {album.Label}", TextWrapping = TextWrapping.Wrap });
@@ -137,7 +137,7 @@ namespace LibreSpotUWP.Controls {
             });
 
             var img = artist.Images?.FirstOrDefault()?.Url;
-            MainImage.Source = img != null ? new BitmapImage(new Uri(img)) : null;
+            MainImage.Source = ImageUriHelper.CreateBitmapImage(img, useFallback: true);
 
             ImageBorder.CornerRadius = new CornerRadius(70);
 
@@ -168,7 +168,7 @@ namespace LibreSpotUWP.Controls {
             }
 
             var img = playlist.Images?.FirstOrDefault()?.Url;
-            MainImage.Source = img != null ? new BitmapImage(new Uri(img)) : null;
+            MainImage.Source = ImageUriHelper.CreateBitmapImage(img, useFallback: true);
 
             ImageBorder.CornerRadius = new CornerRadius(4);
 

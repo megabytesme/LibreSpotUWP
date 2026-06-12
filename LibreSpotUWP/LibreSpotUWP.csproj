@@ -169,11 +169,14 @@
       <DependentUpon>SpotifyAccountControl.xaml</DependentUpon>
     </Compile>
     <Compile Include="Helpers\ConnectivityHelper.cs" />
+    <Compile Include="Helpers\ImageUriHelper.cs" />
     <Compile Include="Helpers\PlaybackNavigationHelper.cs" />
+    <Compile Include="Helpers\UserSettings.cs" />
     <Compile Include="Helpers\UwpBackgroundExecutionManager.cs" />
     <Compile Include="Helpers\UwpSettingsNavigator.cs" />
     <Compile Include="Interfaces\IBackgroundExecutionManager.cs" />
     <Compile Include="Interfaces\ISettingsNavigator.cs" />
+    <Compile Include="Models\HomeOrganizationMode.cs" />
     <Compile Include="Selectors\SearchItemTemplateSelector.cs" />
     <Compile Include="Selectors\HomeItemTemplateSelector.cs" />
     <Compile Include="Controls\NarrowMediaControllerBar.xaml.cs">
@@ -200,6 +203,7 @@
       <DependentUpon>ScannerPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\MediaState.cs" />
+    <Compile Include="Models\EqualizerBandRange.cs" />
     <Compile Include="Models\AppEntities.cs" />
     <Compile Include="Models\LibrespotAppDataModels.cs" />
     <Compile Include="Models\LibrespotLyricsModels.cs" />

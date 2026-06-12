@@ -50,25 +50,6 @@ namespace LibreSpotUWP.ViewModels
             GroupedHomeContent.Add(new HomeSectionGroup { Title = "Home" });
         }
 
-        private static readonly string[] DefaultSectionOrder =
-        {
-            "Recently Played Playlists",
-            "Recently Played Albums",
-            "Recently Played Artists",
-            "Recently Played Tracks",
-            "Your Playlists",
-            "Top Artists",
-            "Top Tracks",
-            "Saved Albums",
-            "Artists You Follow",
-            "Albums From Your Top Artists",
-            "Albums You Started",
-            "Downloaded Playlists",
-            "Downloaded Albums",
-            "Downloaded Songs",
-            "Mixed For You"
-        };
-
         public async Task LoadAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh = false)
         {
             GroupedHomeContent.Clear();
@@ -158,11 +139,9 @@ namespace LibreSpotUWP.ViewModels
             }
 
             var insertIndex = GroupedHomeContent.Count;
-            var organizationMode = UserSettings.HomeOrganizationMode;
-
             for (int i = 1; i < GroupedHomeContent.Count; i++)
             {
-                if (ShouldInsertBefore(group.Title, GroupedHomeContent[i].Title, organizationMode))
+                if (ShouldInsertBefore(group.Title, GroupedHomeContent[i].Title))
                 {
                     insertIndex = i;
                     break;
@@ -183,13 +162,10 @@ namespace LibreSpotUWP.ViewModels
             return -1;
         }
 
-        private static bool ShouldInsertBefore(string candidateTitle, string existingTitle, HomeOrganizationMode mode)
+        private static bool ShouldInsertBefore(string candidateTitle, string existingTitle)
         {
-            if (mode == HomeOrganizationMode.Alphabetical)
-                return string.Compare(candidateTitle, existingTitle, StringComparison.OrdinalIgnoreCase) < 0;
-
-            int candidateRank = GetSectionRank(candidateTitle, mode);
-            int existingRank = GetSectionRank(existingTitle, mode);
+            int candidateRank = GetSectionRank(candidateTitle);
+            int existingRank = GetSectionRank(existingTitle);
 
             if (candidateRank != existingRank)
                 return candidateRank < existingRank;
@@ -197,19 +173,17 @@ namespace LibreSpotUWP.ViewModels
             return string.Compare(candidateTitle, existingTitle, StringComparison.OrdinalIgnoreCase) < 0;
         }
 
-        private static int GetSectionRank(string title, HomeOrganizationMode mode)
+        private static int GetSectionRank(string title)
         {
             if (string.IsNullOrWhiteSpace(title))
                 return int.MaxValue;
 
-            if (mode == HomeOrganizationMode.PlaylistsFirst && title.IndexOf("Playlist", StringComparison.OrdinalIgnoreCase) >= 0)
-                return 0;
+            var orderedSections = UserSettings.GetHomeSectionOrder();
+            int configuredIndex = Array.FindIndex(orderedSections, item => string.Equals(item, title, StringComparison.OrdinalIgnoreCase));
+            if (configuredIndex >= 0)
+                return configuredIndex;
 
-            int defaultIndex = Array.FindIndex(DefaultSectionOrder, item => string.Equals(item, title, StringComparison.OrdinalIgnoreCase));
-            if (defaultIndex >= 0)
-                return mode == HomeOrganizationMode.PlaylistsFirst ? defaultIndex + 1 : defaultIndex;
-
-            return mode == HomeOrganizationMode.PlaylistsFirst ? 1000 : int.MaxValue - 1;
+            return int.MaxValue - 1;
         }
 
         private async Task LoadRecentlyPlayedAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh, HashSet<string> recentlyPlayedItemKeys)

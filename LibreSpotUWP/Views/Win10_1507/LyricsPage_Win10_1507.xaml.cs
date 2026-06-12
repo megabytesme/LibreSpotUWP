@@ -16,6 +16,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         private string _currentTrackUri;
         private bool _autoScrollEnabled;
         private int _currentLineIndex = -1;
+        private bool _lyricsLoadInProgress;
 
         public LyricsPage_Win10_1507()
         {
@@ -77,16 +78,20 @@ namespace LibreSpotUWP.Views.Win10_1507
             if (!string.Equals(state.Track.Uri, _currentTrackUri, StringComparison.OrdinalIgnoreCase))
             {
                 _currentTrackUri = state.Track.Uri;
-                await LoadLyricsAsync(state.Track.Uri);
+                await LoadLyricsAsync(state);
             }
 
             UpdateCurrentLine(state.PositionMs);
         }
 
-        private async Task LoadLyricsAsync(string trackUri)
+        private async Task LoadLyricsAsync(MediaState state)
         {
+            if (_lyricsLoadInProgress)
+                return;
+
             SetStatus("Loading lyrics...");
             ClearLyrics();
+            _lyricsLoadInProgress = true;
 
             try
             {
@@ -96,11 +101,20 @@ namespace LibreSpotUWP.Views.Win10_1507
                     return;
                 }
 
+                var trackUri = state?.Track?.Uri;
+                if (string.IsNullOrWhiteSpace(trackUri))
+                {
+                    SetStatus("Lyrics are unavailable for this track.");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"Requesting lyrics for {trackUri}.");
                 var lyrics = await App.Librespot.GetLyricsAsync(trackUri);
+
                 if (!string.Equals(_currentTrackUri, trackUri, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                if (lyrics == null || lyrics.Lines == null || lyrics.Lines.Count == 0)
+                if (!HasLyrics(lyrics))
                 {
                     SetStatus("No synced lyrics were found for this track.");
                     return;
@@ -120,6 +134,15 @@ namespace LibreSpotUWP.Views.Win10_1507
                 SetStatus("Lyrics could not be loaded.");
                 System.Diagnostics.Debug.WriteLine($"Failed to load lyrics: {ex}");
             }
+            finally
+            {
+                _lyricsLoadInProgress = false;
+            }
+        }
+
+        private static bool HasLyrics(LibrespotLyricsData lyrics)
+        {
+            return lyrics != null && lyrics.Lines != null && lyrics.Lines.Count > 0;
         }
 
         private void ClearLyrics()

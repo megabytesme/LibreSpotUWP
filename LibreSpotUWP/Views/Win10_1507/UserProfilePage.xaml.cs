@@ -1,8 +1,8 @@
 using LibreSpotUWP.ViewModels;
 using System;
+using LibreSpotUWP.Helpers;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
 
 namespace LibreSpotUWP.Views
@@ -56,9 +56,7 @@ namespace LibreSpotUWP.Views
             var imageUrl = profile?.Images != null && profile.Images.Count > 0
                 ? profile.Images[0].Url
                 : null;
-            ProfileImage.Source = Uri.TryCreate(imageUrl, UriKind.Absolute, out var imageUri)
-                ? new BitmapImage(imageUri)
-                : null;
+            ProfileImage.Source = ImageUriHelper.CreateBitmapImage(imageUrl, useFallback: true);
 
             PlaylistsGrid.SetPlaylists(ViewModel.Playlists);
         }

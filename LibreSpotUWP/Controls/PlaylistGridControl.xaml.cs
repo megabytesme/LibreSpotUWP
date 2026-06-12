@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media;
+using LibreSpotUWP.Helpers;
 
 namespace LibreSpotUWP.Controls
 {
@@ -28,7 +30,9 @@ namespace LibreSpotUWP.Controls
                 {
                     Id = p.Id,
                     Name = p.Name ?? "(Unknown Playlist)",
-                    ImageUrl = p.Images?.Count > 0 ? p.Images[0].Url : null
+                    Image = ImageUriHelper.CreateBitmapImage(
+                        p.Images?.Count > 0 ? p.Images[0].Url : null,
+                        useFallback: true)
                 });
             }
 
@@ -45,7 +49,7 @@ namespace LibreSpotUWP.Controls
         {
             public string Id { get; set; }
             public string Name { get; set; }
-            public string ImageUrl { get; set; }
+            public ImageSource Image { get; set; }
         }
     }
 }
