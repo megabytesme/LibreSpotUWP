@@ -159,14 +159,27 @@ namespace LibreSpotUWP.Controls
 
         private void PositionSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
-            _draggingPosition = false;
-            _media?.Seek((uint)PositionSlider.Value);
+            CommitPositionSeek();
+        }
+
+        private void PositionSlider_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            CommitPositionSeek();
         }
 
         private void PositionSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
             if (_draggingPosition)
                 CurrentTime.Text = Format((uint)e.NewValue);
+        }
+
+        private void CommitPositionSeek()
+        {
+            if (!_draggingPosition && PositionSlider == null)
+                return;
+
+            _draggingPosition = false;
+            _media?.Seek((uint)PositionSlider.Value);
         }
 
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

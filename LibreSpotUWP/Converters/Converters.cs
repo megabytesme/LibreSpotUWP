@@ -11,7 +11,39 @@ namespace LibreSpotUWP.Converters
     {
         public object Convert(object value, Type targetType, object parameter, string language)
         {
-            uint ms = (uint)value;
+            double ms;
+
+            switch (value)
+            {
+                case uint u:
+                    ms = u;
+                    break;
+
+                case int i:
+                    ms = i;
+                    break;
+
+                case long l:
+                    ms = l;
+                    break;
+
+                case double d:
+                    ms = d;
+                    break;
+
+                case float f:
+                    ms = f;
+                    break;
+
+                case decimal m:
+                    ms = (double)m;
+                    break;
+
+                default:
+                    ms = 0;
+                    break;
+            }
+
             TimeSpan t = TimeSpan.FromMilliseconds(ms);
             return $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
         }
