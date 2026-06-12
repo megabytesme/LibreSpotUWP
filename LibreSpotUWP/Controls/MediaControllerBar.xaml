@@ -2,12 +2,17 @@
     x:Class="LibreSpotUWP.Controls.MediaControllerBar"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:LibreSpotUWP.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Height="110"
     d:DesignHeight="100"
     d:DesignWidth="800"
     mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <converters:TimeConverter x:Key="TimeConverter" />
+    </UserControl.Resources>
 
     <Grid Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
         <Grid.ColumnDefinitions>
@@ -136,8 +141,10 @@
                         Grid.Column="1"
                         Maximum="0"
                         Minimum="0"
+                        IsThumbToolTipEnabled="True"
                         PointerCaptureLost="PositionSlider_PointerCaptureLost"
                         PointerPressed="PositionSlider_PointerPressed"
+                        ThumbToolTipValueConverter="{StaticResource TimeConverter}"
                         ValueChanged="PositionSlider_ValueChanged" />
                     <TextBlock
                         x:Name="TotalTime"
