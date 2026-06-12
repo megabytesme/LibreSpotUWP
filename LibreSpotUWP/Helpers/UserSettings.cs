@@ -15,6 +15,9 @@ namespace LibreSpotUWP.Helpers
         private const string AudioEffectsKey = "AudioEffectsPreset";
         private const string AudioEffectsStrengthKey = "AudioEffectsStrength";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
+        private const string RememberLastPlaybackStateKey = "RememberLastPlaybackState";
+        private const string ResumeLastPlaybackIfWasPlayingKey = "ResumeLastPlaybackIfWasPlaying";
+        private const string RememberLastPageKey = "RememberLastPage";
 
         public static readonly string[] DefaultHomeSectionOrder =
         {
@@ -72,6 +75,24 @@ namespace LibreSpotUWP.Helpers
                 return 1.0;
             }
             set => ApplicationData.Current.LocalSettings.Values[AudioEffectsStrengthKey] = Clamp01(value);
+        }
+
+        public static bool RememberLastPlaybackState
+        {
+            get => !ApplicationData.Current.LocalSettings.Values.TryGetValue(RememberLastPlaybackStateKey, out object value) || !(value is bool enabled) || enabled;
+            set => ApplicationData.Current.LocalSettings.Values[RememberLastPlaybackStateKey] = value;
+        }
+
+        public static bool RememberLastPage
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(RememberLastPageKey, out object value) && value is bool enabled && enabled;
+            set => ApplicationData.Current.LocalSettings.Values[RememberLastPageKey] = value;
+        }
+
+        public static bool ResumeLastPlaybackIfWasPlaying
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(ResumeLastPlaybackIfWasPlayingKey, out object value) && value is bool enabled && enabled;
+            set => ApplicationData.Current.LocalSettings.Values[ResumeLastPlaybackIfWasPlayingKey] = value;
         }
 
         public static double[] GetEqualizerBandGains()

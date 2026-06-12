@@ -121,6 +121,45 @@
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Text="Force the app to behave as offline even when internet is available." />
 
+                    <ToggleSwitch
+                        x:Name="RememberLastPlaybackToggle"
+                        Margin="0,12,0,0"
+                        Header="Remember last played song"
+                        Toggled="RememberLastPlaybackToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Restore the last song, context, and position when the app starts." />
+
+                    <ToggleSwitch
+                        x:Name="ResumeLastPlaybackToggle"
+                        Margin="0,12,0,0"
+                        Header="Resume playback if it was playing"
+                        Visibility="Collapsed"
+                        Toggled="ResumeLastPlaybackToggle_Toggled" />
+
+                    <TextBlock
+                        x:Name="ResumeLastPlaybackDescription"
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Visibility="Collapsed"
+                        Text="If the app was closed mid-song, continue from that point on next launch." />
+
+                    <ToggleSwitch
+                        x:Name="RememberLastPageToggle"
+                        Margin="0,12,0,0"
+                        Header="Remember last open page"
+                        Toggled="RememberLastPageToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Return to the last open page instead of Home on startup." />
+
                     <TextBlock
                         Margin="0,16,0,0"
                         Style="{StaticResource BodyTextBlockStyle}"
