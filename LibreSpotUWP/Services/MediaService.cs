@@ -62,20 +62,21 @@ namespace LibreSpotUWP.Services
             _mediaPlayer.AudioCategory = MediaPlayerAudioCategory.Media;
 
             var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            var hasSavedVolume = settings.Values.TryGetValue(VolumeKey, out object saved);
+            var savedVolume = hasSavedVolume && saved is ushort rawSaved ? rawSaved : (ushort?)null;
+            var currentVolume = _librespot.Volume;
+            var initialVolume = savedVolume ?? (currentVolume > 0 ? currentVolume : (ushort)65535);
 
-            if (settings.Values.TryGetValue(VolumeKey, out object saved))
+            if (!savedVolume.HasValue)
             {
-                ushort raw = (ushort)saved;
-                await _librespot.SetVolumeAsync(raw);
-                UpdateState(s => s.Volume = raw);
+                settings.Values[VolumeKey] = initialVolume;
             }
-            else
-            {
-                ushort max = 65535;
-                await _librespot.SetVolumeAsync(max);
-                settings.Values[VolumeKey] = max;
-                UpdateState(s => s.Volume = max);
-            }
+
+            if (_librespot.Volume != initialVolume)
+                await _librespot.SetVolumeAsync(initialVolume);
+
+            _pendingVolume = initialVolume;
+            UpdateState(s => s.Volume = initialVolume);
 
             var commandManager = _mediaPlayer.CommandManager;
             commandManager.IsEnabled = true;
@@ -552,6 +553,7 @@ namespace LibreSpotUWP.Services
 
         private void OnVolumeChanged(object sender, ushort volume)
         {
+            _pendingVolume = volume;
             UpdateState(s => s.Volume = volume);
 
             var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
