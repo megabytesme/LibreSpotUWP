@@ -1064,6 +1064,7 @@ namespace LibreSpotUWP.Services
 
             string cacheDir = ApplicationData.Current.LocalCacheFolder.Path;
             string persistedCacheDir = ApplicationData.Current.LocalFolder.Path;
+            ushort initialVolume = GetInitialVolumeFromSettings();
 
             return new LibrespotConfig
             {
@@ -1075,6 +1076,7 @@ namespace LibreSpotUWP.Services
                 enable_volume_normalisation = false,
                 bitrate = Bitrate.B320,
                 format = _audioFormat.LibrespotFormat,
+                initial_volume = initialVolume,
                 username = IntPtr.Zero,
                 password = IntPtr.Zero,
                 auth_blob = IntPtr.Zero,
@@ -1083,6 +1085,15 @@ namespace LibreSpotUWP.Services
                 key_save_callback = _keySaveDelegate,
                 key_remove_callback = _keyRemoveDelegate,
             };
+        }
+
+        private static ushort GetInitialVolumeFromSettings()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.TryGetValue("UserVolume", out object saved) && saved is ushort rawSaved && rawSaved > 0)
+                return rawSaved;
+
+            return 65535;
         }
 
         private static void FreeConfig(LibrespotConfig cfg)

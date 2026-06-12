@@ -43,6 +43,7 @@ namespace LibreSpotUWP.Interop
 
             public Bitrate bitrate;
             public AudioFormat format;
+            public ushort initial_volume;
 
             public IntPtr username;
             public IntPtr password;
