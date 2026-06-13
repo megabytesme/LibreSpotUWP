@@ -71,6 +71,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             _autoScrollEnabled = UserSettings.LyricsAutoScrollEnabled;
             AutoScrollToggle.IsOn = _autoScrollEnabled;
+            UpdateAutoScrollControls();
 
             if (App.Media != null)
             {
@@ -295,6 +296,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             _autoScrollEnabled = AutoScrollToggle.IsOn;
             UserSettings.LyricsAutoScrollEnabled = _autoScrollEnabled;
+            UpdateAutoScrollControls();
 
             if (_autoScrollEnabled && _currentLineIndex >= 0 && _currentLineIndex < _lines.Count)
                 ScrollToLine(_currentLineIndex);
@@ -432,7 +434,14 @@ namespace LibreSpotUWP.Views.Win10_1507
                 _autoScrollEnabled = false;
                 AutoScrollToggle.IsOn = false;
                 UserSettings.LyricsAutoScrollEnabled = false;
+                UpdateAutoScrollControls();
             }
+        }
+
+        private void UpdateAutoScrollControls()
+        {
+            if (AutoScrollToggle != null)
+                AutoScrollToggle.Visibility = _autoScrollEnabled ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void IgnoreAutoScrollDisableTimer_Tick(object sender, object e)
