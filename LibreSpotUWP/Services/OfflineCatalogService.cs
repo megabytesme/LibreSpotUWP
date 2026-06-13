@@ -432,7 +432,9 @@ namespace LibreSpotUWP.Services
         {
             var track = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == trackUri);
             if (track != null && !TrackHasPersistence(track))
+            {
                 _catalog.Tracks.Remove(track);
+            }
         }
 
         private static bool TrackHasPersistence(OfflineTrackEntry track)

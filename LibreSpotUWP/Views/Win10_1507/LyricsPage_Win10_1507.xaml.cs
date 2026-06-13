@@ -1,5 +1,6 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
+using Newtonsoft.Json;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -146,7 +147,8 @@ namespace LibreSpotUWP.Views.Win10_1507
                 }
 
                 System.Diagnostics.Debug.WriteLine($"Requesting lyrics for {trackUri}.");
-                var lyrics = await App.Librespot.GetLyricsAsync(trackUri);
+                var lyricsJson = await TryLoadLyricsJsonAsync(trackUri);
+                var lyrics = DeserializeLyrics(lyricsJson);
                 System.Diagnostics.Debug.WriteLine(
                     $"Lyrics response for {trackUri}: provider={lyrics?.Provider ?? "(null)"}, syncType={lyrics?.SyncType ?? "(null)"}, lineCount={lyrics?.Lines?.Count ?? -1}.");
 
@@ -186,6 +188,45 @@ namespace LibreSpotUWP.Views.Win10_1507
         private static bool HasLyrics(LibrespotLyricsData lyrics)
         {
             return lyrics != null && lyrics.Lines != null && lyrics.Lines.Count > 0;
+        }
+
+        private async Task<string> TryLoadLyricsJsonAsync(string trackUri)
+        {
+            if (string.IsNullOrWhiteSpace(trackUri))
+                return null;
+
+            try
+            {
+                return await App.Librespot.GetLyricsJsonAsync(trackUri);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Lyrics lookup failed for {trackUri}: {ex}");
+                return null;
+            }
+        }
+
+        private static LibrespotLyricsData DeserializeLyrics(string lyricsJson)
+        {
+            if (string.IsNullOrWhiteSpace(lyricsJson))
+                return null;
+
+            try
+            {
+                var wrapper = JsonConvert.DeserializeObject<LibrespotAppDataResponse<LibrespotLyricsData>>(lyricsJson);
+                return wrapper?.Data;
+            }
+            catch
+            {
+                try
+                {
+                    return JsonConvert.DeserializeObject<LibrespotLyricsData>(lyricsJson);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
         }
 
         private void ClearLyrics()
@@ -461,6 +502,12 @@ namespace LibreSpotUWP.Views.Win10_1507
         private void SetStatus(string text)
         {
             StatusText.Text = text ?? string.Empty;
+        }
+
+        private sealed class LibrespotAppDataResponse<T>
+        {
+            public string Kind { get; set; }
+            public T Data { get; set; }
         }
 
         private static T FindDescendant<T>(DependencyObject root) where T : DependencyObject

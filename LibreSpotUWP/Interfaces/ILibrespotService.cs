@@ -53,6 +53,7 @@ namespace LibreSpotUWP.Interfaces
         Task<LibrespotTrackListData> GetSavedTracksAsync(string userId);
         Task<LibrespotArtistListData> GetFollowedArtistsAsync(string userId);
         Task<LibrespotLyricsData> GetLyricsAsync(string trackUri, string imageIdHex = null);
+        Task<string> GetLyricsJsonAsync(string trackUri, string imageIdHex = null);
         Task<LibrespotSearchData> SearchAsync(string query);
         Task LoadAndPlayAsync(string spotifyUri, string startUri);
         Task SetTrackPersistedAsync(string trackUri, bool persisted);
