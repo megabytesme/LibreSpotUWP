@@ -1,0 +1,52 @@
+<Page
+    x:Class="LibreSpotUWP.Views.Win11.ArtistPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    Background="Transparent"
+    muxc:BackdropMaterial.ApplyToRootOrPageBackground="True">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0">
+            <StackPanel Padding="24" Spacing="24">
+                <StackPanel
+                    x:Name="CacheIndicator"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Visibility="Collapsed">
+                    <FontIcon
+                        Foreground="{ThemeResource SystemAccentColor}"
+                        FontFamily="Segoe MDL2 Assets"
+                        Glyph="&#xE946;" />
+                    <TextBlock
+                        x:Name="CacheIndicatorText"
+                        Foreground="{ThemeResource SystemAccentColor}"
+                        Text="Cached" />
+                    <Button
+                        x:Name="RefreshButton"
+                        Width="28"
+                        Height="28"
+                        Background="Transparent"
+                        Click="RefreshButton_Click">
+                        <FontIcon
+                            Foreground="{ThemeResource SystemAccentColor}"
+                            FontFamily="Segoe MDL2 Assets"
+                            Glyph="&#xE72C;" />
+                    </Button>
+                </StackPanel>
+                <controls:HeaderImageControl x:Name="HeaderControl" />
+                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Top Tracks" />
+                <controls:TrackListControl x:Name="TrackList" />
+                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Albums" />
+                <controls:AlbumGridControl x:Name="AlbumsGrid" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>
+
+

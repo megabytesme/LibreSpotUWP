@@ -187,7 +187,7 @@ namespace LibreSpotUWP
                 {
                     if (rootFrame.Content == null)
                     {
-                        rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                        rootFrame.Navigate(NavigationHelper.GetPageType("Shell"), e.Arguments);
                     }
 
                     Window.Current.Activate();

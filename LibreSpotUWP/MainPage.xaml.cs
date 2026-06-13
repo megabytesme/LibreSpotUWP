@@ -2,6 +2,7 @@
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
 using LibreSpotUWP.Views;
+using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -18,7 +19,7 @@ using static LibreSpotUWP.Controls.SpotifyAccountControl;
 
 namespace LibreSpotUWP
 {
-    public sealed partial class MainPage : Page
+    public sealed partial class MainPage : Page, Interfaces.IAppShell
     {
         private readonly List<string> _history = new List<string>();
         private bool _isPlayerOpen = false;
@@ -115,6 +116,17 @@ namespace LibreSpotUWP
         private void ApplyAppearanceStyling()
         {
             var mode = AppearanceService.Current;
+
+            BackdropMaterial.SetApplyToRootOrPageBackground(this, mode == AppearanceMode.Win11);
+
+            if (mode == AppearanceMode.Win11)
+            {
+                this.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
+                NavigationPaneRoot.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
+                RootSplitView.PaneBackground = new SolidColorBrush(Windows.UI.Colors.Transparent);
+                MediaBarHost.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
+                return;
+            }
 
 
             if (mode == AppearanceMode.Win10_1709)

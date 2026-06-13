@@ -40,9 +40,7 @@ namespace LibreSpotUWP.Controls {
 
             ArtistClicked += (s, artistId) =>
             {
-                var frame = Window.Current.Content as Frame;
-                var main = frame?.Content as MainPage;
-                main?.NavigateToArtist(artistId);
+                PlaybackNavigationHelper.FindShell(this)?.NavigateToArtist(artistId);
             };
         }
 
@@ -81,9 +79,7 @@ namespace LibreSpotUWP.Controls {
             }
             else
             {
-                var frame = Window.Current.Content as Frame;
-                var main = frame?.Content as MainPage;
-                main?.NavigateTo("User:" + id);
+                PlaybackNavigationHelper.FindShell(this)?.NavigateTo("User:" + id);
             }
         }
 

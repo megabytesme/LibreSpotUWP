@@ -122,8 +122,8 @@ namespace LibreSpotUWP.Controls
 
         private void Root_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            var mainPage = PlaybackNavigationHelper.FindMainPage(this);
-            mainPage?.NavigateTo("Player");
+            var shell = PlaybackNavigationHelper.FindShell(this);
+            shell?.NavigateTo("Player");
         }
 
         private void TrackArtistButton_Click(object sender, RoutedEventArgs e)
