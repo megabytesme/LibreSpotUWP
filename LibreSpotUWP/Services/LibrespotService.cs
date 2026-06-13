@@ -243,6 +243,23 @@ namespace LibreSpotUWP.Services
             });
         }
 
+        public Task<string> GetLyricsJsonAsync(string trackUri, string imageIdHex = null)
+        {
+            var kind = string.IsNullOrWhiteSpace(imageIdHex)
+                ? LibrespotAppDataKind.Lyrics
+                : LibrespotAppDataKind.LyricsForImage;
+
+            var argument = string.IsNullOrWhiteSpace(imageIdHex)
+                ? trackUri
+                : JsonConvert.SerializeObject(new
+                {
+                    trackUri,
+                    imageIdHex = imageIdHex
+                });
+
+            return GetAppDataPayloadAsync(argument, kind, payload => payload);
+        }
+
         public Task<LibrespotSearchData> SearchAsync(string query)
         {
             return GetTypedPayloadAsync(query, Librespot.librespot_search_get, Librespot.librespot_search_free, ReadSearch);
