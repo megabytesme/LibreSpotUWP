@@ -9,6 +9,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel MaxWidth="840" HorizontalAlignment="Center">
@@ -31,27 +32,13 @@
                 TextAlignment="Center"
                 TextWrapping="WrapWholeWords" />
 
-            <Grid
-                MaxWidth="720"
-                Margin="0,16,0,0"
-                ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
+            <Grid MaxWidth="720" HorizontalAlignment="Stretch">
                 <ToggleSwitch
                     x:Name="AutoScrollToggle"
+                    Margin="0,16,0,16"
+                    HorizontalAlignment="Left"
                     Header="Auto-scroll"
                     Toggled="AutoScrollToggle_Toggled" />
-
-                <TextBlock
-                    x:Name="StatusText"
-                    Grid.Column="1"
-                    VerticalAlignment="Center"
-                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                    Style="{StaticResource CaptionTextBlockStyle}"
-                    TextWrapping="WrapWholeWords" />
             </Grid>
         </StackPanel>
 
@@ -72,9 +59,9 @@
                     x:Name="LyricsListView"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"
+                    ContainerContentChanging="LyricsListView_ContainerContentChanging"
                     IsItemClickEnabled="True"
                     ItemClick="LyricsListView_ItemClick"
-                    ContainerContentChanging="LyricsListView_ContainerContentChanging"
                     SelectionMode="Single">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
@@ -113,5 +100,15 @@
                 </ListView>
             </StackPanel>
         </ScrollViewer>
+
+        <TextBlock
+            x:Name="StatusText"
+            Grid.Row="2"
+            MaxWidth="720"
+            Margin="0,10,0,-10"
+            HorizontalAlignment="Center"
+            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+            Style="{StaticResource CaptionTextBlockStyle}"
+            TextWrapping="WrapWholeWords" />
     </Grid>
 </Page>
