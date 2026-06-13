@@ -9,7 +9,8 @@
     </UserControl.Resources>
 
     <Grid
-        Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+        x:Name="RootGrid"
+        Background="{ThemeResource MediaBarBackgroundBrush}"
         ManipulationCompleted="Root_ManipulationCompleted"
         ManipulationDelta="Root_ManipulationDelta"
         ManipulationMode="TranslateX"

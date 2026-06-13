@@ -122,7 +122,10 @@ namespace LibreSpotUWP
 #if UWP1709
                 try
                 {
-                    this.Background = (Brush)Application.Current.Resources["AppBackgroundAcrylic"];
+                    var acrylicBackground = (Brush)Application.Current.Resources["AppBackgroundAcrylic"];
+                    var acrylicWindowBrush = (Brush)Application.Current.Resources["SystemControlAcrylicWindowBrush"];
+                    this.Background = acrylicBackground;
+                    NavigationPaneRoot.Background = acrylicWindowBrush;
                 }
                 catch
                 {
@@ -131,6 +134,8 @@ namespace LibreSpotUWP
                 try
                 {
                     RootSplitView.PaneBackground =
+                        (Brush)Application.Current.Resources["SystemControlAcrylicWindowBrush"];
+                    MediaBarHost.Background =
                         (Brush)Application.Current.Resources["SystemControlAcrylicWindowBrush"];
                 }
                 catch
@@ -141,7 +146,9 @@ namespace LibreSpotUWP
             else
             {
                 this.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+                NavigationPaneRoot.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
                 RootSplitView.PaneBackground = (Brush)Application.Current.Resources["SystemControlBackgroundChromeMediumLowBrush"];
+                MediaBarHost.Background = (Brush)Application.Current.Resources["SystemControlBackgroundChromeMediumLowBrush"];
             }
         }
 
@@ -194,42 +201,14 @@ namespace LibreSpotUWP
                 }
             }
 
-            if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase))
+            if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase) ||
+                pageTag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
+                pageTag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
+                pageTag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase) ||
+                pageTag.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
             {
-                var query = pageTag.Substring(7);
-                ContentFrame.Navigate(typeof(SearchPage), query);
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (pageTag.StartsWith("Album:"))
-            {
-                ContentFrame.Navigate(typeof(AlbumPage), pageTag.Substring(6));
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (pageTag.StartsWith("Artist:"))
-            {
-                ContentFrame.Navigate(typeof(ArtistPage), pageTag.Substring(7));
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (pageTag.StartsWith("Playlist:"))
-            {
-                ContentFrame.Navigate(typeof(PlaylistPage), pageTag.Substring(9));
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (pageTag.StartsWith("User:"))
-            {
-                ContentFrame.Navigate(typeof(UserProfilePage), pageTag.Substring(5));
+                var parameter = pageTag.Substring(pageTag.IndexOf(':') + 1);
+                ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag), parameter);
                 SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;
@@ -330,42 +309,14 @@ namespace LibreSpotUWP
 
             HidePlayer();
 
-            if (previous.StartsWith("Search:", StringComparison.OrdinalIgnoreCase))
+            if (previous.StartsWith("Search:", StringComparison.OrdinalIgnoreCase) ||
+                previous.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
+                previous.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
+                previous.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase) ||
+                previous.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
             {
-                var query = previous.Substring(7);
-                ContentFrame.Navigate(typeof(SearchPage), query);
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (previous.StartsWith("Album:"))
-            {
-                ContentFrame.Navigate(typeof(AlbumPage), previous.Substring(6));
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (previous.StartsWith("Artist:"))
-            {
-                ContentFrame.Navigate(typeof(ArtistPage), previous.Substring(7));
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (previous.StartsWith("Playlist:"))
-            {
-                ContentFrame.Navigate(typeof(PlaylistPage), previous.Substring(9));
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (previous.StartsWith("User:"))
-            {
-                ContentFrame.Navigate(typeof(UserProfilePage), previous.Substring(5));
+                var parameter = previous.Substring(previous.IndexOf(':') + 1);
+                ContentFrame.Navigate(NavigationHelper.GetPageType(previous), parameter);
                 SetSelectedNavigationTag(null);
                 UpdateBackButton();
                 return;

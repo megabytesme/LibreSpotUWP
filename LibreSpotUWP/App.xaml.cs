@@ -52,10 +52,41 @@ namespace LibreSpotUWP
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
         }
 
+        public static void ApplyThemeResources()
+        {
+            var app = Current;
+            if (app == null)
+                return;
+
+            var appResources = app.Resources;
+            if (appResources == null)
+                return;
+
+            appResources.MergedDictionaries.Clear();
+
+            string themePath;
+            switch (AppearanceService.Current)
+            {
+                case Models.AppearanceMode.Win11:
+                    themePath = "ms-appx:///Themes/Win11.xaml";
+                    break;
+                case Models.AppearanceMode.Win10_1709:
+                    themePath = "ms-appx:///Themes/Win10_1709.xaml";
+                    break;
+                default:
+                    themePath = "ms-appx:///Themes/Win10_1507.xaml";
+                    break;
+            }
+
+            appResources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(themePath) });
+        }
+
         protected override async void OnActivated(IActivatedEventArgs args)
         {
             try
             {
+                ApplyThemeResources();
+
                 if (args.Kind == ActivationKind.Protocol)
                 {
                     var p = (ProtocolActivatedEventArgs)args;
@@ -97,6 +128,8 @@ namespace LibreSpotUWP
         {
             try
             {
+                ApplyThemeResources();
+
                 await LogService.InitializeAsync();
                 _fileSystem = new FileSystem();
                 _metadataCache = new FileMetadataCache(_fileSystem);

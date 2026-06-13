@@ -9,32 +9,46 @@ namespace LibreSpotUWP.Services
     {
         private const string Key = "AppearanceMode";
 
-        public static AppearanceMode Current
+        public static AppearanceMode Current => CoerceToSupportedMode(GetStoredOrDefaultMode());
+
+        private static AppearanceMode GetStoredOrDefaultMode()
         {
-            get
+            var settings = ApplicationData.Current.LocalSettings;
+
+            if (settings.Values.TryGetValue(Key, out object value) &&
+                value is int i &&
+                Enum.IsDefined(typeof(AppearanceMode), i))
             {
-                var settings = ApplicationData.Current.LocalSettings;
-
-                if (settings.Values.TryGetValue(Key, out object value) &&
-                    value is int i &&
-                    Enum.IsDefined(typeof(AppearanceMode), i))
-                {
-                    return (AppearanceMode)i;
-                }
-
-                if (OSHelper.IsWindows11)
-                    return AppearanceMode.Win11;
-
-                if (OSHelper.IsWindows10_1709OrGreater)
-                    return AppearanceMode.Win10_1709;
-
-                return AppearanceMode.Win10_1507;
+                return (AppearanceMode)i;
             }
+
+            if (OSHelper.IsWindows11)
+                return AppearanceMode.Win11;
+
+            if (OSHelper.IsWindows10_1709OrGreater)
+                return AppearanceMode.Win10_1709;
+
+            return AppearanceMode.Win10_1507;
+        }
+
+        private static AppearanceMode CoerceToSupportedMode(AppearanceMode mode)
+        {
+            if (mode == AppearanceMode.Win11 && !OSHelper.IsWindows11)
+            {
+                return OSHelper.IsWindows10_1709OrGreater
+                    ? AppearanceMode.Win10_1709
+                    : AppearanceMode.Win10_1507;
+            }
+
+            if (mode == AppearanceMode.Win10_1709 && !OSHelper.IsWindows10_1709OrGreater)
+                return AppearanceMode.Win10_1507;
+
+            return mode;
         }
 
         public static void Set(AppearanceMode mode)
         {
-            ApplicationData.Current.LocalSettings.Values[Key] = (int)mode;
+            ApplicationData.Current.LocalSettings.Values[Key] = (int)CoerceToSupportedMode(mode);
         }
     }
 }

@@ -17,9 +17,9 @@ using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Documents;
 using Windows.UI.Xaml.Navigation;
 
-namespace LibreSpotUWP.Views.Win10_1507
+namespace LibreSpotUWP.Views.Win10_1709
 {
-    public sealed partial class SettingsPage_Win10_1507 : Page
+    public sealed partial class SettingsPage_Win10_1709 : Page
     {
         private readonly ObservableCollection<string> _homeSectionOrder = new ObservableCollection<string>();
         private readonly DispatcherTimer _equalizerApplyDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
@@ -30,7 +30,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         protected bool _loading = true;
         protected bool _suppressAppearanceChange;
 
-        public SettingsPage_Win10_1507()
+        public SettingsPage_Win10_1709()
         {
             InitializeComponent();
             _equalizerApplyDebounceTimer.Tick += EqualizerApplyDebounceTimer_Tick;
@@ -190,7 +190,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             if (sender is RadioButton rb && rb.Tag is string tag)
             {
-                var selectedMode = SettingsPage_Win10_1507.TagToMode(tag);
+                var selectedMode = SettingsPage_Win10_1709.TagToMode(tag);
 
                 SetAppearance(selectedMode);
             }
@@ -763,3 +763,5 @@ namespace LibreSpotUWP.Views.Win10_1507
         }
     }
 }
+
+

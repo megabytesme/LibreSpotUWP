@@ -31,7 +31,7 @@
             OpenPaneLength="200">
 
             <SplitView.Pane>
-                <Grid>
+                <Grid x:Name="NavigationPaneRoot" Background="Transparent">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -238,7 +238,7 @@
             </SplitView.Content>
         </SplitView>
 
-        <Grid Grid.Row="1" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+        <Grid x:Name="MediaBarHost" Grid.Row="1" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
             <controls:MediaControllerBar x:Name="WideMediaBar" Visibility="Collapsed" />
             <controls:NarrowMediaControllerBar x:Name="NarrowMediaBar" Visibility="Collapsed" />
         </Grid>
