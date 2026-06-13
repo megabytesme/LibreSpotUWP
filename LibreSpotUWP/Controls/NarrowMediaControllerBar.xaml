@@ -68,11 +68,11 @@
                 x:Name="TrackArtistButton"
                 Grid.Column="1"
                 Margin="8,18,0,0"
+                Padding="0"
                 HorizontalAlignment="Left"
                 Background="Transparent"
                 BorderThickness="0"
-                Click="TrackArtistButton_Click"
-                Padding="0">
+                Click="TrackArtistButton_Click">
                 <TextBlock
                     x:Name="TrackArtist"
                     FontSize="12"
@@ -84,8 +84,8 @@
             <Button
                 x:Name="PlayPauseButton"
                 Grid.Column="3"
-                Width="40"
-                Height="40"
+                Width="45"
+                Height="45"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Click="PlayPauseButton_Click"
@@ -96,8 +96,8 @@
             <Button
                 x:Name="PersistButton"
                 Grid.Column="2"
-                Width="40"
-                Height="40"
+                Width="45"
+                Height="45"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Click="PersistButton_Click"
@@ -113,9 +113,9 @@
                 Grid.Column="2"
                 Width="18"
                 Height="18"
-                IsActive="False"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
+                IsActive="False"
                 Visibility="Collapsed" />
 
         </Grid>

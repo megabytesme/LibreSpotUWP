@@ -189,6 +189,7 @@
     <Compile Include="Interfaces\ILibrespotService.cs" />
     <Compile Include="Interfaces\ISpotifyAuthService.cs" />
     <Compile Include="Interfaces\IMediaService.cs" />
+    <Compile Include="Interfaces\IAppShell.cs" />
     <Compile Include="Models\Enums.cs" />
     <Compile Include="ScannerPage.xaml.cs">
       <DependentUpon>ScannerPage.xaml</DependentUpon>
@@ -293,6 +294,39 @@
       <DependentUpon>SettingsPage_Win10_1709.xaml</DependentUpon>
     </Compile>
     <Compile Include="Views\Win10_1709\UserProfilePage.xaml.cs">
+      <DependentUpon>UserProfilePage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\AlbumPage.xaml.cs">
+      <DependentUpon>AlbumPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\ArtistPage.xaml.cs">
+      <DependentUpon>ArtistPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\HomePage_Win11.xaml.cs">
+      <DependentUpon>HomePage_Win11.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\LikedSongsPage.xaml.cs">
+      <DependentUpon>LikedSongsPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\LyricsPage_Win11.xaml.cs">
+      <DependentUpon>LyricsPage_Win11.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\PlayerPage_Win11.xaml.cs">
+      <DependentUpon>PlayerPage_Win11.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\PlaylistPage.xaml.cs">
+      <DependentUpon>PlaylistPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\SearchPage.xaml.cs">
+      <DependentUpon>SearchPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\ShellPage.xaml.cs">
+      <DependentUpon>ShellPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\SettingsPage_Win11.xaml.cs">
+      <DependentUpon>SettingsPage_Win11.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win11\UserProfilePage.xaml.cs">
       <DependentUpon>UserProfilePage.xaml</DependentUpon>
     </Compile>
   </ItemGroup>
@@ -494,6 +528,50 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="Views\Win10_1709\UserProfilePage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\AlbumPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\ArtistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\HomePage_Win11.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\LikedSongsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\LyricsPage_Win11.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\PlayerPage_Win11.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\PlaylistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\SearchPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\ShellPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\SettingsPage_Win11.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win11\UserProfilePage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

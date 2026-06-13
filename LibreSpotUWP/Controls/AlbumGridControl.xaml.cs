@@ -1,6 +1,7 @@
 ﻿using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
+using LibreSpotUWP.Helpers;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Documents;
@@ -18,16 +19,12 @@ namespace LibreSpotUWP.Controls
 
             ArtistClicked += (s, artistId) =>
             {
-                var frame = Window.Current.Content as Frame;
-                var main = frame?.Content as MainPage;
-                main?.NavigateToArtist(artistId);
+                PlaybackNavigationHelper.FindShell(this)?.NavigateToArtist(artistId);
             };
 
             AlbumClicked += (s, albumId) =>
             {
-                var frame = Window.Current.Content as Frame;
-                var main = frame?.Content as MainPage;
-                main?.NavigateToAlbum(albumId);
+                PlaybackNavigationHelper.FindShell(this)?.NavigateToAlbum(albumId);
             };
         }
 

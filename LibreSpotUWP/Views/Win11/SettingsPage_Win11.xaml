@@ -1,0 +1,332 @@
+<Page
+    x:Class="LibreSpotUWP.Views.Win11.SettingsPage_Win11"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    xmlns:converters="using:LibreSpotUWP.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    muxc:BackdropMaterial.ApplyToRootOrPageBackground="True"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:TimeConverter x:Key="TimeConverter" />
+        <converters:BoolToVisibility x:Key="BoolToVisibility" />
+        <converters:InverseBoolToVisibility x:Key="InverseBoolToVisibility" />
+        <converters:VolumeToPercentConverter x:Key="VolumeToPercentConverter" />
+    </Page.Resources>
+
+    <Grid>
+        <ScrollViewer Padding="24">
+            <StackPanel
+                MaxWidth="860"
+                HorizontalAlignment="Center"
+                Spacing="8">
+
+                <TextBlock
+                    Margin="0,0,0,16"
+                    Style="{ThemeResource TitleTextBlockStyle}"
+                    Text="Settings" />
+
+                <muxc:Expander HorizontalAlignment="Stretch" IsExpanded="True">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE77B;" />
+                            <TextBlock VerticalAlignment="Center" Text="Spotify Account" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <controls:SpotifyAccountControl x:Name="AccountControl" />
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch" IsExpanded="True">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE790;" />
+                            <TextBlock VerticalAlignment="Center" Text="Appearance" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel x:Name="AppearanceStackPanel" Spacing="12">
+                        <RadioButton
+                            Checked="AppearanceRadio_Checked"
+                            Content="Windows 10 (1507)"
+                            GroupName="AppearanceGroup"
+                            Tag="1507" />
+                        <RadioButton
+                            Checked="AppearanceRadio_Checked"
+                            Content="Windows 10 (1709)"
+                            GroupName="AppearanceGroup"
+                            Tag="1709" />
+                        <RadioButton
+                            Checked="AppearanceRadio_Checked"
+                            Content="Windows 11"
+                            GroupName="AppearanceGroup"
+                            Tag="11" />
+                        <ToggleSwitch
+                            x:Name="LyricsThemeToggle"
+                            Header="Use Spotify theming for Lyrics"
+                            Margin="0,4,0,0"
+                            Toggled="LyricsThemeToggle_Toggled" />
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Use Spotify-supplied lyric colors when available instead of Windows accent styling."
+                            TextWrapping="WrapWholeWords" />
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE14C;" />
+                            <TextBlock VerticalAlignment="Center" Text="Home" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="12">
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Move sections up or down to decide how Home is assembled."
+                            TextWrapping="WrapWholeWords" />
+                        <ListView
+                            x:Name="HomeOrderList"
+                            Height="260"
+                            SelectionChanged="HomeOrderList_SelectionChanged"
+                            SelectionMode="Single">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="WrapWholeWords" />
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                x:Name="HomeOrderUpButton"
+                                Click="HomeOrderUpButton_Click"
+                                Content="Move up" />
+                            <Button
+                                x:Name="HomeOrderDownButton"
+                                Click="HomeOrderDownButton_Click"
+                                Content="Move down" />
+                            <Button Click="ResetHomeOrderButton_Click" Content="Reset order" />
+                        </StackPanel>
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch" IsExpanded="True">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE768;" />
+                            <TextBlock VerticalAlignment="Center" Text="Playback" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="12">
+                        <ToggleSwitch
+                            x:Name="OfflineModeToggle"
+                            Header="Offline Mode"
+                            Toggled="OfflineModeToggle_Toggled" />
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Force the app to behave as offline even when internet is available."
+                            TextWrapping="WrapWholeWords" />
+
+                        <ToggleSwitch
+                            x:Name="RememberLastPlaybackToggle"
+                            Header="Remember last played song"
+                            Toggled="RememberLastPlaybackToggle_Toggled" />
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Restore the last song, context, and position when the app starts."
+                            TextWrapping="WrapWholeWords" />
+
+                        <ToggleSwitch
+                            x:Name="ResumeLastPlaybackToggle"
+                            Header="Resume playback if it was playing"
+                            Toggled="ResumeLastPlaybackToggle_Toggled"
+                            Visibility="Collapsed" />
+                        <TextBlock
+                            x:Name="ResumeLastPlaybackDescription"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="If the app was closed mid-song, continue from that point on next launch."
+                            TextWrapping="WrapWholeWords"
+                            Visibility="Collapsed" />
+
+                        <ToggleSwitch
+                            x:Name="RememberLastPageToggle"
+                            Header="Remember last open page"
+                            Toggled="RememberLastPageToggle_Toggled" />
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Return to the last open page instead of Home on startup."
+                            TextWrapping="WrapWholeWords" />
+
+                        <TextBlock
+                            Margin="0,6,0,0"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Text="Equaliser" />
+                        <ComboBox
+                            x:Name="AudioEffectsComboBox"
+                            SelectionChanged="AudioEffectsComboBox_SelectionChanged">
+                            <ComboBoxItem Content="None" Tag="None" />
+                            <ComboBoxItem Content="Echo" Tag="Echo" />
+                            <ComboBoxItem Content="Reverb" Tag="Reverb" />
+                            <ComboBoxItem Content="Limiter" Tag="Limiter" />
+                        </ComboBox>
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Applies a playback effect to the audio."
+                            TextWrapping="WrapWholeWords" />
+
+                        <StackPanel
+                            x:Name="EffectStrengthPanel"
+                            Spacing="6"
+                            Visibility="Collapsed">
+                            <TextBlock
+                                Style="{StaticResource BodyTextBlockStyle}"
+                                Text="Effect strength" />
+                            <Slider
+                                x:Name="EffectStrengthSlider"
+                                Maximum="100"
+                                Minimum="0"
+                                ValueChanged="EffectStrengthSlider_ValueChanged" />
+                            <TextBlock
+                                x:Name="EffectStrengthValueText"
+                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE72E;" />
+                            <TextBlock VerticalAlignment="Center" Text="Authentication" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            x:Name="LibrespotStatusText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="WrapWholeWords" />
+                        <TextBlock
+                            x:Name="SpotifyApiStatusText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="WrapWholeWords" />
+                        <TextBlock
+                            x:Name="LastTokenRefreshText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="WrapWholeWords" />
+                        <TextBlock
+                            x:Name="TokenValidUntilText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="WrapWholeWords" />
+                        <TextBlock
+                            x:Name="RefreshTokenValidUntilText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="WrapWholeWords" />
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE7F1;" />
+                            <TextBlock VerticalAlignment="Center" Text="Storage" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            x:Name="PersistedStorageText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Persisted audio: Calculating..."
+                            TextWrapping="WrapWholeWords" />
+                        <TextBlock
+                            x:Name="CachedStorageText"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Cached audio: Calculating..."
+                            TextWrapping="WrapWholeWords" />
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon
+                                FontFamily="Segoe MDL2 Assets"
+                                Foreground="Red"
+                                Glyph="&#xE7BA;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="Red"
+                                Text="Advanced" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="12">
+                        <TextBlock
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="The following action is irreversible. Use with caution."
+                            TextWrapping="WrapWholeWords" />
+                        <Button
+                            x:Name="BtnResetAllSettings"
+                            HorizontalAlignment="Stretch"
+                            Background="DarkRed"
+                            Click="BtnResetAllSettings_Click"
+                            Content="Reset All App Data"
+                            Foreground="White" />
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE946;" />
+                            <TextBlock VerticalAlignment="Center" Text="Information" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="8">
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Click="AboutButton_Click"
+                            Content="About LibreSpotUWP" />
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Click="DisclaimerButton_Click"
+                            Content="Disclaimer &amp; Legal" />
+                    </StackPanel>
+                </muxc:Expander>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid
+            x:Name="LoadingOverlay"
+            Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
+            Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <ProgressRing
+                    x:Name="LoadingProgressRing"
+                    Width="60"
+                    Height="60"
+                    Margin="0,0,0,12"
+                    IsActive="False" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Text="Processing..." />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

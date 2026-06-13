@@ -49,11 +49,11 @@
 
                 <Button
                     x:Name="TrackArtistButton"
+                    Padding="0"
                     HorizontalAlignment="Left"
                     Background="Transparent"
                     BorderThickness="0"
-                    Click="TrackArtistButton_Click"
-                    Padding="0">
+                    Click="TrackArtistButton_Click">
                     <TextBlock
                         x:Name="TrackArtist"
                         FontSize="14"
@@ -76,8 +76,8 @@
                     Spacing="20">
                     <Button
                         x:Name="ShuffleButton"
-                        Width="32"
-                        Height="32"
+                        Width="36"
+                        Height="36"
                         Click="Shuffle_Click">
                         <FontIcon
                             x:Name="ShuffleIcon"
@@ -87,8 +87,8 @@
                     </Button>
                     <Button
                         x:Name="PrevButton"
-                        Width="32"
-                        Height="32"
+                        Width="36"
+                        Height="36"
                         Click="Prev_Click">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -104,8 +104,8 @@
                     </Button>
                     <Button
                         x:Name="NextButton"
-                        Width="32"
-                        Height="32"
+                        Width="36"
+                        Height="36"
                         Click="Next_Click">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -114,8 +114,8 @@
                     </Button>
                     <Button
                         x:Name="RepeatButton"
-                        Width="32"
-                        Height="32"
+                        Width="36"
+                        Height="36"
                         Click="Repeat_Click">
                         <FontIcon
                             x:Name="RepeatIcon"
@@ -139,9 +139,9 @@
                     <Slider
                         x:Name="PositionSlider"
                         Grid.Column="1"
+                        IsThumbToolTipEnabled="True"
                         Maximum="0"
                         Minimum="0"
-                        IsThumbToolTipEnabled="True"
                         PointerCaptureLost="PositionSlider_PointerCaptureLost"
                         PointerPressed="PositionSlider_PointerPressed"
                         PointerReleased="PositionSlider_PointerReleased"
@@ -165,8 +165,8 @@
             Spacing="10">
             <Button
                 x:Name="PersistButton"
-                Width="32"
-                Height="32"
+                Width="40"
+                Height="40"
                 Click="PersistButton_Click">
                 <FontIcon
                     x:Name="PersistIcon"
@@ -178,8 +178,8 @@
                 x:Name="PersistProgressRing"
                 Width="18"
                 Height="18"
-                IsActive="False"
                 VerticalAlignment="Center"
+                IsActive="False"
                 Visibility="Collapsed" />
 
             <FontIcon

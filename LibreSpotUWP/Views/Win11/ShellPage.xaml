@@ -1,0 +1,158 @@
+<Page
+    x:Class="LibreSpotUWP.Views.Win11.ShellPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    muxc:BackdropMaterial.ApplyToRootOrPageBackground="True"
+    Background="Transparent">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <muxc:NavigationView
+            x:Name="NavView"
+            Grid.Row="0"
+            IsBackButtonVisible="Collapsed"
+            IsPaneToggleButtonVisible="True"
+            IsSettingsVisible="True"
+            OpenPaneLength="280"
+            PaneDisplayMode="Auto"
+            SelectionChanged="NavView_SelectionChanged">
+
+            <muxc:NavigationView.AutoSuggestBox>
+                <AutoSuggestBox
+                    x:Name="NavigationSearchBox"
+                    PlaceholderText="Search"
+                    QueryIcon="Find"
+                    QuerySubmitted="NavigationSearchBox_QuerySubmitted" />
+            </muxc:NavigationView.AutoSuggestBox>
+
+            <muxc:NavigationView.MenuItems>
+                <muxc:NavigationViewItem
+                    Content="Home"
+                    Icon="Home"
+                    Tag="Home" />
+                <muxc:NavigationViewItem Content="Liked Songs" Tag="LikedSongs">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xEB52;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem
+                    Content="Currently Playing"
+                    Icon="MusicInfo"
+                    Tag="Player" />
+                <muxc:NavigationViewItem
+                    Content="Lyrics"
+                    Icon="Microphone"
+                    Tag="Lyrics" />
+            </muxc:NavigationView.MenuItems>
+
+            <muxc:NavigationView.FooterMenuItems>
+                <muxc:NavigationViewItem x:Name="AccountItem" Tag="Account">
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="12">
+                        <Grid Width="24" Height="24">
+                            <muxc:PersonPicture
+                                x:Name="AccountPersonPicture"
+                                Width="24"
+                                Height="24" />
+                            <muxc:ProgressRing
+                                x:Name="AccountLoadingRing"
+                                Width="16"
+                                Height="16"
+                                IsActive="False" />
+                        </Grid>
+                        <TextBlock
+                            x:Name="AccountNameText"
+                            VerticalAlignment="Center"
+                            Text="Account" />
+                    </StackPanel>
+
+                    <FlyoutBase.AttachedFlyout>
+                        <Flyout x:Name="AccountFlyout">
+                            <controls:SpotifyAccountControl
+                                x:Name="HeaderAccountControl"
+                                LoadingStateChanged="HeaderAccountControl_LoadingStateChanged"
+                                UserChanged="HeaderAccountControl_UserChanged" />
+                        </Flyout>
+                    </FlyoutBase.AttachedFlyout>
+                </muxc:NavigationViewItem>
+            </muxc:NavigationView.FooterMenuItems>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Frame
+                    x:Name="ContentFrame"
+                    Grid.Row="0"
+                    Background="Transparent" />
+
+                <Grid
+                    x:Name="CacheStatusPanel"
+                    Grid.Row="1"
+                    Margin="16,0,16,12"
+                    ColumnSpacing="8"
+                    Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button
+                        x:Name="CacheRefreshButton"
+                        Grid.Column="0"
+                        Width="45"
+                        Height="45"
+                        Background="Transparent"
+                        Click="CacheRefreshButton_Click">
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE72C;" />
+                    </Button>
+
+                    <StackPanel
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="6">
+                        <TextBlock
+                            x:Name="CacheStatusText"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource SystemAccentColor}"
+                            Tapped="CacheStatusText_Tapped"
+                            Text="Cached Content" />
+                        <FontIcon
+                            x:Name="CacheStatusIcon"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            Foreground="{ThemeResource SystemAccentColor}"
+                            Glyph="&#xE946;" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </muxc:NavigationView>
+
+        <Grid
+            x:Name="MediaBarHost"
+            Grid.Row="1"
+            Background="Transparent">
+            <controls:MediaControllerBar x:Name="WideMediaBar" Visibility="Collapsed" />
+            <controls:NarrowMediaControllerBar x:Name="NarrowMediaBar" Visibility="Collapsed" />
+        </Grid>
+
+        <Frame
+            x:Name="FullWindowFrame"
+            Grid.RowSpan="3"
+            Background="Transparent"
+            Visibility="Collapsed" />
+    </Grid>
+</Page>
