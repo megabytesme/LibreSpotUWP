@@ -14,7 +14,7 @@
         <converters:TimeConverter x:Key="TimeConverter" />
     </UserControl.Resources>
 
-    <Grid Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+    <Grid x:Name="RootGrid" Background="{ThemeResource MediaBarBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="Auto" />

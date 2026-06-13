@@ -1,0 +1,87 @@
+<Page
+    x:Class="LibreSpotUWP.Views.Win10_1709.UserProfilePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    Background="{ThemeResource AppBackgroundAcrylic}">
+
+    <ScrollViewer>
+        <Grid Padding="24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Margin="0,0,0,24">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border
+                    Width="160"
+                    Height="160"
+                    Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
+                    CornerRadius="80">
+                    <Image
+                        x:Name="ProfileImage"
+                        Stretch="UniformToFill" />
+                </Border>
+
+                <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center" Spacing="8">
+                    <TextBlock
+                        x:Name="ProfileNameText"
+                        FontSize="34"
+                        FontWeight="SemiBold"
+                        Text="Profile" />
+                    <TextBlock
+                        x:Name="ProfileIdText"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                    <TextBlock
+                        x:Name="ProfileMetaText"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock
+                x:Name="StatusText"
+                Grid.Row="1"
+                Margin="0,0,0,16"
+                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                Visibility="Collapsed" />
+
+            <TextBlock
+                Grid.Row="2"
+                Margin="0,0,0,16"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                Text="Public Playlists" />
+
+            <controls:PlaylistGridControl x:Name="PlaylistsGrid" Grid.Row="3" />
+
+            <Grid
+                x:Name="LoadingOverlay"
+                Grid.RowSpan="4"
+                Background="#66000000"
+                Visibility="Collapsed">
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="12">
+                    <ProgressRing
+                        Width="40"
+                        Height="40"
+                        IsActive="True" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        FontSize="16"
+                        Text="Loading profile..." />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</Page>
+
+

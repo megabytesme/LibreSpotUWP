@@ -1,0 +1,390 @@
+<Page
+    x:Class="LibreSpotUWP.Views.Win10_1709.SettingsPage_Win10_1709"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:LibreSpotUWP.Controls"
+    xmlns:converters="using:LibreSpotUWP.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{ThemeResource AppBackgroundAcrylic}"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <Style x:Key="GroupPanelStyle" TargetType="StackPanel">
+            <Setter Property="Background" Value="{ThemeResource SystemControlAcrylicElementBrush}" />
+            <Setter Property="Padding" Value="15" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{ThemeResource SystemControlForegroundBaseLowBrush}" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+
+        <converters:TimeConverter x:Key="TimeConverter" />
+        <converters:BoolToVisibility x:Key="BoolToVisibility" />
+        <converters:InverseBoolToVisibility x:Key="InverseBoolToVisibility" />
+        <converters:VolumeToPercentConverter x:Key="VolumeToPercentConverter" />
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" Padding="24">
+            <StackPanel MaxWidth="800" HorizontalAlignment="Center">
+                <TextBlock
+                    Margin="0,0,0,15"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    Text="Settings" />
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <controls:SpotifyAccountControl x:Name="AccountControl" />
+                </StackPanel>
+
+                <StackPanel x:Name="AppearanceStackPanel" Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Appearance" />
+
+                    <RadioButton
+                        Checked="AppearanceRadio_Checked"
+                        Content="Windows 10 (1507)"
+                        GroupName="AppearanceGroup"
+                        Tag="1507" />
+
+                    <RadioButton
+                        Checked="AppearanceRadio_Checked"
+                        Content="Windows 10 (1709)"
+                        GroupName="AppearanceGroup"
+                        Tag="1709" />
+
+                    <RadioButton
+                        Checked="AppearanceRadio_Checked"
+                        Content="Windows 11"
+                        GroupName="AppearanceGroup"
+                        Tag="11" />
+
+                    <ToggleSwitch
+                        x:Name="LyricsThemeToggle"
+                        Margin="0,12,0,0"
+                        Header="Use Spotify theming for Lyrics"
+                        Toggled="LyricsThemeToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Use Spotify-supplied lyric colors when available instead of Windows accent styling." />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Home Order" />
+
+                    <TextBlock
+                        Margin="0,0,0,10"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Move sections up or down to decide how Home is assembled." />
+
+                    <ListView
+                        x:Name="HomeOrderList"
+                        Height="260"
+                        Margin="0,0,0,12"
+                        SelectionChanged="HomeOrderList_SelectionChanged"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="WrapWholeWords" />
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="HomeOrderUpButton"
+                            Click="HomeOrderUpButton_Click"
+                            Content="Move up" />
+                        <Button
+                            x:Name="HomeOrderDownButton"
+                            Click="HomeOrderDownButton_Click"
+                            Content="Move down" />
+                        <Button Click="ResetHomeOrderButton_Click" Content="Reset order" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Playback" />
+
+                    <ToggleSwitch
+                        x:Name="OfflineModeToggle"
+                        Header="Offline Mode"
+                        Toggled="OfflineModeToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Force the app to behave as offline even when internet is available." />
+
+                    <ToggleSwitch
+                        x:Name="RememberLastPlaybackToggle"
+                        Margin="0,12,0,0"
+                        Header="Remember last played song"
+                        Toggled="RememberLastPlaybackToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Restore the last song, context, and position when the app starts." />
+
+                    <ToggleSwitch
+                        x:Name="ResumeLastPlaybackToggle"
+                        Margin="0,12,0,0"
+                        Header="Resume playback if it was playing"
+                        Visibility="Collapsed"
+                        Toggled="ResumeLastPlaybackToggle_Toggled" />
+
+                    <TextBlock
+                        x:Name="ResumeLastPlaybackDescription"
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Visibility="Collapsed"
+                        Text="If the app was closed mid-song, continue from that point on next launch." />
+
+                    <ToggleSwitch
+                        x:Name="RememberLastPageToggle"
+                        Margin="0,12,0,0"
+                        Header="Remember last open page"
+                        Toggled="RememberLastPageToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Return to the last open page instead of Home on startup." />
+
+                    <TextBlock
+                        Margin="0,16,0,0"
+                        Style="{StaticResource BodyTextBlockStyle}"
+                        Text="Equaliser" />
+
+                    <ComboBox
+                        x:Name="AudioEffectsComboBox"
+                        Margin="0,8,0,0"
+                        SelectionChanged="AudioEffectsComboBox_SelectionChanged">
+                        <ComboBoxItem Content="None" Tag="None" />
+
+                        <!-- todo: Fix EQ options before release
+                        <ComboBoxItem Content="Bass Boost" Tag="BassBoost" />
+                        <ComboBoxItem Content="Vocal Boost" Tag="VocalBoost" />
+                        <ComboBoxItem Content="Warm" Tag="Warm" />
+                        -->
+
+                        <ComboBoxItem Content="Echo" Tag="Echo" />
+                        <ComboBoxItem Content="Reverb" Tag="Reverb" />
+
+                        <!-- todo: Fix EQ options before release
+                        <ComboBoxItem Content="Equalizer" Tag="Equalizer" />
+                        -->
+
+                        <ComboBoxItem Content="Limiter" Tag="Limiter" />
+                    </ComboBox>
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Applies a playback effect to the audio." />
+
+                    <StackPanel
+                        x:Name="EffectStrengthPanel"
+                        Margin="0,14,0,0"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            Margin="0,0,0,6"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Text="Effect strength" />
+                        <Slider
+                            x:Name="EffectStrengthSlider"
+                            Maximum="100"
+                            Minimum="0"
+                            ValueChanged="EffectStrengthSlider_ValueChanged" />
+                        <TextBlock
+                            x:Name="EffectStrengthValueText"
+                            Margin="0,4,0,0"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+
+                    <!-- todo: Fix EQ options before release
+                    <StackPanel
+                        x:Name="EqualizerPanel"
+                        Margin="0,14,0,0"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            Margin="0,0,0,6"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Text="Custom equalizer" />
+
+                        <TextBlock Text="Low" />
+                        <Slider
+                            x:Name="EqualizerLowSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="Low-Mid" />
+                        <Slider
+                            x:Name="EqualizerLowMidSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="Mid" />
+                        <Slider
+                            x:Name="EqualizerMidSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="High-Mid" />
+                        <Slider
+                            x:Name="EqualizerHighMidSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                        <TextBlock Text="High" />
+                        <Slider
+                            x:Name="EqualizerHighSlider"
+                            Maximum="100"
+                            Minimum="-100"
+                            ValueChanged="EqualizerSlider_ValueChanged" />
+                    </StackPanel>
+                    -->
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Authentication" />
+
+                    <TextBlock
+                        x:Name="LibrespotStatusText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="SpotifyApiStatusText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="LastTokenRefreshText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="TokenValidUntilText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <TextBlock
+                        x:Name="RefreshTokenValidUntilText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Storage" />
+
+                    <TextBlock
+                        x:Name="PersistedStorageText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Persisted audio: Calculating..." />
+
+                    <TextBlock
+                        x:Name="CachedStorageText"
+                        Margin="0,0,0,4"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Cached audio: Calculating..." />
+                </StackPanel>
+
+                <StackPanel BorderBrush="Red" Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Foreground="Red"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Advanced" />
+
+                    <Button
+                        x:Name="BtnResetAllSettings"
+                        HorizontalAlignment="Stretch"
+                        Background="DarkRed"
+                        Click="BtnResetAllSettings_Click"
+                        Content="Reset All App Data"
+                        Foreground="White" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Information" />
+
+                    <Button
+                        Margin="0,0,0,8"
+                        HorizontalAlignment="Stretch"
+                        Click="AboutButton_Click"
+                        Content="About LibreSpotUWP" />
+
+                    <Button
+                        HorizontalAlignment="Stretch"
+                        Click="DisclaimerButton_Click"
+                        Content="Disclaimer &amp; Legal" />
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid
+            x:Name="LoadingOverlay"
+            Grid.RowSpan="2"
+            Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
+            Visibility="Collapsed">
+
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <ProgressRing
+                    x:Name="LoadingProgressRing"
+                    Width="60"
+                    Height="60"
+                    Margin="0,0,0,12"
+                    IsActive="False" />
+
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Text="Processing..." />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>
+
+

@@ -265,6 +265,36 @@
     <Compile Include="Views\Win10_1507\LikedSongsPage.xaml.cs">
       <DependentUpon>LikedSongsPage.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Views\Win10_1709\AlbumPage.xaml.cs">
+      <DependentUpon>AlbumPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\ArtistPage.xaml.cs">
+      <DependentUpon>ArtistPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\HomePage_Win10_1709.xaml.cs">
+      <DependentUpon>HomePage_Win10_1709.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\LikedSongsPage.xaml.cs">
+      <DependentUpon>LikedSongsPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\LyricsPage_Win10_1709.xaml.cs">
+      <DependentUpon>LyricsPage_Win10_1709.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\PlayerPage_Win10_1709.xaml.cs">
+      <DependentUpon>PlayerPage_Win10_1709.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\PlaylistPage.xaml.cs">
+      <DependentUpon>PlaylistPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\SearchPage.xaml.cs">
+      <DependentUpon>SearchPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\SettingsPage_Win10_1709.xaml.cs">
+      <DependentUpon>SettingsPage_Win10_1709.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\Win10_1709\UserProfilePage.xaml.cs">
+      <DependentUpon>UserProfilePage.xaml</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest">
@@ -412,6 +442,58 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Views\Win10_1507\UserProfilePage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Win10_1507.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Win10_1709.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Win11.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\AlbumPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\ArtistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\HomePage_Win10_1709.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\LikedSongsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\LyricsPage_Win10_1709.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\PlayerPage_Win10_1709.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\PlaylistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\SearchPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\SettingsPage_Win10_1709.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Win10_1709\UserProfilePage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
