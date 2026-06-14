@@ -6,12 +6,16 @@
     <StackPanel Orientation="Horizontal" Spacing="12">
         <Button x:Name="BtnPlay" Style="{ThemeResource AccentButtonStyle}">
             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
-                <SymbolIcon Symbol="Play" />
+                <FontIcon
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE768;" />
             </StackPanel>
         </Button>
         <Button x:Name="BtnShuffle">
             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
-                <SymbolIcon Symbol="Shuffle" />
+                <FontIcon
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE8B1;" />
             </StackPanel>
         </Button>
         <Button x:Name="BtnPersist">

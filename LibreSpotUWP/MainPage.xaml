@@ -4,7 +4,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:LibreSpotUWP.Controls"
     xmlns:converters="using:LibreSpotUWP.Converters"
-    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Page.Resources>
@@ -107,7 +106,11 @@
                             </ListBoxItem>
                             <ListBoxItem Tag="Player" Tapped="NavItem_Tapped">
                                 <StackPanel Padding="2" Orientation="Horizontal">
-                                    <SymbolIcon x:Name="PlayPauseIcon" Symbol="MusicInfo" />
+                                    <FontIcon
+                                        x:Name="PlayPauseIcon"
+                                        VerticalAlignment="Center"
+                                        FontFamily="Segoe MDL2 Assets"
+                                        Glyph="&#xEC4F;" />
                                     <TextBlock
                                         Margin="16,0,0,0"
                                         VerticalAlignment="Center"
@@ -116,7 +119,10 @@
                             </ListBoxItem>
                             <ListBoxItem Tag="Lyrics" Tapped="NavItem_Tapped">
                                 <StackPanel Padding="2" Orientation="Horizontal">
-                                    <SymbolIcon Symbol="Microphone" />
+                                    <FontIcon
+                                        VerticalAlignment="Center"
+                                        FontFamily="Segoe MDL2 Assets"
+                                        Glyph="&#xE720;" />
                                     <TextBlock
                                         Margin="16,0,0,0"
                                         VerticalAlignment="Center"

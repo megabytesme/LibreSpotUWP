@@ -90,7 +90,10 @@
                 VerticalAlignment="Center"
                 Click="PlayPauseButton_Click"
                 Tapped="PlayPauseButton_Tapped">
-                <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
+                <FontIcon
+                    x:Name="PlayPauseIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE768;" />
             </Button>
 
             <Button
