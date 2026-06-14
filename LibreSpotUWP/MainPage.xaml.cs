@@ -21,6 +21,16 @@ namespace LibreSpotUWP
 {
     public sealed partial class MainPage : Page, Interfaces.IAppShell
     {
+        private const double NavigationCompactThresholdWidth = 641;
+        private const double NavigationExpandedThresholdWidth = 1008;
+
+        private enum NavigationPaneMode
+        {
+            Minimal,
+            Compact,
+            Expanded
+        }
+
         private readonly List<string> _history = new List<string>();
         private bool _isPlayerOpen = false;
 
@@ -30,6 +40,7 @@ namespace LibreSpotUWP
         private string _cacheStatusTooltip;
         private int _suppressedSelectionChanges;
         private string _currentNavTag = "Home";
+        private NavigationPaneMode _navigationPaneMode;
 
         public MainPage()
         {
@@ -55,14 +66,13 @@ namespace LibreSpotUWP
             SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
                 AppViewBackButtonVisibility.Disabled;
 
-            SearchBox.Visibility = Visibility.Collapsed;
-            SearchIconButton.Visibility = Visibility.Visible;
-
             UpdateMediaBarVisibility();
+            ApplyNavigationPaneMode(Window.Current.Bounds.Width);
 
             Window.Current.SizeChanged += (s, e) =>
             {
                 UpdateMediaBarVisibility();
+                ApplyNavigationPaneMode(e.Size.Width);
             };
         }
 
@@ -425,14 +435,12 @@ namespace LibreSpotUWP
 
         private void RootSplitView_PaneOpened(SplitView sender, object args)
         {
-            SearchBox.Visibility = Visibility.Visible;
-            SearchIconButton.Visibility = Visibility.Collapsed;
+            UpdateNavigationPaneVisuals();
         }
 
         private void RootSplitView_PaneClosed(SplitView sender, object args)
         {
-            SearchBox.Visibility = Visibility.Collapsed;
-            SearchIconButton.Visibility = Visibility.Visible;
+            UpdateNavigationPaneVisuals();
         }
 
         private void SearchIconButton_Click(object sender, RoutedEventArgs e)
@@ -608,6 +616,98 @@ namespace LibreSpotUWP
             catch (Exception ex)
             {
                 LogService.Error(ex, "Cache refresh action failed");
+            }
+        }
+
+        private void ApplyNavigationPaneMode(double width)
+        {
+            var newMode = GetNavigationPaneMode(width);
+            _navigationPaneMode = newMode;
+
+            switch (newMode)
+            {
+                case NavigationPaneMode.Expanded:
+                    RootSplitView.DisplayMode = SplitViewDisplayMode.Inline;
+                    RootSplitView.CompactPaneLength = 48;
+                    RootSplitView.OpenPaneLength = 280;
+                    RootSplitView.IsPaneOpen = true;
+                    break;
+                case NavigationPaneMode.Compact:
+                    RootSplitView.DisplayMode = SplitViewDisplayMode.CompactInline;
+                    RootSplitView.CompactPaneLength = 48;
+                    RootSplitView.OpenPaneLength = 280;
+                    RootSplitView.IsPaneOpen = false;
+                    break;
+                default:
+                    RootSplitView.DisplayMode = SplitViewDisplayMode.Overlay;
+                    RootSplitView.CompactPaneLength = 48;
+                    RootSplitView.OpenPaneLength = 280;
+                    RootSplitView.IsPaneOpen = false;
+                    break;
+            }
+
+            UpdateNavigationPaneVisuals();
+        }
+
+        private static NavigationPaneMode GetNavigationPaneMode(double width)
+        {
+            if (width >= NavigationExpandedThresholdWidth)
+                return NavigationPaneMode.Expanded;
+
+            if (width >= NavigationCompactThresholdWidth)
+                return NavigationPaneMode.Compact;
+
+            return NavigationPaneMode.Minimal;
+        }
+
+        private void UpdateNavigationPaneVisuals()
+        {
+            var showExpandedContent = _navigationPaneMode == NavigationPaneMode.Expanded || RootSplitView.IsPaneOpen;
+            var showCompactRailItems = _navigationPaneMode != NavigationPaneMode.Minimal || RootSplitView.IsPaneOpen;
+
+            SearchBox.Visibility = showExpandedContent ? Visibility.Visible : Visibility.Collapsed;
+            SearchIconButton.Visibility = _navigationPaneMode == NavigationPaneMode.Compact && !RootSplitView.IsPaneOpen
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            OverlayHamburgerButton.Visibility = _navigationPaneMode == NavigationPaneMode.Minimal && !RootSplitView.IsPaneOpen
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            NavListBox.Visibility = showCompactRailItems ? Visibility.Visible : Visibility.Collapsed;
+            BottomNavListBox.Visibility = showCompactRailItems ? Visibility.Visible : Visibility.Collapsed;
+            CacheStatusPanel.Visibility = showCompactRailItems && !string.IsNullOrWhiteSpace(_cacheStatusTooltip)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            UpdateNavigationItemLabels(showExpandedContent);
+        }
+
+        private void UpdateNavigationItemLabels(bool showLabels)
+        {
+            UpdateNavigationListLabels(NavListBox, showLabels);
+            UpdateNavigationListLabels(BottomNavListBox, showLabels);
+        }
+
+        private static void UpdateNavigationListLabels(ListBox listBox, bool showLabels)
+        {
+            foreach (var item in listBox.Items)
+            {
+                if (!(item is ListBoxItem listBoxItem))
+                    continue;
+
+                if (!(listBoxItem.Content is StackPanel stackPanel))
+                    continue;
+
+                for (var i = 0; i < stackPanel.Children.Count; i++)
+                {
+                    if (!(stackPanel.Children[i] is TextBlock textBlock))
+                        continue;
+
+                    if (i == 0 && string.Equals(textBlock.FontFamily?.Source, "Segoe MDL2 Assets", StringComparison.Ordinal))
+                        continue;
+
+                    textBlock.Visibility = showLabels ? Visibility.Visible : Visibility.Collapsed;
+                }
             }
         }
     }
