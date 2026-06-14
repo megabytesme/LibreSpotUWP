@@ -73,7 +73,7 @@ namespace LibreSpotUWP.Controls
             CurrentTime.Text = Format(state.PositionMs);
             TotalTime.Text = Format(state.DurationMs);
 
-            PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
+            PlayPauseIcon.Glyph = state.IsPlaying ? "\uE769" : "\uE768";
             var downloadState = App.Downloads?.GetTrackStatus(state.Track?.Uri)?.State ?? DownloadTrackState.Idle;
             var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
             PersistButton.IsEnabled = state.Track != null && !isDownloading;

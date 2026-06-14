@@ -100,7 +100,10 @@
                         Width="48"
                         Height="48"
                         Click="PlayPause_Click">
-                        <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
+                        <FontIcon
+                            x:Name="PlayPauseIcon"
+                            FontFamily="Segoe MDL2 Assets"
+                            Glyph="&#xE768;" />
                     </Button>
                     <Button
                         x:Name="NextButton"

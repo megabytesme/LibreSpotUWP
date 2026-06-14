@@ -32,24 +32,27 @@
                     QuerySubmitted="NavigationSearchBox_QuerySubmitted" />
             </muxc:NavigationView.AutoSuggestBox>
 
-            <muxc:NavigationView.MenuItems>
-                <muxc:NavigationViewItem
-                    Content="Home"
-                    Icon="Home"
-                    Tag="Home" />
+                <muxc:NavigationView.MenuItems>
+                <muxc:NavigationViewItem Content="Home" Tag="Home">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE80F;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
                 <muxc:NavigationViewItem Content="Liked Songs" Tag="LikedSongs">
                     <muxc:NavigationViewItem.Icon>
                         <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xEB52;" />
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem
-                    Content="Currently Playing"
-                    Icon="MusicInfo"
-                    Tag="Player" />
-                <muxc:NavigationViewItem
-                    Content="Lyrics"
-                    Icon="Microphone"
-                    Tag="Lyrics" />
+                <muxc:NavigationViewItem Content="Currently Playing" Tag="Player">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xEC4F;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Lyrics" Tag="Lyrics">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE720;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
             </muxc:NavigationView.MenuItems>
 
             <muxc:NavigationView.FooterMenuItems>

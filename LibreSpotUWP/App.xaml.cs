@@ -19,6 +19,7 @@ using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Controls;
 
 namespace LibreSpotUWP
 {
@@ -63,6 +64,9 @@ namespace LibreSpotUWP
                 return;
 
             appResources.MergedDictionaries.Clear();
+
+            if (OSHelper.IsWindows10_1709OrGreater)
+                appResources.MergedDictionaries.Add(new XamlControlsResources());
 
             string themePath;
             switch (AppearanceService.Current)
