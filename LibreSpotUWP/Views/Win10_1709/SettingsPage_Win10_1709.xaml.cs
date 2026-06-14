@@ -75,9 +75,25 @@ namespace LibreSpotUWP.Views.Win10_1709
             _suppressAppearanceChange = true;
 
             foreach (var radioButton in AppearanceStackPanel.Children.OfType<RadioButton>())
+            {
+                radioButton.Visibility = IsAppearanceOptionSupported(radioButton.Tag as string)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
                 radioButton.IsChecked = string.Equals(radioButton.Tag as string, selectedTag, StringComparison.Ordinal);
+            }
 
             _suppressAppearanceChange = false;
+        }
+
+        private static bool IsAppearanceOptionSupported(string tag)
+        {
+            if (tag == "11")
+                return OSHelper.SupportsWin11Appearance;
+
+            if (tag == "1709")
+                return OSHelper.SupportsWin10_1709Appearance;
+
+            return OSHelper.SupportsWin10_1507Appearance;
         }
 
         private async void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
