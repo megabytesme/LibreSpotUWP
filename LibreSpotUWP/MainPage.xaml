@@ -29,7 +29,7 @@
             CompactPaneLength="48"
             DisplayMode="CompactOverlay"
             IsPaneOpen="False"
-            OpenPaneLength="200">
+            OpenPaneLength="280">
 
             <SplitView.Pane>
                 <Grid x:Name="NavigationPaneRoot" Background="Transparent">
@@ -239,7 +239,28 @@
             </SplitView.Content>
         </SplitView>
 
-        <Grid x:Name="MediaBarHost" Grid.Row="1" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+        <Button
+            x:Name="OverlayHamburgerButton"
+            Grid.Row="0"
+            Width="48"
+            Height="48"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Background="Transparent"
+            Click="HamburgerButton_Click"
+            Visibility="Collapsed">
+            <TextBlock
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                FontFamily="Segoe MDL2 Assets"
+                FontSize="16"
+                Text="&#xE700;" />
+        </Button>
+
+        <Grid
+            x:Name="MediaBarHost"
+            Grid.Row="1"
+            Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
             <controls:MediaControllerBar x:Name="WideMediaBar" Visibility="Collapsed" />
             <controls:NarrowMediaControllerBar x:Name="NarrowMediaBar" Visibility="Collapsed" />
         </Grid>
