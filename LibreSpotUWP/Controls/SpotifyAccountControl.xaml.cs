@@ -4,6 +4,7 @@ using LibreSpotUWP.Services;
 using LibreSpotUWP.Helpers;
 using System;
 using System.Threading.Tasks;
+using Windows.System;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -31,6 +32,7 @@ namespace LibreSpotUWP.Controls
 
     public sealed partial class SpotifyAccountControl : UserControl
     {
+        private static readonly Uri LoginHelperProjectUri = new Uri("https://github.com/megabytesme/LibreSpotUWP");
         private ISpotifyAuthService _auth;
         private ISpotifyWebService _web;
 
@@ -173,28 +175,29 @@ namespace LibreSpotUWP.Controls
 
             if (!isAuthenticated)
             {
-                var btnLogin = new Button
-                {
-                    Content = "Sign in with Spotify",
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Margin = new Thickness(0, 0, 0, 10)
-                };
-                btnLogin.Click += async (s, args) => { dialog.Hide(); await _auth.BeginPkceLoginAsync(); };
-
                 var btnScan = new Button
                 {
                     Content = "Scan QR to Sign in",
                     HorizontalAlignment = HorizontalAlignment.Stretch
                 };
-                btnScan.Click += (s, args) =>
+                btnScan.Click += async (s, args) =>
                 {
                     dialog.Hide();
-
-                    var frame = Window.Current.Content as Frame;
-                    frame?.Navigate(typeof(ScannerPage));
+                    await ShowQrSignInHelpAsync();
                 };
 
-                stackPanel.Children.Add(btnLogin);
+                if (OSHelper.SupportsBrowserSpotifyLogin)
+                {
+                    var btnLogin = new Button
+                    {
+                        Content = "Sign in with Spotify",
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        Margin = new Thickness(0, 0, 0, 10)
+                    };
+                    btnLogin.Click += async (s, args) => { dialog.Hide(); await _auth.BeginPkceLoginAsync(); };
+                    stackPanel.Children.Add(btnLogin);
+                }
+
                 stackPanel.Children.Add(btnScan);
             }
             else
@@ -266,6 +269,50 @@ namespace LibreSpotUWP.Controls
 
                 await qrDialog.ShowAsync();
             }
+        }
+
+        private async Task ShowQrSignInHelpAsync()
+        {
+            var content = new StackPanel
+            {
+                Spacing = 12
+            };
+
+            content.Children.Add(new TextBlock
+            {
+                Text = "Scan a QR code from another LibreSpotUWP device that is already signed in, or use the LibreSpotUWP Login Helper app on another Windows device to generate one.",
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var linkButton = new HyperlinkButton
+            {
+                Content = "Open LibreSpotUWP on GitHub",
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            linkButton.Click += async (s, e) => await Launcher.LaunchUriAsync(LoginHelperProjectUri);
+            content.Children.Add(linkButton);
+
+            content.Children.Add(new TextBlock
+            {
+                Text = "When you are ready, press Start Scanning and point your camera at the QR code.",
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var dialog = new ContentDialog
+            {
+                Title = "Sign in with QR Code",
+                Content = content,
+                PrimaryButtonText = "Start Scanning",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary)
+                return;
+
+            var frame = Window.Current.Content as Frame;
+            frame?.Navigate(typeof(ScannerPage));
         }
     }
 }
