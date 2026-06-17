@@ -234,29 +234,23 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         private void LoadAudioEffectSettings()
         {
-            //todo: Fix EQ options before release
-            //ApplyEqualizerSliderRanges();
+            ApplyEqualizerSliderRanges();
 
             SetEffectStrengthSlider(UserSettings.AudioEffectsStrength);
 
-            //todo: Fix EQ options before release
-            /*
             var gains = UserSettings.GetEqualizerBandGains();
             if (gains.Length >= 5)
             {
-                EqualizerLowSlider.Value = ClampSliderToRange(EqualizerLowSlider, gains[0] * 400);
-                EqualizerLowMidSlider.Value = ClampSliderToRange(EqualizerLowMidSlider, gains[1] * 400);
-                EqualizerMidSlider.Value = ClampSliderToRange(EqualizerMidSlider, gains[2] * 400);
-                EqualizerHighMidSlider.Value = ClampSliderToRange(EqualizerHighMidSlider, gains[3] * 400);
-                EqualizerHighSlider.Value = ClampSliderToRange(EqualizerHighSlider, gains[4] * 400);
+                EqualizerLowSlider.Value = ClampSliderToRange(EqualizerLowSlider, gains[0]);
+                EqualizerLowMidSlider.Value = ClampSliderToRange(EqualizerLowMidSlider, gains[1]);
+                EqualizerMidSlider.Value = ClampSliderToRange(EqualizerMidSlider, gains[2]);
+                EqualizerHighMidSlider.Value = ClampSliderToRange(EqualizerHighMidSlider, gains[3]);
+                EqualizerHighSlider.Value = ClampSliderToRange(EqualizerHighSlider, gains[4]);
             }
-            */
 
             UpdateAudioEffectVisibility();
         }
 
-        //todo: Fix EQ options before release
-        /*
         private void ApplyEqualizerSliderRanges()
         {
             var ranges = _media?.GetEqualizerBandRanges();
@@ -269,15 +263,14 @@ namespace LibreSpotUWP.Views.Win10_1709
             ApplySliderRange(EqualizerHighMidSlider, ranges[3]);
             ApplySliderRange(EqualizerHighSlider, ranges[4]);
         }
-        */
 
         private static void ApplySliderRange(Slider slider, EqualizerBandRange range)
         {
             if (slider == null || range == null)
                 return;
 
-            slider.Minimum = Math.Round(range.MinimumGain * 400.0, 2);
-            slider.Maximum = Math.Round(range.MaximumGain * 400.0, 2);
+            slider.Minimum = Math.Round(range.MinimumGain, 2);
+            slider.Maximum = Math.Round(range.MaximumGain, 2);
         }
 
         private static double ClampSliderToRange(Slider slider, double value)
@@ -291,12 +284,9 @@ namespace LibreSpotUWP.Views.Win10_1709
             bool showStrength = preset == "BassBoost" || preset == "VocalBoost" || preset == "Warm" || preset == "Echo" || preset == "Reverb";
 
             EffectStrengthPanel.Visibility = showStrength ? Visibility.Visible : Visibility.Collapsed;
-            /*
-            //todo: Fix EQ options before release
             EqualizerPanel.Visibility = string.Equals(preset, "Equalizer", StringComparison.OrdinalIgnoreCase)
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-            */
 
             EffectStrengthValueText.Text = $"Strength: {Math.Round(UserSettings.AudioEffectsStrength * 100)}%";
         }
@@ -333,8 +323,6 @@ namespace LibreSpotUWP.Views.Win10_1709
             ApplyCurrentAudioEffect();
         }
 
-        /*
-        //todo: Fix EQ options before release
         private void EqualizerSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
             if (_loading)
@@ -342,17 +330,16 @@ namespace LibreSpotUWP.Views.Win10_1709
 
             UserSettings.SetEqualizerBandGains(new[]
             {
-                EqualizerLowSlider.Value / 400.0,
-                EqualizerLowMidSlider.Value / 400.0,
-                EqualizerMidSlider.Value / 400.0,
-                EqualizerHighMidSlider.Value / 400.0,
-                EqualizerHighSlider.Value / 400.0,
+                EqualizerLowSlider.Value,
+                EqualizerLowMidSlider.Value,
+                EqualizerMidSlider.Value,
+                EqualizerHighMidSlider.Value,
+                EqualizerHighSlider.Value,
             });
 
             _equalizerApplyDebounceTimer.Stop();
             _equalizerApplyDebounceTimer.Start();
         }
-        */
 
         private void EqualizerApplyDebounceTimer_Tick(object sender, object e)
         {

@@ -41,6 +41,8 @@ namespace LibreSpotUWP.Services
         private string[] _offlineQueue = Array.Empty<string>();
         private int _offlineQueueIndex = -1;
         private int _contextResolutionVersion;
+        private int _playbackContinuationVersion;
+        private int _pendingEndOfTrackContinuationVersion;
         private PlaybackSnapshot _lastPlaybackSnapshot;
         private uint _lastPersistedSnapshotPositionMs = uint.MaxValue;
         private uint _pendingRestoreSeekMs = uint.MaxValue;
@@ -214,6 +216,7 @@ namespace LibreSpotUWP.Services
 
         public async Task PlayAsync(string contextUri, string startUri = null)
         {
+            CancelPlaybackContinuationWatchdog();
             await _playbackGate.WaitAsync();
             try
             {
@@ -367,6 +370,7 @@ namespace LibreSpotUWP.Services
 
         public async Task PauseAsync()
         {
+            CancelPlaybackContinuationWatchdog();
             await _librespot.PauseAsync();
         }
 
@@ -387,6 +391,7 @@ namespace LibreSpotUWP.Services
 
         public async Task StopAsync()
         {
+            CancelPlaybackContinuationWatchdog();
             await _librespot.StopAsync();
         }
 
@@ -474,6 +479,18 @@ namespace LibreSpotUWP.Services
             return Task.CompletedTask;
         }
 
+        public EqualizerBandRange[] GetEqualizerBandRanges()
+        {
+            return _ringPlayer?.GetEqualizerBandRanges()
+                ?? Enumerable.Range(0, 5)
+                    .Select(_ => new EqualizerBandRange
+                    {
+                        MinimumGain = UserSettings.EqualizerMinGainDb,
+                        MaximumGain = UserSettings.EqualizerMaxGainDb
+                    })
+                    .ToArray();
+        }
+
         public async Task RefreshCurrentTrackMetadataAsync()
         {
             var trackUri = Current?.Track?.Uri;
@@ -497,19 +514,94 @@ namespace LibreSpotUWP.Services
         }
         public void Next()
         {
+            var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
+                || Current.PlaybackState == LibrespotPlaybackState.Loading;
+
             if (TryPlayOfflineRelativeTrack(1))
+            {
+                SchedulePlaybackContinuationWatchdog(shouldContinuePlaying, "next", allowStopped: false);
                 return;
+            }
 
             _librespot.Next();
+            SchedulePlaybackContinuationWatchdog(shouldContinuePlaying, "next", allowStopped: false);
         }
 
         public void Previous()
         {
+            var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
+                || Current.PlaybackState == LibrespotPlaybackState.Loading;
+
             if (TryPlayOfflineRelativeTrack(-1))
+            {
+                SchedulePlaybackContinuationWatchdog(shouldContinuePlaying, "previous", allowStopped: false);
                 return;
+            }
 
             _librespot.Previous();
+            SchedulePlaybackContinuationWatchdog(shouldContinuePlaying, "previous", allowStopped: false);
         }
+
+        private void SchedulePlaybackContinuationWatchdog(bool shouldContinuePlaying, string reason, bool allowStopped)
+        {
+            var version = Interlocked.Increment(ref _playbackContinuationVersion);
+            if (shouldContinuePlaying)
+                _ = EnsurePlaybackContinuesAfterTransitionAsync(version, reason, allowStopped);
+        }
+
+        private void CancelPlaybackContinuationWatchdog()
+        {
+            Interlocked.Increment(ref _playbackContinuationVersion);
+            Interlocked.Exchange(ref _pendingEndOfTrackContinuationVersion, 0);
+        }
+
+        private async Task EnsurePlaybackContinuesAfterTransitionAsync(int version, string reason, bool allowStopped)
+        {
+            await Task.Delay(1500);
+            if (version != _playbackContinuationVersion)
+                return;
+
+            var state = Current.PlaybackState;
+            if (state != LibrespotPlaybackState.Paused &&
+                state != LibrespotPlaybackState.Loading &&
+                (!allowStopped || state != LibrespotPlaybackState.Stopped))
+                return;
+
+            try
+            {
+                LogService.Warn($"[MediaService.EnsurePlaybackContinuesAfterTransitionAsync] Playback was {state} after {reason}; requesting resume.");
+                await _librespot.ResumeAsync();
+                await EnsureRingPlayerAsync();
+
+                if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+                    _mediaPlayer.Play();
+
+                _ringPlayer?.Start();
+                _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.EnsurePlaybackContinuesAfterTransitionAsync] Unable to resume after {reason}: {ex.Message}");
+            }
+        }
+
+        private void ArmEndOfTrackContinuation()
+        {
+            var version = Interlocked.Increment(ref _pendingEndOfTrackContinuationVersion);
+            _ = ClearEndOfTrackContinuationIfUnusedAsync(version);
+        }
+
+        private bool TryConsumeEndOfTrackContinuation()
+        {
+            return Interlocked.Exchange(ref _pendingEndOfTrackContinuationVersion, 0) != 0;
+        }
+
+        private async Task ClearEndOfTrackContinuationIfUnusedAsync(int version)
+        {
+            await Task.Delay(10000);
+            Interlocked.CompareExchange(ref _pendingEndOfTrackContinuationVersion, 0, version);
+        }
+
         public void Seek(uint posMs) => _librespot.Seek(posMs);
 
         private async Task EnsureRingPlayerAsync()
@@ -618,6 +710,9 @@ namespace LibreSpotUWP.Services
                 PersistPlaybackSnapshot(forceWrite: true);
 
                 await EnsureRingPlayerAsync();
+
+                if (TryConsumeEndOfTrackContinuation())
+                    SchedulePlaybackContinuationWatchdog(true, "end-of-track", allowStopped: true);
 
                 if (_pendingRestoreSeekMs != uint.MaxValue &&
                     _lastPlaybackSnapshot != null &&
@@ -798,9 +893,14 @@ namespace LibreSpotUWP.Services
         private void OnEndOfTrack(object sender, string trackUri)
         {
             LogService.Info($"[MediaService.OnEndOfTrack] Received end-of-track for {trackUri ?? "(unknown)"}.");
+            var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
+                || Current.PlaybackState == LibrespotPlaybackState.Loading;
 
             if (TryPlayOfflineRelativeTrack(1))
+            {
+                SchedulePlaybackContinuationWatchdog(shouldContinuePlaying, "offline end-of-track", allowStopped: true);
                 return;
+            }
 
             if (Current.IsOffline && _offlineQueue.Length > 0)
             {
@@ -809,6 +909,10 @@ namespace LibreSpotUWP.Services
                 {
                     s.StatusMessage = "Offline queue finished.";
                 });
+            }
+            else if (shouldContinuePlaying)
+            {
+                ArmEndOfTrackContinuation();
             }
         }
 

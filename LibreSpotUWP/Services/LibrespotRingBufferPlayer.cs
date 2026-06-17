@@ -36,6 +36,10 @@ namespace LibreSpotUWP.Services
 
         private readonly ConcurrentQueue<PooledFrame> _framePool = new ConcurrentQueue<PooledFrame>();
         private const int PoolSize = 6;
+        private const int DefaultEqualizerBandCount = 5;
+        private const double EqualizerMinLinearGain = 0.126;
+        private const double EqualizerMaxLinearGain = 7.94;
+        private const double EqualizerDefaultLinearGain = 1.0;
         private uint _maxFrameBytes;
 
         private class PooledFrame : IDisposable
@@ -169,7 +173,8 @@ namespace LibreSpotUWP.Services
 
         public EqualizerBandRange[] GetEqualizerBandRanges()
         {
-            EnsureAudioEffectsCreated();
+            if (_equalizerBandRanges.Length == 0)
+                _equalizerBandRanges = BuildEqualizerBandRanges(DefaultEqualizerBandCount);
 
             return _equalizerBandRanges
                 .Select(range => new EqualizerBandRange
@@ -281,73 +286,8 @@ namespace LibreSpotUWP.Services
             _inputNode.EffectDefinitions.Add(_echoEffect);
             _inputNode.EffectDefinitions.Add(_reverbEffect);
             _inputNode.EffectDefinitions.Add(_limiterEffect);
-            _equalizerBandRanges = CaptureEqualizerBandRanges();
+            _equalizerBandRanges = BuildEqualizerBandRanges(Math.Max(DefaultEqualizerBandCount, _equalizerEffect.Bands?.Count ?? 0));
             _audioEffectsConfigured = true;
-        }
-
-        private EqualizerBandRange[] CaptureEqualizerBandRanges()
-        {
-            if (_equalizerEffect?.Bands == null)
-                return Array.Empty<EqualizerBandRange>();
-
-            return _equalizerEffect.Bands
-                .Select(band => new EqualizerBandRange
-                {
-                    MinimumGain = ProbeBandLimit(band, positive: false),
-                    MaximumGain = ProbeBandLimit(band, positive: true)
-                })
-                .ToArray();
-        }
-
-        private static double ProbeBandLimit(EqualizerBand band, bool positive)
-        {
-            const double epsilon = 0.0005;
-            double low = 0.0;
-            double high = 1.0;
-            double direction = positive ? 1.0 : -1.0;
-
-            while (CanApplyGain(band, direction * high) && high < 16.0)
-            {
-                low = high;
-                high *= 2.0;
-            }
-
-            for (int attempt = 0; attempt < 20; attempt++)
-            {
-                var mid = (low + high) / 2.0;
-                if (CanApplyGain(band, direction * mid))
-                    low = mid;
-                else
-                    high = mid;
-
-                if (high - low <= epsilon)
-                    break;
-            }
-
-            TryApplyDirectGain(band, 0.0);
-            return direction * low;
-        }
-
-        private static bool CanApplyGain(EqualizerBand band, double gain)
-        {
-            if (TryApplyDirectGain(band, gain))
-                return true;
-
-            TryApplyDirectGain(band, 0.0);
-            return false;
-        }
-
-        private static bool TryApplyDirectGain(EqualizerBand band, double gain)
-        {
-            try
-            {
-                band.Gain = gain;
-                return true;
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
         }
 
         private void DisableAllAudioEffects()
@@ -407,18 +347,18 @@ namespace LibreSpotUWP.Services
             int index = 0;
             foreach (var band in _equalizerEffect.Bands)
             {
-                double targetGain;
+                double targetGainDb;
                 if (string.Equals(normalized, "Equalizer", StringComparison.OrdinalIgnoreCase))
                 {
-                    targetGain = index < custom.Length ? ClampGain(custom[index]) : 0.0;
+                    targetGainDb = index < custom.Length ? ClampGainDb(custom[index]) : 0.0;
                 }
                 else
                 {
-                    targetGain = ClampGain(GetBandGain(normalized, band.FrequencyCenter, strength));
+                    targetGainDb = ClampGainDb(GetBandGainDb(normalized, band.FrequencyCenter, strength));
                 }
 
-                if (!TryApplyBandGain(band, targetGain))
-                    Debug.WriteLine($"Skipping equalizer band at {band.FrequencyCenter}Hz for preset '{preset}': Value does not fall within the expected range.");
+                if (!TryApplyBandGain(band, DecibelsToLinearGain(targetGainDb)))
+                    Debug.WriteLine($"Skipping equalizer band at {band.FrequencyCenter}Hz for preset '{preset}' ({targetGainDb} dB): Value does not fall within the expected range.");
 
                 index++;
             }
@@ -428,31 +368,16 @@ namespace LibreSpotUWP.Services
         {
             try
             {
-                band.Gain = targetGain;
+                band.Gain = ClampLinearGain(targetGain);
                 return true;
             }
             catch (ArgumentException)
             {
             }
 
-            var fallbackGain = targetGain;
-            for (int attempt = 0; attempt < 8; attempt++)
-            {
-                fallbackGain /= 2.0;
-
-                try
-                {
-                    band.Gain = fallbackGain;
-                    return true;
-                }
-                catch (ArgumentException)
-                {
-                }
-            }
-
             try
             {
-                band.Gain = 0.0;
+                band.Gain = EqualizerDefaultLinearGain;
                 return true;
             }
             catch (ArgumentException)
@@ -461,7 +386,7 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private static double GetBandGain(string preset, double frequencyCenter, double strength)
+        private static double GetBandGainDb(string preset, double frequencyCenter, double strength)
         {
             strength = Clamp01(strength);
 
@@ -469,48 +394,73 @@ namespace LibreSpotUWP.Services
             {
                 case "BassBoost":
                     if (frequencyCenter <= 125)
-                        return 0.14 * strength;
+                        return 8.0 * strength;
                     if (frequencyCenter <= 500)
-                        return 0.1 * strength;
+                        return 5.0 * strength;
                     if (frequencyCenter <= 2000)
-                        return 0.04 * strength;
+                        return 2.0 * strength;
                     if (frequencyCenter <= 6000)
-                        return -0.03 * strength;
-                    return -0.06 * strength;
+                        return -1.0 * strength;
+                    return -2.0 * strength;
 
                 case "VocalBoost":
                     if (frequencyCenter <= 125)
-                        return -0.05 * strength;
+                        return -3.0 * strength;
                     if (frequencyCenter <= 500)
-                        return -0.02 * strength;
+                        return -1.0 * strength;
                     if (frequencyCenter <= 4000)
-                        return 0.12 * strength;
+                        return 5.0 * strength;
                     if (frequencyCenter <= 8000)
-                        return 0.08 * strength;
-                    return 0.04 * strength;
+                        return 4.0 * strength;
+                    return 2.0 * strength;
 
                 case "Warm":
                     if (frequencyCenter <= 125)
-                        return 0.1 * strength;
+                        return 4.0 * strength;
                     if (frequencyCenter <= 500)
-                        return 0.08 * strength;
+                        return 3.0 * strength;
                     if (frequencyCenter <= 2000)
-                        return 0.03 * strength;
+                        return 1.0 * strength;
                     if (frequencyCenter <= 6000)
-                        return -0.02 * strength;
-                    return -0.04 * strength;
+                        return -1.0 * strength;
+                    return -2.0 * strength;
 
                 default:
                     return 0.0;
             }
         }
 
-        private static double ClampGain(double value)
+        private static EqualizerBandRange[] BuildEqualizerBandRanges(int bandCount)
+        {
+            bandCount = Math.Max(DefaultEqualizerBandCount, bandCount);
+            return Enumerable.Range(0, bandCount)
+                .Select(_ => new EqualizerBandRange
+                {
+                    MinimumGain = UserSettings.EqualizerMinGainDb,
+                    MaximumGain = UserSettings.EqualizerMaxGainDb
+                })
+                .ToArray();
+        }
+
+        private static double DecibelsToLinearGain(double decibels)
+        {
+            return ClampLinearGain(Math.Pow(10.0, ClampGainDb(decibels) / 20.0));
+        }
+
+        private static double ClampLinearGain(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return EqualizerDefaultLinearGain;
+
+            return Math.Max(EqualizerMinLinearGain, Math.Min(EqualizerMaxLinearGain, value));
+        }
+
+        private static double ClampGainDb(double value)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
                 return 0.0;
 
-            return Math.Max(-0.25, Math.Min(0.25, value));
+            return Math.Max(UserSettings.EqualizerMinGainDb, Math.Min(UserSettings.EqualizerMaxGainDb, value));
         }
 
         private static double Clamp01(double value)

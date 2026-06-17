@@ -14,6 +14,7 @@ namespace LibreSpotUWP.Interfaces
         Task SetVolumeAsync(ushort v);
         void SetVolumeDebounced(double v);
         Task SetAudioEffectsPresetAsync(string preset);
+        EqualizerBandRange[] GetEqualizerBandRanges();
         Task RefreshCurrentTrackMetadataAsync();
         Task SetShuffleAsync(bool enabled);
         Task SetRepeatAsync(int mode);

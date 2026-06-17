@@ -15,10 +15,14 @@ namespace LibreSpotUWP.Helpers
         private const string AudioEffectsKey = "AudioEffectsPreset";
         private const string AudioEffectsStrengthKey = "AudioEffectsStrength";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
+        private const string EqualizerBandsUnitKey = "AudioEffectsEqualizerBandsUnit";
+        private const string EqualizerBandsUnitDb = "Db";
         private const string RememberLastPlaybackStateKey = "RememberLastPlaybackState";
         private const string ResumeLastPlaybackIfWasPlayingKey = "ResumeLastPlaybackIfWasPlaying";
         private const string RememberLastPageKey = "RememberLastPage";
         private const string LyricsUseSpotifyThemeKey = "LyricsUseSpotifyTheme";
+        public const double EqualizerMinGainDb = -18.0;
+        public const double EqualizerMaxGainDb = 18.0;
 
         public static readonly string[] DefaultHomeSectionOrder =
         {
@@ -104,8 +108,12 @@ namespace LibreSpotUWP.Helpers
 
         public static double[] GetEqualizerBandGains()
         {
-            var raw = ApplicationData.Current.LocalSettings.Values.TryGetValue(EqualizerBandsKey, out object value)
+            var settings = ApplicationData.Current.LocalSettings;
+            var raw = settings.Values.TryGetValue(EqualizerBandsKey, out object value)
                 ? value as string
+                : null;
+            var storedUnit = settings.Values.TryGetValue(EqualizerBandsUnitKey, out object unitValue)
+                ? unitValue as string
                 : null;
 
             var values = new List<double>();
@@ -118,10 +126,17 @@ namespace LibreSpotUWP.Helpers
                 }
             }
 
+            if (!string.Equals(storedUnit, EqualizerBandsUnitDb, StringComparison.Ordinal) && values.Count > 0)
+            {
+                values = values.Select(ConvertLegacyEqualizerGain).ToList();
+                settings.Values[EqualizerBandsKey] = string.Join("|", values.Select(item => item.ToString(CultureInfo.InvariantCulture)));
+                settings.Values[EqualizerBandsUnitKey] = EqualizerBandsUnitDb;
+            }
+
             while (values.Count < 5)
                 values.Add(0.0);
 
-            return values.Take(5).ToArray();
+            return values.Take(5).Select(ClampBandGain).ToArray();
         }
 
         public static void SetEqualizerBandGains(IEnumerable<double> gains)
@@ -131,6 +146,7 @@ namespace LibreSpotUWP.Helpers
                 : gains.Select(ClampBandGain);
 
             ApplicationData.Current.LocalSettings.Values[EqualizerBandsKey] = string.Join("|", items.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+            ApplicationData.Current.LocalSettings.Values[EqualizerBandsUnitKey] = EqualizerBandsUnitDb;
         }
 
         public static string[] GetHomeSectionOrder()
@@ -193,7 +209,17 @@ namespace LibreSpotUWP.Helpers
             if (double.IsNaN(value) || double.IsInfinity(value))
                 return 0.0;
 
-            return Math.Max(-0.25, Math.Min(0.25, value));
+            return Math.Max(EqualizerMinGainDb, Math.Min(EqualizerMaxGainDb, value));
+        }
+
+        private static double ConvertLegacyEqualizerGain(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return 0.0;
+
+            const double legacyMaxGain = 0.25;
+            var clampedLegacy = Math.Max(-legacyMaxGain, Math.Min(legacyMaxGain, value));
+            return ClampBandGain(clampedLegacy / legacyMaxGain * EqualizerMaxGainDb);
         }
     }
 }
