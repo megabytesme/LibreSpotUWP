@@ -89,21 +89,10 @@
                 </muxc:NavigationViewItem>
             </muxc:NavigationView.FooterMenuItems>
 
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <Frame
-                    x:Name="ContentFrame"
-                    Grid.Row="0"
-                    Background="Transparent" />
-
+            <muxc:NavigationView.PaneFooter>
                 <Grid
                     x:Name="CacheStatusPanel"
-                    Grid.Row="1"
-                    Margin="16,0,16,12"
+                    Margin="0,0,8,8"
                     ColumnSpacing="8"
                     Visibility="Collapsed">
                     <Grid.ColumnDefinitions>
@@ -141,7 +130,11 @@
                             Glyph="&#xE946;" />
                     </StackPanel>
                 </Grid>
-            </Grid>
+            </muxc:NavigationView.PaneFooter>
+
+            <Frame
+                x:Name="ContentFrame"
+                Background="Transparent" />
         </muxc:NavigationView>
 
         <Grid
