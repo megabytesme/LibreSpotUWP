@@ -83,7 +83,7 @@
                                     Margin="0"
                                     Padding="20,16"
                                     Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-                                    CornerRadius="0">
+                                    CornerRadius="8">
                                     <TextBlock
                                         x:Name="LineText"
                                         MaxWidth="760"

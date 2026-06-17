@@ -15,6 +15,8 @@ namespace LibreSpotUWP.Interfaces
         void SetVolumeDebounced(double v);
         Task SetAudioEffectsPresetAsync(string preset);
         EqualizerBandRange[] GetEqualizerBandRanges();
+        Task<AudioOutputDeviceInfo[]> GetAudioOutputDevicesAsync();
+        Task SetAudioOutputDeviceAsync(string deviceId);
         Task RefreshCurrentTrackMetadataAsync();
         Task SetShuffleAsync(bool enabled);
         Task SetRepeatAsync(int mode);
@@ -24,6 +26,7 @@ namespace LibreSpotUWP.Interfaces
         void Seek(uint posMs);
 
         MediaState Current { get; }
+        string CurrentAudioOutputDeviceId { get; }
 
         event EventHandler<MediaState> MediaStateChanged;
     }

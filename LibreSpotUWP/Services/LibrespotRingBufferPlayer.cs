@@ -6,9 +6,11 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
+using Windows.Devices.Enumeration;
 using Windows.Foundation;
 using Windows.Media;
 using Windows.Media.Audio;
+using Windows.Media.Devices;
 using Windows.Media.MediaProperties;
 using Windows.Media.Render;
 using static LibreSpotUWP.Interop.Librespot;
@@ -18,6 +20,7 @@ namespace LibreSpotUWP.Services
     public sealed class LibrespotRingBufferPlayer : IDisposable
     {
         private readonly AudioEncodingProperties _props;
+        private readonly string _outputDeviceId;
         private AudioGraph _graph;
         private AudioFrameInputNode _inputNode;
         private EchoEffectDefinition _echoEffect;
@@ -56,9 +59,10 @@ namespace LibreSpotUWP.Services
             public void Dispose() => Frame.Dispose();
         }
 
-        public LibrespotRingBufferPlayer(AudioEncodingProperties props)
+        public LibrespotRingBufferPlayer(AudioEncodingProperties props, string outputDeviceId)
         {
             _props = props;
+            _outputDeviceId = outputDeviceId ?? string.Empty;
         }
 
         public async Task InitializeAsync()
@@ -69,8 +73,9 @@ namespace LibreSpotUWP.Services
             await WaitForRingBufferAsync();
 
             _capacityBytes = (int)librespot_audio_get_capacity().ToUInt32();
-            _readPos = 0;
-            librespot_audio_set_read_cursor((UIntPtr)0);
+            var writeCursor = librespot_audio_get_write_cursor().ToUInt32();
+            _readPos = _capacityBytes > 0 ? (int)(writeCursor % (uint)_capacityBytes) : 0;
+            librespot_audio_set_read_cursor((UIntPtr)_readPos);
             _frameSize = (int)(_props.ChannelCount * (_props.BitsPerSample / 8));
 
             uint samplesPerQuantum = 441;
@@ -84,8 +89,18 @@ namespace LibreSpotUWP.Services
                 EncodingProperties = _props,
                 QuantumSizeSelectionMode = QuantumSizeSelectionMode.SystemDefault
             };
+            var outputDevice = await TryGetOutputDeviceAsync(_outputDeviceId);
+            if (outputDevice != null)
+                settings.PrimaryRenderDevice = outputDevice;
 
             var result = await AudioGraph.CreateAsync(settings);
+            if (result.Status != AudioGraphCreationStatus.Success && outputDevice != null)
+            {
+                Debug.WriteLine($"AudioGraph creation failed for selected output '{_outputDeviceId}' ({result.Status}); retrying default output.");
+                settings.PrimaryRenderDevice = null;
+                result = await AudioGraph.CreateAsync(settings);
+            }
+
             if (result.Status != AudioGraphCreationStatus.Success)
                 throw new InvalidOperationException($"AudioGraph creation failed: {result.Status}");
 
@@ -200,7 +215,12 @@ namespace LibreSpotUWP.Services
                 return;
 
             var normalized = NormalizePreset(preset);
-            if (string.Equals(normalized, "None", StringComparison.OrdinalIgnoreCase))
+            var hasEqualizer = !string.Equals(normalized, "None", StringComparison.OrdinalIgnoreCase);
+            var hasEcho = UserSettings.AudioEchoEffectEnabled;
+            var hasReverb = UserSettings.AudioReverbEffectEnabled;
+            var hasLimiter = UserSettings.AudioLimiterEffectEnabled;
+
+            if (!hasEqualizer && !hasEcho && !hasReverb && !hasLimiter)
             {
                 DisableAllAudioEffects();
                 return;
@@ -213,18 +233,6 @@ namespace LibreSpotUWP.Services
             {
                 switch (normalized)
                 {
-                    case "Echo":
-                        ConfigureEchoEffect();
-                        _inputNode.EnableEffectsByDefinition(_echoEffect);
-                        break;
-                    case "Reverb":
-                        ConfigureReverbEffect();
-                        _inputNode.EnableEffectsByDefinition(_reverbEffect);
-                        break;
-                    case "Limiter":
-                        ConfigureLimiterEffect();
-                        _inputNode.EnableEffectsByDefinition(_limiterEffect);
-                        break;
                     case "Equalizer":
                     case "BassBoost":
                     case "VocalBoost":
@@ -234,6 +242,24 @@ namespace LibreSpotUWP.Services
                         break;
                     default:
                         break;
+                }
+
+                if (hasEcho)
+                {
+                    ConfigureEchoEffect();
+                    _inputNode.EnableEffectsByDefinition(_echoEffect);
+                }
+
+                if (hasReverb)
+                {
+                    ConfigureReverbEffect();
+                    _inputNode.EnableEffectsByDefinition(_reverbEffect);
+                }
+
+                if (hasLimiter)
+                {
+                    ConfigureLimiterEffect();
+                    _inputNode.EnableEffectsByDefinition(_limiterEffect);
                 }
             }
             catch (ArgumentException ex)
@@ -257,19 +283,30 @@ namespace LibreSpotUWP.Services
             if (string.Equals(preset, "Warm", StringComparison.OrdinalIgnoreCase))
                 return "Warm";
 
-            if (string.Equals(preset, "Echo", StringComparison.OrdinalIgnoreCase))
-                return "Echo";
-
-            if (string.Equals(preset, "Reverb", StringComparison.OrdinalIgnoreCase))
-                return "Reverb";
-
-            if (string.Equals(preset, "Limiter", StringComparison.OrdinalIgnoreCase))
-                return "Limiter";
-
             if (string.Equals(preset, "Equalizer", StringComparison.OrdinalIgnoreCase))
                 return "Equalizer";
 
             return "None";
+        }
+
+        private static async Task<DeviceInformation> TryGetOutputDeviceAsync(string deviceId)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+                return null;
+
+            try
+            {
+                var defaultId = MediaDevice.GetDefaultAudioRenderId(AudioDeviceRole.Default);
+                if (string.Equals(deviceId, defaultId, StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                return await DeviceInformation.CreateFromIdAsync(deviceId);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Unable to select audio output device '{deviceId}': {ex.Message}");
+                return null;
+            }
         }
 
         private void EnsureAudioEffectsCreated()

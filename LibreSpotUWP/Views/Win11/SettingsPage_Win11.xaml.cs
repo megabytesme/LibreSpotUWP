@@ -51,6 +51,9 @@ namespace LibreSpotUWP.Views.Win11
             ResumeLastPlaybackDescription.Visibility = resumeVisible;
             RememberLastPageToggle.IsOn = UserSettings.RememberLastPage;
             SelectAudioEffectsPreset(UserSettings.AudioEffectsPreset);
+            EchoEffectToggle.IsOn = UserSettings.AudioEchoEffectEnabled;
+            ReverbEffectToggle.IsOn = UserSettings.AudioReverbEffectEnabled;
+            LimiterEffectToggle.IsOn = UserSettings.AudioLimiterEffectEnabled;
             LoadAudioEffectSettings();
             LoadHomeOrderSettings();
 
@@ -192,6 +195,18 @@ namespace LibreSpotUWP.Views.Win11
             }
         }
 
+        private void AudioEffectToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.AudioEchoEffectEnabled = EchoEffectToggle.IsOn;
+            UserSettings.AudioReverbEffectEnabled = ReverbEffectToggle.IsOn;
+            UserSettings.AudioLimiterEffectEnabled = LimiterEffectToggle.IsOn;
+            UpdateAudioEffectVisibility();
+            ApplyCurrentAudioEffect();
+        }
+
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             base.OnNavigatedFrom(e);
@@ -281,7 +296,7 @@ namespace LibreSpotUWP.Views.Win11
         private void UpdateAudioEffectVisibility()
         {
             var preset = GetSelectedPreset();
-            bool showStrength = preset == "BassBoost" || preset == "VocalBoost" || preset == "Warm" || preset == "Echo" || preset == "Reverb";
+            bool showStrength = preset == "BassBoost" || preset == "VocalBoost" || preset == "Warm" || EchoEffectToggle.IsOn || ReverbEffectToggle.IsOn;
 
             EffectStrengthPanel.Visibility = showStrength ? Visibility.Visible : Visibility.Collapsed;
             EqualizerPanel.Visibility = string.Equals(preset, "Equalizer", StringComparison.OrdinalIgnoreCase)

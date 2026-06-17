@@ -19,6 +19,7 @@ namespace LibreSpotUWP.Controls
         private bool _draggingPosition = false;
         private bool _isReady = false;
         private string _currentArtworkUri = null;
+        private bool _loadingOutputDevices;
 
         public MediaControllerBar()
         {
@@ -41,6 +42,7 @@ namespace LibreSpotUWP.Controls
                 App.Downloads.TrackStatusChanged += Downloads_TrackStatusChanged;
 
             UpdateUI(_media.Current);
+            _ = LoadOutputDevicesAsync();
             _isReady = true;
         }
 
@@ -189,6 +191,34 @@ namespace LibreSpotUWP.Controls
             _media?.SetVolumeDebounced(e.NewValue);
 
             UpdateVolumeVisual(e.NewValue);
+        }
+
+        private async Task LoadOutputDevicesAsync()
+        {
+            if (_media == null || OutputDeviceComboBox == null)
+                return;
+
+            _loadingOutputDevices = true;
+            try
+            {
+                var devices = await _media.GetAudioOutputDevicesAsync();
+                OutputDeviceComboBox.ItemsSource = devices;
+                var selected = devices.FirstOrDefault(device => string.Equals(device.Id, _media.CurrentAudioOutputDeviceId, StringComparison.Ordinal))
+                    ?? devices.FirstOrDefault();
+                OutputDeviceComboBox.SelectedItem = selected;
+            }
+            finally
+            {
+                _loadingOutputDevices = false;
+            }
+        }
+
+        private async void OutputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loadingOutputDevices || !(OutputDeviceComboBox.SelectedItem is AudioOutputDeviceInfo device) || _media == null)
+                return;
+
+            await _media.SetAudioOutputDeviceAsync(device.Id);
         }
 
         private void UpdateVolumeVisual(double value)

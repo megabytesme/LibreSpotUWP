@@ -8,8 +8,10 @@ using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Devices.Enumeration;
 using Windows.Media;
 using Windows.Media.Core;
+using Windows.Media.Devices;
 using Windows.Media.MediaProperties;
 using Windows.Media.Playback;
 using Windows.Networking.Connectivity;
@@ -55,6 +57,8 @@ namespace LibreSpotUWP.Services
         private const string PlaybackSnapshotKey = "LastPlaybackSnapshot";
         private const int PositionTimerIntervalMs = 500;
         private const int SnapshotWriteIntervalMs = 5000;
+
+        public string CurrentAudioOutputDeviceId => UserSettings.AudioOutputDeviceId;
 
         private sealed class PlaybackSnapshot
         {
@@ -491,6 +495,68 @@ namespace LibreSpotUWP.Services
                     .ToArray();
         }
 
+        public async Task<AudioOutputDeviceInfo[]> GetAudioOutputDevicesAsync()
+        {
+            var items = new[]
+            {
+                new AudioOutputDeviceInfo
+                {
+                    Id = string.Empty,
+                    Name = "System default",
+                    IsDefault = true
+                }
+            }.ToList();
+
+            try
+            {
+                var selector = MediaDevice.GetAudioRenderSelector();
+                var devices = await DeviceInformation.FindAllAsync(selector);
+                var defaultId = MediaDevice.GetDefaultAudioRenderId(AudioDeviceRole.Default);
+
+                foreach (var device in devices.OrderBy(device => device.Name))
+                {
+                    items.Add(new AudioOutputDeviceInfo
+                    {
+                        Id = device.Id,
+                        Name = device.Name,
+                        IsDefault = string.Equals(device.Id, defaultId, StringComparison.OrdinalIgnoreCase)
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.GetAudioOutputDevicesAsync] Unable to enumerate audio output devices: {ex.Message}");
+            }
+
+            return items.ToArray();
+        }
+
+        public async Task SetAudioOutputDeviceAsync(string deviceId)
+        {
+            deviceId = deviceId ?? string.Empty;
+            if (string.Equals(UserSettings.AudioOutputDeviceId, deviceId, StringComparison.Ordinal))
+                return;
+
+            UserSettings.AudioOutputDeviceId = deviceId;
+            var wasPlaying = Current.PlaybackState == LibrespotPlaybackState.Playing;
+
+            _ringPlayer?.Stop();
+            _ringPlayer?.Dispose();
+            _ringPlayer = null;
+
+            if ((_librespot as LibrespotService)?.HasInstance != true)
+                return;
+
+            await EnsureRingPlayerAsync();
+            if (wasPlaying)
+            {
+                if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+                    _mediaPlayer.Play();
+
+                _ringPlayer.Start();
+            }
+        }
+
         public async Task RefreshCurrentTrackMetadataAsync()
         {
             var trackUri = Current?.Track?.Uri;
@@ -612,7 +678,7 @@ namespace LibreSpotUWP.Services
             var props = (_librespot as LibrespotService)?.EncodingProperties
                         ?? AudioEncodingProperties.CreatePcm(44100, 2, 16);
 
-            _ringPlayer = new LibrespotRingBufferPlayer(props);
+            _ringPlayer = new LibrespotRingBufferPlayer(props, UserSettings.AudioOutputDeviceId);
             await _ringPlayer.InitializeAsync();
             _ringPlayer.SetAudioEffectsPreset(UserSettings.AudioEffectsPreset);
         }
