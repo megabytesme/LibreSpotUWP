@@ -8,10 +8,12 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Core;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -19,7 +21,7 @@ using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Controls;
+using Muxc = Microsoft.UI.Xaml.Controls;
 
 namespace LibreSpotUWP
 {
@@ -39,6 +41,7 @@ namespace LibreSpotUWP
         private ISecureStorage _secureStorage;
         private IFileSystem _fileSystem;
         private IMetadataCache _metadataCache;
+        private static bool _fatalDialogOpen;
         public static AudioKeyCache KeyCache { get; private set; }
 
         /// <summary>
@@ -63,11 +66,6 @@ namespace LibreSpotUWP
             if (appResources == null)
                 return;
 
-            appResources.MergedDictionaries.Clear();
-
-            if (OSHelper.IsWindows10_1709OrGreater)
-                appResources.MergedDictionaries.Add(new XamlControlsResources());
-
             string themePath;
             switch (AppearanceService.Current)
             {
@@ -82,7 +80,26 @@ namespace LibreSpotUWP
                     break;
             }
 
+            if (HasXamlControlsResources(appResources) && HasThemeResource(appResources, themePath))
+                return;
+
+            appResources.MergedDictionaries.Clear();
+            appResources.MergedDictionaries.Add(new Muxc.XamlControlsResources());
             appResources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(themePath) });
+        }
+
+        private static bool HasXamlControlsResources(ResourceDictionary appResources)
+        {
+            return appResources.MergedDictionaries
+                .Any(dictionary => dictionary is Muxc.XamlControlsResources);
+        }
+
+        private static bool HasThemeResource(ResourceDictionary appResources, string themePath)
+        {
+            var themeFile = themePath.Substring(themePath.LastIndexOf('/') + 1);
+            return appResources.MergedDictionaries.Any(dictionary =>
+                dictionary.Source != null &&
+                dictionary.Source.OriginalString.EndsWith(themeFile, StringComparison.OrdinalIgnoreCase));
         }
 
         protected override async void OnActivated(IActivatedEventArgs args)
@@ -245,21 +262,59 @@ namespace LibreSpotUWP
         {
             try
             {
-                if (Window.Current?.Content is Frame frame && frame.Content is ContentDialog)
-                    return;
-
-                var dialog = new ContentDialog
+                await RunOnUiAsync(async () =>
                 {
-                    Title = "Something went wrong",
-                    Content = $"An error occurred.\n\n{ex.Message}\n\nLog: {LogService.LogPath}",
-                    CloseButtonText = "Close"
-                };
+                    if (_fatalDialogOpen)
+                        return;
 
-                await dialog.ShowAsync();
+                    _fatalDialogOpen = true;
+                    try
+                    {
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Something went wrong",
+                            Content = $"An error occurred.\n\n{ex.Message}\n\nLog: {LogService.LogPath}",
+                            CloseButtonText = "Close"
+                        };
+
+                        await dialog.ShowAsync();
+                    }
+                    catch (Exception dialogEx)
+                    {
+                        LogService.Warn($"Unable to show fatal error dialog: {dialogEx.Message}");
+                    }
+                    finally
+                    {
+                        _fatalDialogOpen = false;
+                    }
+                });
             }
             catch
             {
             }
+        }
+
+        private static Task RunOnUiAsync(Func<Task> action)
+        {
+            var dispatcher = CoreApplication.MainView?.CoreWindow?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasThreadAccess)
+                return action();
+
+            var completion = new TaskCompletionSource<object>();
+            var ignored = dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
+            {
+                try
+                {
+                    await action();
+                    completion.SetResult(null);
+                }
+                catch (Exception ex)
+                {
+                    completion.SetException(ex);
+                }
+            });
+
+            return completion.Task;
         }
     }
 }

@@ -6,6 +6,8 @@ using System;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Core;
+using Windows.UI.Core;
 
 namespace LibreSpotUWP.Services
 {
@@ -64,6 +66,7 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrEmpty(_codeVerifier))
                 return;
 
+            LogService.Info("[SpotifyAuthService.ExchangePkceCodeAsync] Exchanging PKCE code for token.");
             var redirect = new Uri("librespotuwp://callback/");
 
             var request = new PKCETokenRequest(
@@ -74,6 +77,7 @@ namespace LibreSpotUWP.Services
 
             var oauth = new OAuthClient();
             var response = await oauth.RequestToken(request);
+            LogService.Info("[SpotifyAuthService.ExchangePkceCodeAsync] Token exchange completed.");
 
             Current = new AuthState
             {
@@ -85,6 +89,7 @@ namespace LibreSpotUWP.Services
             };
 
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
+            LogService.Info("[SpotifyAuthService.ExchangePkceCodeAsync] PKCE auth state persisted.");
             _codeVerifier = null;
         }
 
@@ -140,7 +145,7 @@ namespace LibreSpotUWP.Services
 
             App.AuthToken = null;
 
-            AuthStateChanged?.Invoke(this, null);
+            RaiseAuthStateChanged(null);
         }
 
         public async Task<string> GetAccessToken()
@@ -310,16 +315,52 @@ namespace LibreSpotUWP.Services
 
             if (state == null)
             {
-                AuthStateChanged?.Invoke(this, null);
+                RaiseAuthStateChanged(null);
                 return;
             }
 
+            LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Saving auth state.");
             await SaveStateAsync().ConfigureAwait(false);
+            LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Auth state saved.");
 
             if (reconnectLibrespot && !string.IsNullOrEmpty(state.AccessToken))
+            {
+                LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Reconnecting librespot with access token.");
                 await App.Librespot.ConnectWithAccessTokenAsync(state.AccessToken).ConfigureAwait(false);
+                LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Librespot reconnect requested.");
+            }
 
-            AuthStateChanged?.Invoke(this, state);
+            RaiseAuthStateChanged(state);
+            LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Auth state notification sent.");
+        }
+
+        private void RaiseAuthStateChanged(AuthState state)
+        {
+            try
+            {
+                var dispatcher = CoreApplication.MainView?.CoreWindow?.Dispatcher;
+                if (dispatcher != null && !dispatcher.HasThreadAccess)
+                {
+                    var ignored = dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        try
+                        {
+                            AuthStateChanged?.Invoke(this, state);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Error(ex, "[SpotifyAuthService.RaiseAuthStateChanged] Handler failed");
+                        }
+                    });
+                    return;
+                }
+
+                AuthStateChanged?.Invoke(this, state);
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[SpotifyAuthService.RaiseAuthStateChanged] Dispatch failed");
+            }
         }
     }
 }
