@@ -9,9 +9,11 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Core;
 using Windows.Media.MediaProperties;
 using Windows.Storage;
 using Windows.System.Profile;
+using Windows.UI.Core;
 using static LibreSpotUWP.Interop.Librespot;
 
 namespace LibreSpotUWP.Services
@@ -175,9 +177,9 @@ namespace LibreSpotUWP.Services
                 _currentTrack = null;
             }
 
-            SessionStateChanged?.Invoke(this, _session);
-            PlaybackStateChanged?.Invoke(this, _playbackState);
-            TrackChanged?.Invoke(this, null);
+            RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, _session), nameof(SessionStateChanged));
+            RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, _playbackState), nameof(PlaybackStateChanged));
+            RaiseOnMainThread(() => TrackChanged?.Invoke(this, null), nameof(TrackChanged));
 
             return Task.CompletedTask;
         }
@@ -835,7 +837,7 @@ namespace LibreSpotUWP.Services
                 case EventType.LogMessage:
                     string msg = Marshal.PtrToStringAnsi(evt.data.log_msg);
                     Debug.WriteLine($"{ts} [LibreSpot Internal] {msg}");
-                    LogMessage?.Invoke(this, msg);
+                    RaiseOnMainThread(() => LogMessage?.Invoke(this, msg), nameof(LogMessage));
                     break;
 
                 case EventType.TrackChanged:
@@ -966,7 +968,7 @@ namespace LibreSpotUWP.Services
                 };
                 snapshot = _session;
             }
-            SessionStateChanged?.Invoke(this, snapshot);
+            RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, snapshot), nameof(SessionStateChanged));
         }
 
         private void UpdatePlaybackState(LibrespotPlaybackState state)
@@ -975,7 +977,7 @@ namespace LibreSpotUWP.Services
             {
                 _playbackState = state;
             }
-            PlaybackStateChanged?.Invoke(this, state);
+            RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, state), nameof(PlaybackStateChanged));
         }
 
         private void UpdateTrack(LibrespotTrackInfo track)
@@ -984,7 +986,7 @@ namespace LibreSpotUWP.Services
             {
                 _currentTrack = track;
             }
-            TrackChanged?.Invoke(this, track);
+            RaiseOnMainThread(() => TrackChanged?.Invoke(this, track), nameof(TrackChanged));
         }
 
         private void UpdateVolume(ushort volume)
@@ -993,7 +995,7 @@ namespace LibreSpotUWP.Services
             {
                 _volume = volume;
             }
-            VolumeChanged?.Invoke(this, volume);
+            RaiseOnMainThread(() => VolumeChanged?.Invoke(this, volume), nameof(VolumeChanged));
         }
 
         private void OnEndOfTrack()
@@ -1004,7 +1006,7 @@ namespace LibreSpotUWP.Services
         private void OnEndOfTrack(string trackUri)
         {
             LogService.Info($"[LibreSpot] End of track reached. {trackUri}");
-            EndOfTrack?.Invoke(this, trackUri);
+            RaiseOnMainThread(() => EndOfTrack?.Invoke(this, trackUri), nameof(EndOfTrack));
         }
 
         private void UpdateClientInfo(string clientName)
@@ -1027,27 +1029,56 @@ namespace LibreSpotUWP.Services
 
         private void UpdatePosition(uint positionMs)
         {
-            Seeked?.Invoke(this, positionMs);
+            RaiseOnMainThread(() => Seeked?.Invoke(this, positionMs), nameof(Seeked));
         }
 
         private void UpdateShuffle(bool enabled)
         {
             Debug.WriteLine($"[LibreSpot] Shuffle updated: {enabled}");
             lock (_stateLock) { _shuffle = enabled; }
-            ShuffleChanged?.Invoke(this, enabled);
+            RaiseOnMainThread(() => ShuffleChanged?.Invoke(this, enabled), nameof(ShuffleChanged));
         }
 
         private void UpdateRepeat(uint mode)
         {
             Debug.WriteLine($"[LibreSpot] Repeat mode updated: {mode}");
             lock (_stateLock) { _repeatMode = mode; }
-            RepeatChanged?.Invoke(this, mode);
+            RaiseOnMainThread(() => RepeatChanged?.Invoke(this, mode), nameof(RepeatChanged));
         }
 
         private void RaisePanic(string message)
         {
             if (message == null) return;
-            Panic?.Invoke(this, message);
+            RaiseOnMainThread(() => Panic?.Invoke(this, message), nameof(Panic));
+        }
+
+        private static void RaiseOnMainThread(Action action, string eventName)
+        {
+            try
+            {
+                var dispatcher = CoreApplication.MainView?.CoreWindow?.Dispatcher;
+                if (dispatcher != null && !dispatcher.HasThreadAccess)
+                {
+                    var ignored = dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        try
+                        {
+                            action();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Error(ex, $"Librespot event handler failed for {eventName}");
+                        }
+                    });
+                    return;
+                }
+
+                action();
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, $"Librespot event dispatch failed for {eventName}");
+            }
         }
 
         private async Task RecreateInstanceWithAccessTokenAsync(string accessToken)

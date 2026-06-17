@@ -9,10 +9,10 @@ namespace LibreSpotUWP.Services
         private readonly PasswordVault _vault = new PasswordVault();
         private const string ResourceName = "LibreSpotUWP";
 
-        public Task SaveAsync(string key, string value)
+        public async Task SaveAsync(string key, string value)
         {
+            await DeleteAsync(key);
             _vault.Add(new PasswordCredential(ResourceName, key, value));
-            return Task.CompletedTask;
         }
 
         public Task<string> LoadAsync(string key)

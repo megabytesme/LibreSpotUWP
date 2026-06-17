@@ -552,77 +552,91 @@ namespace LibreSpotUWP.Services
 
         private async void OnPlaybackChanged(object sender, LibrespotPlaybackState state)
         {
-            UpdateState(s => s.PlaybackState = state);
-
-            uint currentPos = _librespot.GetPositionMs();
-            UpdateState(s => s.PositionMs = currentPos);
-            UpdateSmtcTimeline(currentPos);
-            PersistPlaybackSnapshot();
-
-            switch (state)
+            try
             {
-                case LibrespotPlaybackState.Playing:
-                    if (_pendingRestoreSeekMs != uint.MaxValue)
-                    {
-                        var seekPosition = _pendingRestoreSeekMs;
-                        _pendingRestoreSeekMs = uint.MaxValue;
-                        if (seekPosition > 0)
-                            _librespot.Seek(seekPosition);
+                UpdateState(s => s.PlaybackState = state);
 
-                        currentPos = seekPosition;
-                        UpdateState(s => s.PositionMs = seekPosition);
-                        UpdateSmtcTimeline(seekPosition);
-                        PersistPlaybackSnapshot();
-                    }
+                uint currentPos = _librespot.GetPositionMs();
+                UpdateState(s => s.PositionMs = currentPos);
+                UpdateSmtcTimeline(currentPos);
+                PersistPlaybackSnapshot();
 
-                    await EnsureRingPlayerAsync();
+                switch (state)
+                {
+                    case LibrespotPlaybackState.Playing:
+                        if (_pendingRestoreSeekMs != uint.MaxValue)
+                        {
+                            var seekPosition = _pendingRestoreSeekMs;
+                            _pendingRestoreSeekMs = uint.MaxValue;
+                            if (seekPosition > 0)
+                                _librespot.Seek(seekPosition);
 
-                    if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
-                        _mediaPlayer.Play();
+                            currentPos = seekPosition;
+                            UpdateState(s => s.PositionMs = seekPosition);
+                            UpdateSmtcTimeline(seekPosition);
+                            PersistPlaybackSnapshot();
+                        }
 
-                    _ringPlayer.Start();
-                    _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
-                    break;
+                        await EnsureRingPlayerAsync();
 
-                case LibrespotPlaybackState.Paused:
-                    _ringPlayer?.Stop();
+                        if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+                            _mediaPlayer.Play();
 
-                    if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Paused)
+                        _ringPlayer.Start();
+                        _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
+                        break;
+
+                    case LibrespotPlaybackState.Paused:
+                        _ringPlayer?.Stop();
+
+                        if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Paused)
+                            _mediaPlayer.Pause();
+
+                        _smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
+                        break;
+
+                    case LibrespotPlaybackState.Stopped:
+                        _ringPlayer?.Stop();
                         _mediaPlayer.Pause();
-
-                    _smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
-                    break;
-
-                case LibrespotPlaybackState.Stopped:
-                    _ringPlayer?.Stop();
-                    _mediaPlayer.Pause();
-                    _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
-                    break;
+                        _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, $"[MediaService.OnPlaybackChanged] Unhandled error while processing playback state {state}");
             }
         }
 
         private async void OnSessionStateChanged(object sender, LibrespotSessionState ev)
         {
-            UpdateState(s =>
+            try
             {
-                s.IsSessionConnected = ev.IsConnected;
-                s.IsOffline = !ConnectivityHelper.HasInternetAccess();
+                UpdateState(s =>
+                {
+                    s.IsSessionConnected = ev.IsConnected;
+                    s.IsOffline = !ConnectivityHelper.HasInternetAccess();
 
-                if (!ev.IsConnected && s.IsOffline)
-                    s.StatusMessage = "Offline. Cached tracks can still play when you select them directly.";
-                else if (ev.IsConnected && !s.IsTrackMetadataFromCache)
-                    s.StatusMessage = null;
-            });
+                    if (!ev.IsConnected && s.IsOffline)
+                        s.StatusMessage = "Offline. Cached tracks can still play when you select them directly.";
+                    else if (ev.IsConnected && !s.IsTrackMetadataFromCache)
+                        s.StatusMessage = null;
+                });
 
-            switch (ev.IsConnected)
+                switch (ev.IsConnected)
+                {
+                    case true:
+                        await App.BackgroundExecution.RequestKeepAliveAsync();
+                        break;
+
+                    case false:
+                        App.BackgroundExecution.StopKeepAlive();
+                        break;
+                }
+            }
+            catch (Exception ex)
             {
-                case true:
-                    await App.BackgroundExecution.RequestKeepAliveAsync();
-                    break;
-
-                case false:
-                    App.BackgroundExecution.StopKeepAlive();
-                    break;
+                LogService.Error(ex, $"[MediaService.OnSessionStateChanged] Unhandled error while processing session connected={ev?.IsConnected}");
             }
         }
 
@@ -651,8 +665,25 @@ namespace LibreSpotUWP.Services
             if (!ConnectivityHelper.HasInternetAccess())
                 return;
 
-            if (auth != null && !auth.IsExpired && !string.IsNullOrEmpty(auth.AccessToken))
-                _ = _librespot.ConnectWithAccessTokenAsync(auth.AccessToken);
+            if (auth == null || auth.IsExpired || string.IsNullOrEmpty(auth.AccessToken))
+                return;
+
+            if ((_librespot as LibrespotService)?.HasInstance == true)
+                return;
+
+            _ = ConnectAfterAuthChangedAsync(auth.AccessToken);
+        }
+
+        private async Task ConnectAfterAuthChangedAsync(string accessToken)
+        {
+            try
+            {
+                await _librespot.ConnectWithAccessTokenAsync(accessToken);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.OnAuthChanged] Unable to reconnect librespot after auth changed: {ex.Message}");
+            }
         }
 
         private void OnNetworkStatusChanged(object sender)
