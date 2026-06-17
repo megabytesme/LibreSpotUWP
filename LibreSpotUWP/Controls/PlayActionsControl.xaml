@@ -18,12 +18,20 @@
                     Glyph="&#xE8B1;" />
             </StackPanel>
         </Button>
-        <Button x:Name="BtnPersist">
+        <Button x:Name="BtnAddTo">
             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                 <FontIcon
-                    x:Name="PersistIcon"
+                    x:Name="AddToIcon"
                     FontFamily="Segoe MDL2 Assets"
-                    Glyph="&#xE710;" />
+                    Glyph="&#xECC8;" />
+            </StackPanel>
+        </Button>
+        <Button x:Name="BtnDownload">
+            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                <FontIcon
+                    x:Name="DownloadIcon"
+                    FontFamily="Segoe MDL2 Assets"
+                    Glyph="&#xE896;" />
             </StackPanel>
         </Button>
     </StackPanel>

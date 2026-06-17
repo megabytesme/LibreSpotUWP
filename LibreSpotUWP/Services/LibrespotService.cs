@@ -345,6 +345,12 @@ namespace LibreSpotUWP.Services
                     if (payloadPtr == IntPtr.Zero)
                     {
                         var lastError = GetLastNativeError();
+                        if (IsLyricsKind(kind) && IsMissingAppData(lastError))
+                        {
+                            LogService.Warn($"[LibrespotService.GetAppDataPayloadAsync] Lyrics unavailable for {argument}: {lastError}");
+                            return default(T);
+                        }
+
                         throw new InvalidOperationException(
                             string.IsNullOrWhiteSpace(lastError)
                                 ? $"librespot app data request returned null for {argument}."
@@ -369,6 +375,19 @@ namespace LibreSpotUWP.Services
                         Marshal.FreeHGlobal(argumentPtr);
                 }
             });
+        }
+
+        private static bool IsLyricsKind(LibrespotAppDataKind kind)
+        {
+            return kind == LibrespotAppDataKind.Lyrics || kind == LibrespotAppDataKind.LyricsForImage;
+        }
+
+        private static bool IsMissingAppData(string lastError)
+        {
+            return !string.IsNullOrWhiteSpace(lastError) &&
+                (lastError.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 lastError.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 lastError.IndexOf("Requested entity was not found", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private sealed class LibrespotAppDataResponse<T>

@@ -240,7 +240,7 @@
                         x:Name="PersistIcon"
                         FontFamily="Segoe MDL2 Assets"
                         FontSize="14"
-                        Glyph="&#xE710;" />
+                        Glyph="&#xECC8;" />
                 </Button>
                 <ProgressRing
                     x:Name="PersistProgressRing"

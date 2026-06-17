@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -79,12 +80,73 @@ namespace LibreSpotUWP.Interfaces
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken());
 
+        Task<CacheResponse<Paging<SavedTrack>>> GetSavedTracksPageAsync(
+            int limit,
+            int offset,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken());
+
         Task<CacheResponse<Paging<SavedAlbum>>> GetSavedAlbumsAsync(
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken());
 
         Task<CacheResponse<Paging<FullPlaylist>>> GetCurrentUserPlaylistsAsync(
             bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken());
+
+        Task<CacheResponse<Paging<FullPlaylist>>> GetCurrentUserPlaylistsPageAsync(
+            int limit,
+            int offset,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken());
+
+        Task<IReadOnlyDictionary<string, bool>> CheckTracksSavedAsync(
+            IEnumerable<string> trackIds,
+            CancellationToken ct = new CancellationToken());
+
+        Task SetTracksSavedAsync(
+            IEnumerable<string> trackIds,
+            bool saved,
+            CancellationToken ct = new CancellationToken());
+
+        Task<bool> CheckAlbumSavedAsync(
+            string albumId,
+            CancellationToken ct = new CancellationToken());
+
+        Task SetAlbumSavedAsync(
+            string albumId,
+            bool saved,
+            CancellationToken ct = new CancellationToken());
+
+        Task<bool> CheckPlaylistFollowedAsync(
+            string playlistId,
+            CancellationToken ct = new CancellationToken());
+
+        Task SetPlaylistFollowedAsync(
+            string playlistId,
+            bool followed,
+            CancellationToken ct = new CancellationToken());
+
+        Task<bool> PlaylistContainsTrackAsync(
+            string playlistId,
+            string trackUri,
+            CancellationToken ct = new CancellationToken());
+
+        Task AddTrackToPlaylistAsync(
+            string playlistId,
+            string trackUri,
+            CancellationToken ct = new CancellationToken());
+
+        Task RemoveTrackFromPlaylistAsync(
+            string playlistId,
+            string trackUri,
+            CancellationToken ct = new CancellationToken());
+
+        Task ReorderPlaylistItemsAsync(
+            string playlistId,
+            int rangeStart,
+            int insertBefore,
+            int rangeLength = 1,
             CancellationToken ct = new CancellationToken());
 
         Task<CacheResponse<FollowedArtistsResponse>> GetFollowedArtistsAsync(

@@ -73,16 +73,10 @@ namespace LibreSpotUWP.Controls
 
             UpdateProgress(state);
             PlayPauseIcon.Glyph = state.IsPlaying ? "\uE769" : "\uE768";
-            var downloadState = App.Downloads?.GetTrackStatus(state.Track?.Uri)?.State ?? DownloadTrackState.Idle;
-            var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
-            PersistButton.IsEnabled = state.Track != null && !isDownloading;
-            PersistButton.Visibility = isDownloading ? Visibility.Collapsed : Visibility.Visible;
-            PersistProgressRing.IsActive = isDownloading;
-            PersistProgressRing.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
-            PersistIcon.Glyph = (state.IsCurrentTrackPersisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
-            ToolTipService.SetToolTip(
-                PersistButton,
-                state.IsCurrentTrackPersisted ? "Remove from downloads" : "Download this track");
+            PersistButton.Visibility = Visibility.Visible;
+            PersistProgressRing.IsActive = false;
+            PersistProgressRing.Visibility = Visibility.Collapsed;
+            _ = TrackAddToFlyoutHelper.UpdateTrackLikeVisualAsync(state, PersistIcon, PersistButton);
         }
 
         private void UpdateProgress(MediaState state)
@@ -112,7 +106,7 @@ namespace LibreSpotUWP.Controls
 
         private async void PersistButton_Click(object sender, RoutedEventArgs e)
         {
-            await ToggleCurrentTrackPersistenceAsync();
+            await TrackAddToFlyoutHelper.HandleTrackAddToAsync(PersistButton, Media?.Current, PersistIcon);
         }
 
         private void PersistButton_Tapped(object sender, TappedRoutedEventArgs e)
@@ -179,14 +173,6 @@ namespace LibreSpotUWP.Controls
         private void Root_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
         {
             _gestureTriggered = false;
-        }
-
-        private Task ToggleCurrentTrackPersistenceAsync()
-        {
-            if (Media?.Current == null)
-                return Task.CompletedTask;
-
-            return Media.SetCurrentTrackPersistedAsync(!Media.Current.IsCurrentTrackPersisted);
         }
 
         private static BitmapImage TryCreateBitmap(string uriString)

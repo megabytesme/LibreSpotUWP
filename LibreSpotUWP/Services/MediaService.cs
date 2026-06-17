@@ -1,6 +1,7 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Exceptions;
 using SpotifyAPI.Web;
 using Newtonsoft.Json;
 using System;
@@ -273,6 +274,61 @@ namespace LibreSpotUWP.Services
             });
         }
 
+        private static bool IsSpotifyConnectDeviceNotFound(Exception ex)
+        {
+            if (ex is SpotifyWebException webEx && webEx.StatusCode == 404)
+                return true;
+
+            if (ex?.InnerException is APIException apiEx && (int?)apiEx.Response?.StatusCode == 404)
+                return true;
+
+            return ex?.Message?.IndexOf("Device not found", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                ex?.InnerException?.Message?.IndexOf("Device not found", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private async Task<bool> TryRecoverMissingSpotifyConnectDeviceAsync(Exception ex, string operation)
+        {
+            if (!IsSpotifyConnectDeviceNotFound(ex))
+                return false;
+
+            var missingDeviceId = GetSelectedSpotifyConnectDeviceId();
+            if (IsLocalSpotifyConnectDeviceId(missingDeviceId))
+                return true;
+
+            LogService.Warn($"[MediaService.{operation}] Spotify Connect device '{missingDeviceId}' is no longer available. Falling back to this device.");
+
+            UserSettings.SpotifyConnectDeviceId = LocalSpotifyConnectDeviceId;
+            _remotePositionUpdatedAt = DateTimeOffset.MinValue;
+
+            UpdateSelectedSpotifyConnectDeviceState(new SpotifyConnectDeviceInfo
+            {
+                Id = LocalSpotifyConnectDeviceId,
+                Name = "This device",
+                Type = "Computer",
+                IsThisDevice = true,
+                SupportsVolume = true,
+                VolumePercent = (int)Math.Round(Current.Volume * 100.0 / 65535.0)
+            });
+
+            UpdateState(s =>
+            {
+                s.StatusMessage = "Spotify Connect device is no longer available. Switched back to this device.";
+                if (s.IsSpotifyConnectRemote)
+                    s.PlaybackState = LibrespotPlaybackState.Paused;
+            });
+
+            try
+            {
+                await EnsureLocalLibrespotConnectedAsync(interactive: false).ConfigureAwait(false);
+            }
+            catch (Exception connectEx)
+            {
+                LogService.Warn($"[MediaService.{operation}] Unable to prepare local playback after Connect fallback: {connectEx.Message}");
+            }
+
+            return true;
+        }
+
         public async Task<SpotifyConnectDeviceInfo[]> GetSpotifyConnectDevicesAsync()
         {
             var localId = LocalSpotifyConnectDeviceId;
@@ -380,6 +436,9 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
+                if (await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(SetSpotifyConnectDeviceAsync)).ConfigureAwait(false))
+                    return;
+
                 LogService.Warn($"[MediaService.SetSpotifyConnectDeviceAsync] Unable to transfer playback to {selected?.Name ?? deviceId}: {ex.Message}");
             }
         }
@@ -556,7 +615,21 @@ namespace LibreSpotUWP.Services
                 s.StatusMessage = null;
             });
 
-            await _web.ResumePlaybackAsync(deviceId, contextUri, startUri).ConfigureAwait(false);
+            try
+            {
+                await _web.ResumePlaybackAsync(deviceId, contextUri, startUri).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(PlayRemoteAsync)).ConfigureAwait(false))
+                {
+                    await PlayCoreAsync(contextUri, startUri).ConfigureAwait(false);
+                    return;
+                }
+
+                throw;
+            }
+
             await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
         }
 
@@ -584,7 +657,16 @@ namespace LibreSpotUWP.Services
             CancelPlaybackContinuationWatchdog();
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
-                await _web.PausePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                try
+                {
+                    await _web.PausePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    if (!await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(PauseAsync)).ConfigureAwait(false))
+                        throw;
+                }
+
                 UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Paused);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
@@ -597,7 +679,26 @@ namespace LibreSpotUWP.Services
         {
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
-                await _web.ResumePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                try
+                {
+                    await _web.ResumePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    if (!await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(ResumeAsync)).ConfigureAwait(false))
+                        throw;
+
+                    if (!string.IsNullOrWhiteSpace(Current.Track?.Uri))
+                    {
+                        _pendingRestoreSeekMs = ClampPlaybackPosition(Current.PositionMs);
+                        await PlayAsync(
+                            string.IsNullOrWhiteSpace(Current.ContextUri) ? Current.Track.Uri : Current.ContextUri,
+                            Current.Track.Uri).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+
                 UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Playing);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
@@ -621,7 +722,16 @@ namespace LibreSpotUWP.Services
             CancelPlaybackContinuationWatchdog();
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
-                await _web.PausePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                try
+                {
+                    await _web.PausePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    if (!await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(StopAsync)).ConfigureAwait(false))
+                        throw;
+                }
+
                 UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Stopped);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
@@ -655,7 +765,18 @@ namespace LibreSpotUWP.Services
         {
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
-                await _web.SetShuffleAsync(GetSelectedSpotifyConnectDeviceId(), enabled).ConfigureAwait(false);
+                try
+                {
+                    await _web.SetShuffleAsync(GetSelectedSpotifyConnectDeviceId(), enabled).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    if (!await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(SetShuffleAsync)).ConfigureAwait(false))
+                        throw;
+
+                    await _librespot.SetShuffleAsync(enabled).ConfigureAwait(false);
+                }
+
                 UpdateState(s => s.Shuffle = enabled);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
@@ -670,7 +791,18 @@ namespace LibreSpotUWP.Services
         {
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
-                await _web.SetRepeatAsync(GetSelectedSpotifyConnectDeviceId(), mode).ConfigureAwait(false);
+                try
+                {
+                    await _web.SetRepeatAsync(GetSelectedSpotifyConnectDeviceId(), mode).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    if (!await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(SetRepeatAsync)).ConfigureAwait(false))
+                        throw;
+
+                    await _librespot.SetRepeatAsync((uint)mode).ConfigureAwait(false);
+                }
+
                 UpdateState(s => s.RepeatMode = mode);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
@@ -721,12 +853,23 @@ namespace LibreSpotUWP.Services
             UpdateState(s => s.IsCurrentTrackPersisted = App.OfflineCatalog.IsTrackPersisted(track.Uri));
         }
 
-        public Task SetVolumeAsync(ushort v)
+        public async Task SetVolumeAsync(ushort v)
         {
             if (!IsSelectedSpotifyConnectDeviceLocal)
-                return _web.SetVolumeAsync(GetSelectedSpotifyConnectDeviceId(), (int)Math.Round(v * 100.0 / 65535.0));
+            {
+                try
+                {
+                    await _web.SetVolumeAsync(GetSelectedSpotifyConnectDeviceId(), (int)Math.Round(v * 100.0 / 65535.0)).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (!await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(SetVolumeAsync)).ConfigureAwait(false))
+                        throw;
+                }
+            }
 
-            return _librespot.SetVolumeAsync(v);
+            await _librespot.SetVolumeAsync(v).ConfigureAwait(false);
         }
 
         public Task SetAudioEffectsPresetAsync(string preset)
@@ -958,6 +1101,9 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
+                if (await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(SkipRemoteAsync)).ConfigureAwait(false))
+                    return;
+
                 LogService.Warn($"[MediaService.SkipRemoteAsync] Unable to skip remote playback: {ex.Message}");
             }
         }
@@ -972,6 +1118,9 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
+                if (await TryRecoverMissingSpotifyConnectDeviceAsync(ex, nameof(SeekRemoteAsync)).ConfigureAwait(false))
+                    return;
+
                 LogService.Warn($"[MediaService.SeekRemoteAsync] Unable to seek remote playback: {ex.Message}");
             }
         }
