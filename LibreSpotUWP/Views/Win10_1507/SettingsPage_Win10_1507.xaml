@@ -182,20 +182,12 @@
                         Margin="0,8,0,0"
                         SelectionChanged="AudioEffectsComboBox_SelectionChanged">
                         <ComboBoxItem Content="None" Tag="None" />
-
-                        <!-- todo: Fix EQ options before release
                         <ComboBoxItem Content="Bass Boost" Tag="BassBoost" />
                         <ComboBoxItem Content="Vocal Boost" Tag="VocalBoost" />
                         <ComboBoxItem Content="Warm" Tag="Warm" />
-                        -->
-
                         <ComboBoxItem Content="Echo" Tag="Echo" />
                         <ComboBoxItem Content="Reverb" Tag="Reverb" />
-
-                        <!-- todo: Fix EQ options before release
                         <ComboBoxItem Content="Equalizer" Tag="Equalizer" />
-                        -->
-
                         <ComboBoxItem Content="Limiter" Tag="Limiter" />
                     </ComboBox>
 
@@ -225,7 +217,6 @@
                             Style="{StaticResource CaptionTextBlockStyle}" />
                     </StackPanel>
 
-                    <!-- todo: Fix EQ options before release
                     <StackPanel
                         x:Name="EqualizerPanel"
                         Margin="0,14,0,0"
@@ -238,35 +229,39 @@
                         <TextBlock Text="Low" />
                         <Slider
                             x:Name="EqualizerLowSlider"
-                            Maximum="100"
-                            Minimum="-100"
+                            Maximum="18"
+                            Minimum="-18"
+                            StepFrequency="1"
                             ValueChanged="EqualizerSlider_ValueChanged" />
                         <TextBlock Text="Low-Mid" />
                         <Slider
                             x:Name="EqualizerLowMidSlider"
-                            Maximum="100"
-                            Minimum="-100"
+                            Maximum="18"
+                            Minimum="-18"
+                            StepFrequency="1"
                             ValueChanged="EqualizerSlider_ValueChanged" />
                         <TextBlock Text="Mid" />
                         <Slider
                             x:Name="EqualizerMidSlider"
-                            Maximum="100"
-                            Minimum="-100"
+                            Maximum="18"
+                            Minimum="-18"
+                            StepFrequency="1"
                             ValueChanged="EqualizerSlider_ValueChanged" />
                         <TextBlock Text="High-Mid" />
                         <Slider
                             x:Name="EqualizerHighMidSlider"
-                            Maximum="100"
-                            Minimum="-100"
+                            Maximum="18"
+                            Minimum="-18"
+                            StepFrequency="1"
                             ValueChanged="EqualizerSlider_ValueChanged" />
                         <TextBlock Text="High" />
                         <Slider
                             x:Name="EqualizerHighSlider"
-                            Maximum="100"
-                            Minimum="-100"
+                            Maximum="18"
+                            Minimum="-18"
+                            StepFrequency="1"
                             ValueChanged="EqualizerSlider_ValueChanged" />
                     </StackPanel>
-                    -->
                 </StackPanel>
 
                 <StackPanel Style="{StaticResource GroupPanelStyle}">
