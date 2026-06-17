@@ -21,6 +21,11 @@ namespace LibreSpotUWP.Views.Win11
         private readonly List<string> _history = new List<string>();
         private Func<Task> _cacheRefreshAction;
         private string _cacheStatusTooltip;
+        private bool _navViewLoaded;
+        private bool _selectingNavigationItem;
+        private string _pendingNavigationSelectionTag;
+        private string _navigationSelectionRetryTag;
+        private int _navigationSelectionRetryCount;
 
         public ShellPage()
         {
@@ -29,8 +34,21 @@ namespace LibreSpotUWP.Views.Win11
             SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
                 AppViewBackButtonVisibility.Disabled;
 
+            NavView.Loaded += NavView_Loaded;
             Window.Current.SizeChanged += (s, e) => UpdateMediaBarVisibility();
             UpdateMediaBarVisibility();
+        }
+
+        private void NavView_Loaded(object sender, RoutedEventArgs e)
+        {
+            _navViewLoaded = true;
+
+            if (!string.IsNullOrEmpty(_pendingNavigationSelectionTag))
+            {
+                var tag = _pendingNavigationSelectionTag;
+                _pendingNavigationSelectionTag = null;
+                SelectNavigationItem(tag);
+            }
         }
 
         protected async override void OnNavigatedTo(NavigationEventArgs e)
@@ -81,6 +99,9 @@ namespace LibreSpotUWP.Views.Win11
 
         private async void NavView_SelectionChanged(Microsoft.UI.Xaml.Controls.NavigationView sender, Microsoft.UI.Xaml.Controls.NavigationViewSelectionChangedEventArgs args)
         {
+            if (_selectingNavigationItem)
+                return;
+
             if (args.IsSettingsSelected)
             {
                 await Task.Yield();
@@ -205,9 +226,15 @@ namespace LibreSpotUWP.Views.Win11
 
         private void SelectNavigationItem(string tag)
         {
+            if (!_navViewLoaded)
+            {
+                _pendingNavigationSelectionTag = tag;
+                return;
+            }
+
             if (string.Equals(tag, "Settings", StringComparison.Ordinal))
             {
-                NavView.SelectedItem = NavView.SettingsItem;
+                SetSelectedNavigationItem(NavView.SettingsItem, tag);
                 return;
             }
 
@@ -215,7 +242,7 @@ namespace LibreSpotUWP.Views.Win11
             {
                 if (item is Microsoft.UI.Xaml.Controls.NavigationViewItem navItem && string.Equals(navItem.Tag as string, tag, StringComparison.Ordinal))
                 {
-                    NavView.SelectedItem = navItem;
+                    SetSelectedNavigationItem(navItem, tag);
                     return;
                 }
             }
@@ -224,12 +251,53 @@ namespace LibreSpotUWP.Views.Win11
             {
                 if (item is Microsoft.UI.Xaml.Controls.NavigationViewItem navItem && string.Equals(navItem.Tag as string, tag, StringComparison.Ordinal))
                 {
-                    NavView.SelectedItem = navItem;
+                    SetSelectedNavigationItem(navItem, tag);
                     return;
                 }
             }
 
-            NavView.SelectedItem = null;
+            SetSelectedNavigationItem(null, tag);
+        }
+
+        private void SetSelectedNavigationItem(object selectedItem, string tag)
+        {
+            _selectingNavigationItem = true;
+            try
+            {
+                NavView.SelectedItem = selectedItem;
+                _navigationSelectionRetryTag = null;
+                _navigationSelectionRetryCount = 0;
+            }
+            catch (ArgumentException ex)
+            {
+                if (!string.Equals(_navigationSelectionRetryTag, tag, StringComparison.Ordinal))
+                {
+                    _navigationSelectionRetryTag = tag;
+                    _navigationSelectionRetryCount = 0;
+                }
+
+                if (_navigationSelectionRetryCount++ == 0)
+                {
+                    _pendingNavigationSelectionTag = tag;
+                    LogService.Warn($"[Win11.ShellPage] Navigation selection for '{tag}' was deferred: {ex.Message}");
+                    var ignored = Dispatcher.RunAsync(CoreDispatcherPriority.Low, () =>
+                    {
+                        if (string.Equals(_pendingNavigationSelectionTag, tag, StringComparison.Ordinal))
+                        {
+                            _pendingNavigationSelectionTag = null;
+                            SelectNavigationItem(tag);
+                        }
+                    });
+                }
+                else
+                {
+                    LogService.Warn($"[Win11.ShellPage] Navigation selection for '{tag}' was skipped after retry: {ex.Message}");
+                }
+            }
+            finally
+            {
+                _selectingNavigationItem = false;
+            }
         }
 
         private void SetFullWindowMode(bool enabled)
