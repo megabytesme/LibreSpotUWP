@@ -161,6 +161,7 @@
     </Compile>
     <Compile Include="Helpers\ConnectivityHelper.cs" />
     <Compile Include="Helpers\ImageUriHelper.cs" />
+    <Compile Include="Helpers\NowPlayingLyricsPresenter.cs" />
     <Compile Include="Helpers\PlaybackNavigationHelper.cs" />
     <Compile Include="Helpers\UserSettings.cs" />
     <Compile Include="Helpers\UwpBackgroundExecutionManager.cs" />
@@ -195,6 +196,7 @@
       <DependentUpon>ScannerPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\MediaState.cs" />
+    <Compile Include="Models\AudioOutputDeviceInfo.cs" />
     <Compile Include="Models\EqualizerBandRange.cs" />
     <Compile Include="Models\AppEntities.cs" />
     <Compile Include="Models\LibrespotAppDataModels.cs" />

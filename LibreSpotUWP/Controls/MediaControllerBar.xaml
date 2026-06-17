@@ -185,6 +185,32 @@
                 IsActive="False"
                 Visibility="Collapsed" />
 
+            <Button
+                x:Name="OutputDeviceButton"
+                Width="40"
+                Height="40"
+                Background="Transparent">
+                <FontIcon
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="16"
+                    Glyph="&#xF4C3;" />
+                <Button.Flyout>
+                    <Flyout>
+                        <StackPanel Width="220">
+                            <TextBlock
+                                Margin="0,0,0,8"
+                                FontWeight="SemiBold"
+                                Text="Output" />
+                            <ComboBox
+                                x:Name="OutputDeviceComboBox"
+                                Width="220"
+                                DisplayMemberPath="Name"
+                                SelectionChanged="OutputDeviceComboBox_SelectionChanged" />
+                        </StackPanel>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+
             <FontIcon
                 x:Name="VolumeIcon"
                 FontFamily="Segoe MDL2 Assets"

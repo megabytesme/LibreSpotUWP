@@ -47,6 +47,23 @@
                                 Minimum="0"
                                 ValueChanged="VolumeSlider_ValueChanged" />
                         </StackPanel>
+                        <TextBlock
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Center"
+                            FontWeight="SemiBold"
+                            Text="Output" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="16"
+                                Glyph="&#xF4C3;" />
+                            <ComboBox
+                                x:Name="OutputDeviceComboBox"
+                                Width="140"
+                                DisplayMemberPath="Name"
+                                SelectionChanged="OutputDeviceComboBox_SelectionChanged" />
+                        </StackPanel>
                         <Button
                             Margin="0,16,0,0"
                             Click="ShareButton_Click"
@@ -69,6 +86,11 @@
                                 <TextBlock Text="Lyrics" />
                             </StackPanel>
                         </Button>
+                        <ToggleSwitch
+                            x:Name="ShowCurrentLyricToggle"
+                            Margin="0,12,0,0"
+                            Header="Current lyric"
+                            Toggled="ShowCurrentLyricToggle_Toggled" />
                     </StackPanel>
                 </Flyout>
             </Button.Flyout>
@@ -107,13 +129,14 @@
             Grid.Row="1"
             Margin="8">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="48" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="48" />
             </Grid.ColumnDefinitions>
 
             <StackPanel
                 Grid.Column="1"
+                MaxWidth="620"
                 HorizontalAlignment="Center">
                 <StackPanel
                     x:Name="CacheIndicator"
@@ -142,6 +165,23 @@
                             Glyph="&#xE72C;" />
                     </Button>
                 </StackPanel>
+                <Border
+                    x:Name="CurrentLyricPreview"
+                    MaxWidth="620"
+                    HorizontalAlignment="Stretch"
+                    Margin="0,0,0,12"
+                    Padding="16,10"
+                    CornerRadius="0"
+                    Visibility="Collapsed">
+                    <TextBlock
+                        x:Name="CurrentLyricText"
+                        FontSize="18"
+                        FontWeight="SemiBold"
+                        LineHeight="22"
+                        LineStackingStrategy="BlockLineHeight"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap" />
+                </Border>
                 <TextBlock
                     x:Name="TrackTitle"
                     FontSize="24"
@@ -169,7 +209,7 @@
 
             <Grid
                 Grid.Column="2"
-                Margin="0,0,24,0"
+                Margin="0"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center">
                 <Button

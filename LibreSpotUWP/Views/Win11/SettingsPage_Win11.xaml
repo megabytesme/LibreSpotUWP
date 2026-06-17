@@ -176,16 +176,31 @@
                             <ComboBoxItem Content="Bass Boost" Tag="BassBoost" />
                             <ComboBoxItem Content="Vocal Boost" Tag="VocalBoost" />
                             <ComboBoxItem Content="Warm" Tag="Warm" />
-                            <ComboBoxItem Content="Echo" Tag="Echo" />
-                            <ComboBoxItem Content="Reverb" Tag="Reverb" />
                             <ComboBoxItem Content="Equalizer" Tag="Equalizer" />
-                            <ComboBoxItem Content="Limiter" Tag="Limiter" />
                         </ComboBox>
                         <TextBlock
                             Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                             Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="Applies a playback effect to the audio."
+                            Text="Applies an equalizer curve to the audio."
                             TextWrapping="WrapWholeWords" />
+
+                        <StackPanel Spacing="6">
+                            <TextBlock
+                                Style="{StaticResource BodyTextBlockStyle}"
+                                Text="Additional effects" />
+                            <ToggleSwitch
+                                x:Name="EchoEffectToggle"
+                                Header="Echo"
+                                Toggled="AudioEffectToggle_Toggled" />
+                            <ToggleSwitch
+                                x:Name="ReverbEffectToggle"
+                                Header="Reverb"
+                                Toggled="AudioEffectToggle_Toggled" />
+                            <ToggleSwitch
+                                x:Name="LimiterEffectToggle"
+                                Header="Limiter"
+                                Toggled="AudioEffectToggle_Toggled" />
+                        </StackPanel>
 
                         <StackPanel
                             x:Name="EffectStrengthPanel"

@@ -12,8 +12,13 @@ namespace LibreSpotUWP.Helpers
         private const string HomeOrganizationModeKey = "HomeOrganizationMode";
         private const string HomeSectionOrderKey = "HomeSectionOrder";
         private const string LyricsAutoScrollKey = "LyricsAutoScrollEnabled";
+        private const string NowPlayingLyricsKey = "NowPlayingLyricsEnabled";
         private const string AudioEffectsKey = "AudioEffectsPreset";
         private const string AudioEffectsStrengthKey = "AudioEffectsStrength";
+        private const string AudioEchoEffectEnabledKey = "AudioEchoEffectEnabled";
+        private const string AudioReverbEffectEnabledKey = "AudioReverbEffectEnabled";
+        private const string AudioLimiterEffectEnabledKey = "AudioLimiterEffectEnabled";
+        private const string AudioOutputDeviceIdKey = "AudioOutputDeviceId";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
         private const string EqualizerBandsUnitKey = "AudioEffectsEqualizerBandsUnit";
         private const string EqualizerBandsUnitDb = "Db";
@@ -55,10 +60,25 @@ namespace LibreSpotUWP.Helpers
             set => ApplicationData.Current.LocalSettings.Values[LyricsAutoScrollKey] = value;
         }
 
+        public static bool NowPlayingLyricsEnabled
+        {
+            get => !ApplicationData.Current.LocalSettings.Values.TryGetValue(NowPlayingLyricsKey, out object value) || !(value is bool enabled) || enabled;
+            set => ApplicationData.Current.LocalSettings.Values[NowPlayingLyricsKey] = value;
+        }
+
         public static string AudioEffectsPreset
         {
-            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioEffectsKey, out object value) ? value as string : "None";
-            set => ApplicationData.Current.LocalSettings.Values[AudioEffectsKey] = value ?? "None";
+            get
+            {
+                var settings = ApplicationData.Current.LocalSettings;
+                var raw = settings.Values.TryGetValue(AudioEffectsKey, out object value) ? value as string : "None";
+                var normalized = NormalizeAudioEffectsPreset(raw);
+                if (!string.Equals(raw, normalized, StringComparison.Ordinal))
+                    settings.Values[AudioEffectsKey] = normalized;
+
+                return normalized;
+            }
+            set => ApplicationData.Current.LocalSettings.Values[AudioEffectsKey] = NormalizeAudioEffectsPreset(value);
         }
 
         public static double AudioEffectsStrength
@@ -80,6 +100,30 @@ namespace LibreSpotUWP.Helpers
                 return 1.0;
             }
             set => ApplicationData.Current.LocalSettings.Values[AudioEffectsStrengthKey] = Clamp01(value);
+        }
+
+        public static bool AudioEchoEffectEnabled
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioEchoEffectEnabledKey, out object value) && value is bool enabled && enabled;
+            set => ApplicationData.Current.LocalSettings.Values[AudioEchoEffectEnabledKey] = value;
+        }
+
+        public static bool AudioReverbEffectEnabled
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioReverbEffectEnabledKey, out object value) && value is bool enabled && enabled;
+            set => ApplicationData.Current.LocalSettings.Values[AudioReverbEffectEnabledKey] = value;
+        }
+
+        public static bool AudioLimiterEffectEnabled
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioLimiterEffectEnabledKey, out object value) && value is bool enabled && enabled;
+            set => ApplicationData.Current.LocalSettings.Values[AudioLimiterEffectEnabledKey] = value;
+        }
+
+        public static string AudioOutputDeviceId
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioOutputDeviceIdKey, out object value) ? value as string : string.Empty;
+            set => ApplicationData.Current.LocalSettings.Values[AudioOutputDeviceIdKey] = value ?? string.Empty;
         }
 
         public static bool RememberLastPlaybackState
@@ -220,6 +264,44 @@ namespace LibreSpotUWP.Helpers
             const double legacyMaxGain = 0.25;
             var clampedLegacy = Math.Max(-legacyMaxGain, Math.Min(legacyMaxGain, value));
             return ClampBandGain(clampedLegacy / legacyMaxGain * EqualizerMaxGainDb);
+        }
+
+        private static string NormalizeAudioEffectsPreset(string preset)
+        {
+            if (string.IsNullOrWhiteSpace(preset))
+                return "None";
+
+            if (string.Equals(preset, "BassBoost", StringComparison.OrdinalIgnoreCase))
+                return "BassBoost";
+
+            if (string.Equals(preset, "VocalBoost", StringComparison.OrdinalIgnoreCase))
+                return "VocalBoost";
+
+            if (string.Equals(preset, "Warm", StringComparison.OrdinalIgnoreCase))
+                return "Warm";
+
+            if (string.Equals(preset, "Equalizer", StringComparison.OrdinalIgnoreCase))
+                return "Equalizer";
+
+            if (string.Equals(preset, "Echo", StringComparison.OrdinalIgnoreCase))
+            {
+                AudioEchoEffectEnabled = true;
+                return "None";
+            }
+
+            if (string.Equals(preset, "Reverb", StringComparison.OrdinalIgnoreCase))
+            {
+                AudioReverbEffectEnabled = true;
+                return "None";
+            }
+
+            if (string.Equals(preset, "Limiter", StringComparison.OrdinalIgnoreCase))
+            {
+                AudioLimiterEffectEnabled = true;
+                return "None";
+            }
+
+            return "None";
         }
     }
 }

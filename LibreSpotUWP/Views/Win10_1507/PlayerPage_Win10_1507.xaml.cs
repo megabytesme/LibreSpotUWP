@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,10 +24,13 @@ namespace LibreSpotUWP.Views.Win10_1507
         private string _currentArtworkUri = null;
         private uint _lastUpdateSec = uint.MaxValue;
         private DataTransferManager _dataTransferManager;
+        private NowPlayingLyricsPresenter _lyricsPresenter;
+        private bool _loadingOutputDevices;
 
         public PlayerPage_Win10_1507()
         {
             this.InitializeComponent();
+            _lyricsPresenter = new NowPlayingLyricsPresenter(CurrentLyricPreview, CurrentLyricText);
             this.Loaded += PlayerPage_Loaded;
             this.Unloaded += PlayerPage_Unloaded;
         }
@@ -36,6 +40,8 @@ namespace LibreSpotUWP.Views.Win10_1507
             UpdateAlbumArtLayout(new Windows.Foundation.Size(ActualWidth, ActualHeight));
             _dataTransferManager = DataTransferManager.GetForCurrentView();
             _dataTransferManager.DataRequested += DataTransferManager_DataRequested;
+            ShowCurrentLyricToggle.IsOn = UserSettings.NowPlayingLyricsEnabled;
+            _ = LoadOutputDevicesAsync();
 
             if (Media != null)
             {
@@ -90,6 +96,7 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             UpdateArtistButton(state);
             UpdateContextButton(state);
+            _lyricsPresenter?.Update(state);
 
             if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
             {
@@ -227,6 +234,12 @@ namespace LibreSpotUWP.Views.Win10_1507
             mainPage?.NavigateTo("Lyrics");
         }
 
+        private void ShowCurrentLyricToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            UserSettings.NowPlayingLyricsEnabled = ShowCurrentLyricToggle.IsOn;
+            _lyricsPresenter?.Update(Media?.Current);
+        }
+
         private void ContextButton_Click(object sender, RoutedEventArgs e)
         {
             var contextUri = Media?.Current?.ContextUri;
@@ -273,6 +286,34 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             Media?.SetVolumeDebounced(e.NewValue);
             UpdateVolumeVisual(e.NewValue);
+        }
+
+        private async Task LoadOutputDevicesAsync()
+        {
+            if (Media == null || OutputDeviceComboBox == null)
+                return;
+
+            _loadingOutputDevices = true;
+            try
+            {
+                var devices = await Media.GetAudioOutputDevicesAsync();
+                OutputDeviceComboBox.ItemsSource = devices;
+                var selected = devices.FirstOrDefault(device => string.Equals(device.Id, Media.CurrentAudioOutputDeviceId, StringComparison.Ordinal))
+                    ?? devices.FirstOrDefault();
+                OutputDeviceComboBox.SelectedItem = selected;
+            }
+            finally
+            {
+                _loadingOutputDevices = false;
+            }
+        }
+
+        private async void OutputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loadingOutputDevices || !(OutputDeviceComboBox.SelectedItem is AudioOutputDeviceInfo device) || Media == null)
+                return;
+
+            await Media.SetAudioOutputDeviceAsync(device.Id);
         }
 
         private void UpdateShuffleVisual(bool enabled)
