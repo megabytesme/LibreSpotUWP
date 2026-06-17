@@ -89,7 +89,6 @@ namespace LibreSpotUWP.Services
             var outResult = await _graph.CreateDeviceOutputNodeAsync();
             _inputNode = _graph.CreateFrameInputNode(_props);
             _inputNode.OutgoingGain = _outgoingGain;
-            EnsureAudioEffectsCreated();
             ApplyAudioEffectsPreset(_audioEffectsPreset);
 
             _inputNode.QuantumStarted += OnQuantumStarted;
@@ -170,6 +169,8 @@ namespace LibreSpotUWP.Services
 
         public EqualizerBandRange[] GetEqualizerBandRanges()
         {
+            EnsureAudioEffectsCreated();
+
             return _equalizerBandRanges
                 .Select(range => new EqualizerBandRange
                 {
@@ -193,12 +194,19 @@ namespace LibreSpotUWP.Services
             if (_inputNode == null || _graph == null)
                 return;
 
+            var normalized = NormalizePreset(preset);
+            if (string.Equals(normalized, "None", StringComparison.OrdinalIgnoreCase))
+            {
+                DisableAllAudioEffects();
+                return;
+            }
+
             EnsureAudioEffectsCreated();
             DisableAllAudioEffects();
 
             try
             {
-                switch (NormalizePreset(preset))
+                switch (normalized)
                 {
                     case "Echo":
                         ConfigureEchoEffect();
