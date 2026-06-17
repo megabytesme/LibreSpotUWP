@@ -51,6 +51,25 @@
                             Margin="0,12,0,0"
                             HorizontalAlignment="Center"
                             FontWeight="SemiBold"
+                            Text="Connect" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="16"
+                                Glyph="&#xE772;" />
+                            <ComboBox
+                                x:Name="SpotifyConnectDeviceComboBox"
+                                Width="140"
+                                DisplayMemberPath="DisplayName"
+                                DropDownClosed="SpotifyConnectDeviceComboBox_DropDownClosed"
+                                DropDownOpened="SpotifyConnectDeviceComboBox_DropDownOpened"
+                                SelectionChanged="SpotifyConnectDeviceComboBox_SelectionChanged" />
+                        </StackPanel>
+                        <TextBlock
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Center"
+                            FontWeight="SemiBold"
                             Text="Output" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon

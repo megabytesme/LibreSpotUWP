@@ -186,6 +186,47 @@
                 Visibility="Collapsed" />
 
             <Button
+                x:Name="SpotifyConnectDeviceButton"
+                Width="40"
+                Height="40"
+                Background="Transparent">
+                <FontIcon
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="16"
+                    Glyph="&#xE772;" />
+                <Button.Flyout>
+                    <Flyout Opened="SpotifyConnectDeviceFlyout_Opened">
+                        <StackPanel Width="220">
+                            <TextBlock
+                                Margin="0,0,0,8"
+                                FontWeight="SemiBold"
+                                Text="Connect" />
+                            <ComboBox
+                                x:Name="SpotifyConnectDeviceComboBox"
+                                Width="220"
+                                DisplayMemberPath="DisplayName"
+                                DropDownClosed="SpotifyConnectDeviceComboBox_DropDownClosed"
+                                DropDownOpened="SpotifyConnectDeviceComboBox_DropDownOpened"
+                                SelectionChanged="SpotifyConnectDeviceComboBox_SelectionChanged" />
+                        </StackPanel>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+
+            <FontIcon
+                x:Name="VolumeIcon"
+                FontFamily="Segoe MDL2 Assets"
+                FontSize="16"
+                Glyph="&#xE994;" />
+
+            <Slider
+                x:Name="VolumeSlider"
+                Width="120"
+                Maximum="100"
+                Minimum="0"
+                ValueChanged="VolumeSlider_ValueChanged" />
+
+            <Button
                 x:Name="OutputDeviceButton"
                 Width="40"
                 Height="40"
@@ -210,19 +251,6 @@
                     </Flyout>
                 </Button.Flyout>
             </Button>
-
-            <FontIcon
-                x:Name="VolumeIcon"
-                FontFamily="Segoe MDL2 Assets"
-                FontSize="16"
-                Glyph="&#xE994;" />
-
-            <Slider
-                x:Name="VolumeSlider"
-                Width="120"
-                Maximum="100"
-                Minimum="0"
-                ValueChanged="VolumeSlider_ValueChanged" />
         </StackPanel>
     </Grid>
 </UserControl>

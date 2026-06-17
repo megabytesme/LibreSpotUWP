@@ -91,5 +91,22 @@ namespace LibreSpotUWP.Interfaces
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken());
 
+        Task<DeviceResponse> GetAvailableDevicesAsync(CancellationToken ct = new CancellationToken());
+        Task<CurrentlyPlayingContext> GetCurrentPlaybackAsync(CancellationToken ct = new CancellationToken());
+        Task<bool> TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = new CancellationToken());
+        Task<bool> ResumePlaybackAsync(
+            string deviceId,
+            string contextUri = null,
+            string startUri = null,
+            int? positionMs = null,
+            CancellationToken ct = new CancellationToken());
+        Task<bool> PausePlaybackAsync(string deviceId, CancellationToken ct = new CancellationToken());
+        Task<bool> SkipNextAsync(string deviceId, CancellationToken ct = new CancellationToken());
+        Task<bool> SkipPreviousAsync(string deviceId, CancellationToken ct = new CancellationToken());
+        Task<bool> SeekToAsync(string deviceId, long positionMs, CancellationToken ct = new CancellationToken());
+        Task<bool> SetVolumeAsync(string deviceId, int volumePercent, CancellationToken ct = new CancellationToken());
+        Task<bool> SetShuffleAsync(string deviceId, bool enabled, CancellationToken ct = new CancellationToken());
+        Task<bool> SetRepeatAsync(string deviceId, int mode, CancellationToken ct = new CancellationToken());
+        Task<bool> AddToQueueAsync(string deviceId, string uri, CancellationToken ct = new CancellationToken());
     }
 }

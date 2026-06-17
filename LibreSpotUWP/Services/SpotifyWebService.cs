@@ -726,6 +726,114 @@ namespace LibreSpotUWP.Services
                 forceRefresh);
         }
 
+        public Task<DeviceResponse> GetAvailableDevicesAsync(CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.GetAvailableDevices(ct), ct);
+        }
+
+        public Task<CurrentlyPlayingContext> GetCurrentPlaybackAsync(CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.GetCurrentPlayback(
+                new PlayerCurrentPlaybackRequest(
+                    PlayerCurrentPlaybackRequest.AdditionalTypes.Track |
+                    PlayerCurrentPlaybackRequest.AdditionalTypes.Episode),
+                ct), ct);
+        }
+
+        public Task<bool> TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.TransferPlayback(
+                new PlayerTransferPlaybackRequest(new[] { deviceId })
+                {
+                    Play = play
+                },
+                ct), ct);
+        }
+
+        public Task<bool> ResumePlaybackAsync(
+            string deviceId,
+            string contextUri = null,
+            string startUri = null,
+            int? positionMs = null,
+            CancellationToken ct = new CancellationToken())
+        {
+            var request = new PlayerResumePlaybackRequest
+            {
+                DeviceId = deviceId,
+                PositionMs = positionMs
+            };
+
+            if (!string.IsNullOrWhiteSpace(contextUri) &&
+                contextUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
+            {
+                request.Uris = new[] { contextUri };
+            }
+            else if (!string.IsNullOrWhiteSpace(contextUri))
+            {
+                request.ContextUri = contextUri;
+                if (!string.IsNullOrWhiteSpace(startUri))
+                {
+                    request.OffsetParam = new PlayerResumePlaybackRequest.Offset
+                    {
+                        Uri = startUri
+                    };
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(startUri))
+            {
+                request.Uris = new[] { startUri };
+            }
+
+            return ExecuteAsync(c => c.Player.ResumePlayback(request, ct), ct);
+        }
+
+        public Task<bool> PausePlaybackAsync(string deviceId, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.PausePlayback(new PlayerPausePlaybackRequest { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> SkipNextAsync(string deviceId, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.SkipNext(new PlayerSkipNextRequest { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> SkipPreviousAsync(string deviceId, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.SkipPrevious(new PlayerSkipPreviousRequest { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> SeekToAsync(string deviceId, long positionMs, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.SeekTo(new PlayerSeekToRequest(positionMs) { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> SetVolumeAsync(string deviceId, int volumePercent, CancellationToken ct = new CancellationToken())
+        {
+            volumePercent = Math.Max(0, Math.Min(100, volumePercent));
+            return ExecuteAsync(c => c.Player.SetVolume(new PlayerVolumeRequest(volumePercent) { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> SetShuffleAsync(string deviceId, bool enabled, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.SetShuffle(new PlayerShuffleRequest(enabled) { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> SetRepeatAsync(string deviceId, int mode, CancellationToken ct = new CancellationToken())
+        {
+            var state = PlayerSetRepeatRequest.State.Off;
+            if (mode == 1)
+                state = PlayerSetRepeatRequest.State.Context;
+            else if (mode == 2)
+                state = PlayerSetRepeatRequest.State.Track;
+
+            return ExecuteAsync(c => c.Player.SetRepeat(new PlayerSetRepeatRequest(state) { DeviceId = deviceId }, ct), ct);
+        }
+
+        public Task<bool> AddToQueueAsync(string deviceId, string uri, CancellationToken ct = new CancellationToken())
+        {
+            return ExecuteAsync(c => c.Player.AddToQueue(new PlayerAddToQueueRequest(uri) { DeviceId = deviceId }, ct), ct);
+        }
+
         public async Task<CacheResponse<Paging<FullPlaylist>>> GetCurrentUserPlaylistsAsync(
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())

@@ -18,6 +18,7 @@ namespace LibreSpotUWP.Services
         private string _codeVerifier;
 
         private const string StorageKey = "spotify_auth_state";
+        private const int RequiredScopeVersion = 2;
 
         public AuthState Current { get; private set; }
         public event EventHandler<AuthState> AuthStateChanged;
@@ -53,6 +54,7 @@ namespace LibreSpotUWP.Services
                     Scopes.UserTopRead,
                     Scopes.UserLibraryRead,
                     Scopes.UserReadPlaybackState,
+                    Scopes.UserModifyPlaybackState,
                     Scopes.UserReadCurrentlyPlaying,
                     Scopes.UserFollowRead
                 }
@@ -85,7 +87,8 @@ namespace LibreSpotUWP.Services
                 RefreshToken = response.RefreshToken,
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn),
                 LastTokenRefreshAt = DateTimeOffset.UtcNow,
-                RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response)
+                RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response),
+                ScopeVersion = RequiredScopeVersion
             };
 
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
@@ -129,6 +132,7 @@ namespace LibreSpotUWP.Services
                 Current.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn);
                 Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
                 Current.RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response);
+                Current.ScopeVersion = RequiredScopeVersion;
 
                 await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true).ConfigureAwait(false);
             }
@@ -214,6 +218,14 @@ namespace LibreSpotUWP.Services
             {
                 Current = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
 
+                if (Current != null && !HasRequiredScopeVersion(Current))
+                {
+                    Current = null;
+                    App.AuthToken = null;
+                    await _storage.DeleteAsync(StorageKey);
+                    return;
+                }
+
                 if (Current != null && !string.IsNullOrEmpty(Current.AccessToken))
                 {
                     App.AuthToken = Current.AccessToken;
@@ -221,16 +233,19 @@ namespace LibreSpotUWP.Services
             }
             catch
             {
+                Current = null;
+                App.AuthToken = null;
                 await _storage.DeleteAsync(StorageKey);
             }
         }
 
         public async Task ImportAuthStateAsync(AuthState state)
         {
-            if (state == null || string.IsNullOrEmpty(state.AccessToken))
+            if (state == null || string.IsNullOrEmpty(state.AccessToken) || !HasRequiredScopeVersion(state))
                 throw new ArgumentException("Invalid AuthState imported.");
 
             Current = state;
+            Current.ScopeVersion = RequiredScopeVersion;
             if (!Current.LastTokenRefreshAt.HasValue)
                 Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
 
@@ -242,6 +257,11 @@ namespace LibreSpotUWP.Services
             return state == null ||
                 string.IsNullOrEmpty(state.AccessToken) ||
                 state.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(1);
+        }
+
+        private static bool HasRequiredScopeVersion(AuthState state)
+        {
+            return state != null && state.ScopeVersion >= RequiredScopeVersion;
         }
 
         private static DateTimeOffset? TryGetRefreshTokenExpiresAt(object response)
@@ -284,6 +304,14 @@ namespace LibreSpotUWP.Services
 
         private async Task<AuthState> GetOrLoadCurrentStateCoreAsync()
         {
+            if (Current != null && !HasRequiredScopeVersion(Current))
+            {
+                Current = null;
+                App.AuthToken = null;
+                await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
+                return null;
+            }
+
             if (Current != null && !string.IsNullOrEmpty(Current.AccessToken))
                 return Current;
 
@@ -296,6 +324,12 @@ namespace LibreSpotUWP.Services
                 var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
                 if (loaded == null || string.IsNullOrEmpty(loaded.AccessToken))
                     return null;
+
+                if (!HasRequiredScopeVersion(loaded))
+                {
+                    await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
+                    return null;
+                }
 
                 Current = loaded;
                 App.AuthToken = loaded.AccessToken;

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,6 +51,8 @@ namespace LibreSpotUWP.Services
 
         public AudioEncodingProperties EncodingProperties => _audioFormat?.EncodingProperties;
         public bool HasInstance => _instance != IntPtr.Zero;
+        public string DeviceName => Environment.MachineName;
+        public string DeviceId => ComputeDeviceId(DeviceName);
         public LibrespotSessionState Session => _session;
         public LibrespotPlaybackState PlaybackState => _playbackState;
         public LibrespotTrackInfo CurrentTrack => _currentTrack;
@@ -1192,6 +1195,18 @@ namespace LibreSpotUWP.Services
                 return rawSaved;
 
             return 65535;
+        }
+
+        private static string ComputeDeviceId(string deviceName)
+        {
+            if (string.IsNullOrWhiteSpace(deviceName))
+                deviceName = "LibreSpotUWP";
+
+            using (var sha1 = SHA1.Create())
+            {
+                var hash = sha1.ComputeHash(Encoding.UTF8.GetBytes(deviceName));
+                return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+            }
         }
 
         private static void FreeConfig(LibrespotConfig cfg)

@@ -197,6 +197,7 @@
     </Compile>
     <Compile Include="Models\MediaState.cs" />
     <Compile Include="Models\AudioOutputDeviceInfo.cs" />
+    <Compile Include="Models\SpotifyConnectDeviceInfo.cs" />
     <Compile Include="Models\EqualizerBandRange.cs" />
     <Compile Include="Models\AppEntities.cs" />
     <Compile Include="Models\LibrespotAppDataModels.cs" />

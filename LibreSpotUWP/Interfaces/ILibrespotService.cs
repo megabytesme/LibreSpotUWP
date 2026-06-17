@@ -41,6 +41,8 @@ namespace LibreSpotUWP.Interfaces
         LibrespotPlaybackState PlaybackState { get; }
         LibrespotTrackInfo CurrentTrack { get; }
         ushort Volume { get; }
+        string DeviceId { get; }
+        string DeviceName { get; }
 
         Task ConnectWithAccessTokenAsync(string accessToken);
         Task DisconnectAsync();
