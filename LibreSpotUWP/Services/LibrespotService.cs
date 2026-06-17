@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.Media.MediaProperties;
@@ -28,6 +29,7 @@ namespace LibreSpotUWP.Services
         private readonly Librespot.LibrespotKeyCallback _keyCallbackDelegate;
         private readonly Librespot.LibrespotKeySaveCallback _keySaveDelegate;
         private readonly Librespot.LibrespotKeyRemoveCallback _keyRemoveDelegate;
+        private readonly SemaphoreSlim _connectGate = new SemaphoreSlim(1, 1);
 
         private readonly AudioKeyCache _audioKeyCache;
 
@@ -42,6 +44,7 @@ namespace LibreSpotUWP.Services
         private bool _disposed;
         private bool _shuffle;
         private uint _repeatMode;
+        private string _activeAccessToken;
 
         private string ts = DateTime.Now.ToString("HH:mm:ss");
 
@@ -151,18 +154,51 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrWhiteSpace(accessToken))
                 throw new ArgumentException("Access token must not be null or empty.", nameof(accessToken));
 
-            LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token.");
-            await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+            await _connectGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_instance != IntPtr.Zero && string.Equals(_activeAccessToken, accessToken, StringComparison.Ordinal))
+                {
+                    LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Existing librespot instance already uses this access token.");
+                    return;
+                }
+
+                LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token.");
+                try
+                {
+                    await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                    _activeAccessToken = accessToken;
+                }
+                catch
+                {
+                    _activeAccessToken = null;
+                    throw;
+                }
+            }
+            finally
+            {
+                _connectGate.Release();
+            }
         }
 
-        public Task DisconnectAsync()
+        public async Task DisconnectAsync()
         {
             ThrowIfDisposed();
 
-            if (_instance != IntPtr.Zero)
+            await _connectGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                Librespot.librespot_free(_instance);
-                _instance = IntPtr.Zero;
+                if (_instance != IntPtr.Zero)
+                {
+                    Librespot.librespot_free(_instance);
+                    _instance = IntPtr.Zero;
+                }
+
+                _activeAccessToken = null;
+            }
+            finally
+            {
+                _connectGate.Release();
             }
 
             lock (_stateLock)
@@ -180,8 +216,6 @@ namespace LibreSpotUWP.Services
             RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, _session), nameof(SessionStateChanged));
             RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, _playbackState), nameof(PlaybackStateChanged));
             RaiseOnMainThread(() => TrackChanged?.Invoke(this, null), nameof(TrackChanged));
-
-            return Task.CompletedTask;
         }
 
         public Task<LibrespotTrackData> GetTrackAsync(string trackUri)
@@ -809,6 +843,7 @@ namespace LibreSpotUWP.Services
                 Librespot.librespot_free(_instance);
                 _instance = IntPtr.Zero;
             }
+            _activeAccessToken = null;
 
             if (_dllHandle != IntPtr.Zero)
             {

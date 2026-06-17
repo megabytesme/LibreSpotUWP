@@ -37,6 +37,7 @@ namespace LibreSpotUWP.Services
                 {
                     var json = await File.ReadAllTextAsync(_catalogPath).ConfigureAwait(false);
                     _catalog = JsonConvert.DeserializeObject<OfflineCatalogData>(json) ?? new OfflineCatalogData();
+                    MigrateDownloadedState();
                 }
 
                 _initialized = true;
@@ -70,39 +71,92 @@ namespace LibreSpotUWP.Services
                 return;
 
             await InitializeAsync().ConfigureAwait(false);
+
+            LogService.Info($"[OfflineCatalogService.SetTrackPersistedAsync] Persisted={persisted} track={track.Uri}.");
+            var groupId = persisted ? App.Downloads.BeginGroup(track.Name ?? "Song download", 1) : null;
+            var imageLocalUri = await CacheImageAsync(track.Album?.Images?.FirstOrDefault()?.Url, track.Album?.Id ?? track.Id).ConfigureAwait(false);
+            var alreadyDownloaded = false;
+
+            if (persisted)
+            {
+                App.Downloads.TrackQueued(groupId, track.Uri, track.Name);
+                await _gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var entry = GetOrCreateTrackEntry(track);
+                    entry.ImageLocalUri = imageLocalUri ?? entry.ImageLocalUri;
+                    entry.IsExplicitlySaved = true;
+                    alreadyDownloaded = entry.DownloadState == DownloadTrackState.Completed;
+                    if (entry.DownloadState != DownloadTrackState.Completed)
+                        entry.DownloadState = DownloadTrackState.Queued;
+                    await SaveAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+
+                App.Downloads.TrackStarted(groupId, track.Uri, track.Name);
+            }
+            else
+            {
+                App.Downloads.ClearTrack(track.Uri);
+                var shouldRemoveNativePersistence = false;
+                await _gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var entry = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == track.Uri);
+                    if (entry != null)
+                    {
+                        PopulateTrackEntry(entry, track);
+                        entry.ImageLocalUri = imageLocalUri ?? entry.ImageLocalUri;
+                        entry.IsExplicitlySaved = false;
+                        shouldRemoveNativePersistence = !TrackIsRequested(entry);
+                        if (shouldRemoveNativePersistence)
+                            entry.DownloadState = DownloadTrackState.Idle;
+                        CleanupTrackIfNeeded(entry.TrackUri);
+                    }
+
+                    await SaveAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+
+                if (!shouldRemoveNativePersistence)
+                    return;
+            }
+
+            if (alreadyDownloaded)
+            {
+                App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
+                return;
+            }
+
+            try
+            {
+                await App.Librespot.SetTrackPersistedAsync(track.Uri, persisted).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (persisted)
+                {
+                    await UpdateTrackDownloadStateAsync(track.Uri, DownloadTrackState.Failed).ConfigureAwait(false);
+                    App.Downloads.TrackFailed(groupId, track.Uri, track.Name, ToUserFriendlyPersistenceError(ex));
+                }
+
+                LogService.Error(ex, $"Failed to persist track {track.Uri}");
+                return;
+            }
+
             await _gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                LogService.Info($"[OfflineCatalogService.SetTrackPersistedAsync] Persisted={persisted} track={track.Uri}.");
-                if (!persisted)
-                    App.Downloads.ClearTrack(track.Uri);
-
-                var groupId = persisted ? App.Downloads.BeginGroup(track.Name ?? "Song download", 1) : null;
-                if (persisted)
-                {
-                    App.Downloads.TrackQueued(groupId, track.Uri, track.Name);
-                    App.Downloads.TrackStarted(groupId, track.Uri, track.Name);
-                }
-
-                try
-                {
-                    await App.Librespot.SetTrackPersistedAsync(track.Uri, persisted).ConfigureAwait(false);
-                    if (persisted)
-                        App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
-                }
-                catch (Exception ex)
-                {
-                    if (persisted)
-                        App.Downloads.TrackFailed(groupId, track.Uri, track.Name, ToUserFriendlyPersistenceError(ex));
-
-                    LogService.Error(ex, $"Failed to persist track {track.Uri}");
-                    return;
-                }
-
                 var entry = GetOrCreateTrackEntry(track);
-                entry.ImageLocalUri = await CacheImageAsync(track.Album?.Images?.FirstOrDefault()?.Url, track.Album?.Id ?? track.Id).ConfigureAwait(false)
-                    ?? entry.ImageLocalUri;
+                entry.ImageLocalUri = imageLocalUri ?? entry.ImageLocalUri;
                 entry.IsExplicitlySaved = persisted;
+                entry.DownloadState = persisted ? DownloadTrackState.Completed : DownloadTrackState.Idle;
                 CleanupTrackIfNeeded(entry.TrackUri);
                 await SaveAsync().ConfigureAwait(false);
             }
@@ -110,6 +164,9 @@ namespace LibreSpotUWP.Services
             {
                 _gate.Release();
             }
+
+            if (persisted)
+                App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
         }
 
         public async Task SetAlbumPersistedAsync(FullAlbum album, IEnumerable<SimpleTrack> tracks, bool persisted)
@@ -120,73 +177,94 @@ namespace LibreSpotUWP.Services
             var albumTracks = tracks?.Where(t => !string.IsNullOrWhiteSpace(t?.Uri)).ToList() ?? new List<SimpleTrack>();
 
             await InitializeAsync().ConfigureAwait(false);
-            await _gate.WaitAsync().ConfigureAwait(false);
-            try
+
+            LogService.Info($"[OfflineCatalogService.SetAlbumPersistedAsync] Persisted={persisted} album={album.Id}.");
+            var albumImageUrl = album.Images?.FirstOrDefault()?.Url;
+            var albumImageLocalUri = await CacheImageAsync(albumImageUrl, album.Id).ConfigureAwait(false);
+
+            if (!persisted)
             {
-                LogService.Info($"[OfflineCatalogService.SetAlbumPersistedAsync] Persisted={persisted} album={album.Id}.");
-                var groupId = persisted ? App.Downloads.BeginGroup(album.Name ?? "Album download", albumTracks.Count) : null;
-                foreach (var track in albumTracks)
+                var tracksToRemove = new List<SimpleTrack>();
+                await _gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _catalog.Albums.RemoveAll(a => a.AlbumId == album.Id);
+                    foreach (var track in albumTracks)
+                    {
+                        App.Downloads.ClearTrack(track.Uri);
+                        var entry = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == track.Uri);
+                        if (entry == null)
+                            continue;
+
+                        UpdateMembership(entry.AlbumMembershipIds, album.Id, false);
+                        if (!TrackIsRequested(entry))
+                        {
+                            entry.DownloadState = DownloadTrackState.Idle;
+                            tracksToRemove.Add(track);
+                        }
+
+                        CleanupTrackIfNeeded(entry.TrackUri);
+                    }
+
+                    await SaveAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+
+                foreach (var track in tracksToRemove)
                 {
                     try
                     {
-                        if (persisted)
-                        {
-                            App.Downloads.TrackQueued(groupId, track.Uri, track.Name);
-                            App.Downloads.TrackStarted(groupId, track.Uri, track.Name);
-                        }
-                        else
-                        {
-                            App.Downloads.ClearTrack(track.Uri);
-                        }
-
-                        await App.Librespot.SetTrackPersistedAsync(track.Uri, persisted).ConfigureAwait(false);
-                        if (persisted)
-                            App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
+                        await App.Librespot.SetTrackPersistedAsync(track.Uri, false).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
-                        if (persisted)
-                            App.Downloads.TrackFailed(groupId, track.Uri, track.Name, ToUserFriendlyPersistenceError(ex));
-                        LogService.Error(ex, $"Failed to persist album track {track.Uri}");
-                        continue;
+                        LogService.Error(ex, $"Failed to remove persisted album track {track.Uri}");
                     }
-
-                    var entry = GetOrCreateTrackEntry(track, album);
-                    entry.ImageLocalUri = await CacheImageAsync(album?.Images?.FirstOrDefault()?.Url, album?.Id ?? track.Id).ConfigureAwait(false)
-                        ?? entry.ImageLocalUri;
-                    UpdateMembership(entry.AlbumMembershipIds, album.Id, persisted);
-                    CleanupTrackIfNeeded(entry.TrackUri);
                 }
 
-                if (persisted)
+                return;
+            }
+
+            var groupId = App.Downloads.BeginGroup(album.Name ?? "Album download", albumTracks.Count);
+            foreach (var track in albumTracks)
+                App.Downloads.TrackQueued(groupId, track.Uri, track.Name);
+
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                foreach (var track in albumTracks)
                 {
-                    var existing = _catalog.Albums.FirstOrDefault(a => a.AlbumId == album.Id);
-                    if (existing == null)
+                    var entry = GetOrCreateTrackEntry(track, album);
+                    entry.ImageLocalUri = albumImageLocalUri ?? entry.ImageLocalUri;
+                    UpdateMembership(entry.AlbumMembershipIds, album.Id, true);
+                    if (entry.DownloadState != DownloadTrackState.Completed)
+                        entry.DownloadState = DownloadTrackState.Queued;
+                }
+
+                var existing = _catalog.Albums.FirstOrDefault(a => a.AlbumId == album.Id);
+                if (existing == null)
+                {
+                    _catalog.Albums.Add(new OfflineAlbumEntry
                     {
-                        _catalog.Albums.Add(new OfflineAlbumEntry
-                        {
-                            AlbumId = album.Id,
-                            Name = album.Name,
-                            ArtistLine = string.Join(", ", album.Artists?.Select(a => a.Name) ?? Enumerable.Empty<string>()),
-                            ImageUrl = album.Images?.FirstOrDefault()?.Url,
-                            ImageLocalUri = await CacheImageAsync(album.Images?.FirstOrDefault()?.Url, album.Id).ConfigureAwait(false),
-                            TrackUris = albumTracks.Select(t => t.Uri).ToList(),
-                            SavedAtUtc = DateTimeOffset.UtcNow
-                        });
-                    }
-                    else
-                    {
-                        existing.Name = album.Name;
-                        existing.ArtistLine = string.Join(", ", album.Artists?.Select(a => a.Name) ?? Enumerable.Empty<string>());
-                        existing.ImageUrl = album.Images?.FirstOrDefault()?.Url;
-                        existing.ImageLocalUri = await CacheImageAsync(album.Images?.FirstOrDefault()?.Url, album.Id).ConfigureAwait(false)
-                            ?? existing.ImageLocalUri;
-                        existing.TrackUris = albumTracks.Select(t => t.Uri).ToList();
-                    }
+                        AlbumId = album.Id,
+                        Name = album.Name,
+                        ArtistLine = string.Join(", ", album.Artists?.Select(a => a.Name) ?? Enumerable.Empty<string>()),
+                        ImageUrl = albumImageUrl,
+                        ImageLocalUri = albumImageLocalUri,
+                        TrackUris = albumTracks.Select(t => t.Uri).ToList(),
+                        SavedAtUtc = DateTimeOffset.UtcNow
+                    });
                 }
                 else
                 {
-                    _catalog.Albums.RemoveAll(a => a.AlbumId == album.Id);
+                    existing.Name = album.Name;
+                    existing.ArtistLine = string.Join(", ", album.Artists?.Select(a => a.Name) ?? Enumerable.Empty<string>());
+                    existing.ImageUrl = albumImageUrl;
+                    existing.ImageLocalUri = albumImageLocalUri ?? existing.ImageLocalUri;
+                    existing.TrackUris = albumTracks.Select(t => t.Uri).ToList();
                 }
 
                 await SaveAsync().ConfigureAwait(false);
@@ -194,6 +272,23 @@ namespace LibreSpotUWP.Services
             finally
             {
                 _gate.Release();
+            }
+
+            foreach (var track in albumTracks)
+            {
+                try
+                {
+                    App.Downloads.TrackStarted(groupId, track.Uri, track.Name);
+                    await App.Librespot.SetTrackPersistedAsync(track.Uri, true).ConfigureAwait(false);
+                    await UpdateTrackDownloadStateAsync(track.Uri, DownloadTrackState.Completed).ConfigureAwait(false);
+                    App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
+                }
+                catch (Exception ex)
+                {
+                    await UpdateTrackDownloadStateAsync(track.Uri, DownloadTrackState.Failed).ConfigureAwait(false);
+                    App.Downloads.TrackFailed(groupId, track.Uri, track.Name, ToUserFriendlyPersistenceError(ex));
+                    LogService.Error(ex, $"Failed to persist album track {track.Uri}");
+                }
             }
         }
 
@@ -205,73 +300,106 @@ namespace LibreSpotUWP.Services
             var playlistTracks = tracks?.Where(t => !string.IsNullOrWhiteSpace(t?.Uri)).ToList() ?? new List<FullTrack>();
 
             await InitializeAsync().ConfigureAwait(false);
-            await _gate.WaitAsync().ConfigureAwait(false);
-            try
+
+            LogService.Info($"[OfflineCatalogService.SetPlaylistPersistedAsync] Persisted={persisted} playlist={playlist.Id}.");
+            var playlistImageUrl = playlist.Images?.FirstOrDefault()?.Url;
+            var playlistImageLocalUri = await CacheImageAsync(playlistImageUrl, playlist.Id).ConfigureAwait(false);
+            var trackImageLocalUris = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (persisted)
             {
-                LogService.Info($"[OfflineCatalogService.SetPlaylistPersistedAsync] Persisted={persisted} playlist={playlist.Id}.");
-                var groupId = persisted ? App.Downloads.BeginGroup(playlist.Name ?? "Playlist download", playlistTracks.Count) : null;
                 foreach (var track in playlistTracks)
+                {
+                    trackImageLocalUris[track.Uri] = await CacheImageAsync(
+                        track.Album?.Images?.FirstOrDefault()?.Url,
+                        track.Album?.Id ?? track.Id).ConfigureAwait(false);
+                }
+            }
+
+            if (!persisted)
+            {
+                var tracksToRemove = new List<FullTrack>();
+                await _gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _catalog.Playlists.RemoveAll(p => p.PlaylistId == playlist.Id);
+                    foreach (var track in playlistTracks)
+                    {
+                        App.Downloads.ClearTrack(track.Uri);
+                        var entry = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == track.Uri);
+                        if (entry == null)
+                            continue;
+
+                        UpdateMembership(entry.PlaylistMembershipIds, playlist.Id, false);
+                        if (!TrackIsRequested(entry))
+                        {
+                            entry.DownloadState = DownloadTrackState.Idle;
+                            tracksToRemove.Add(track);
+                        }
+
+                        CleanupTrackIfNeeded(entry.TrackUri);
+                    }
+
+                    await SaveAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+
+                foreach (var track in tracksToRemove)
                 {
                     try
                     {
-                        if (persisted)
-                        {
-                            App.Downloads.TrackQueued(groupId, track.Uri, track.Name);
-                            App.Downloads.TrackStarted(groupId, track.Uri, track.Name);
-                        }
-                        else
-                        {
-                            App.Downloads.ClearTrack(track.Uri);
-                        }
-
-                        await App.Librespot.SetTrackPersistedAsync(track.Uri, persisted).ConfigureAwait(false);
-                        if (persisted)
-                            App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
+                        await App.Librespot.SetTrackPersistedAsync(track.Uri, false).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
-                        if (persisted)
-                            App.Downloads.TrackFailed(groupId, track.Uri, track.Name, ToUserFriendlyPersistenceError(ex));
-                        LogService.Error(ex, $"Failed to persist playlist track {track.Uri}");
-                        continue;
+                        LogService.Error(ex, $"Failed to remove persisted playlist track {track.Uri}");
                     }
-
-                    var entry = GetOrCreateTrackEntry(track);
-                    entry.ImageLocalUri = await CacheImageAsync(track.Album?.Images?.FirstOrDefault()?.Url, track.Album?.Id ?? track.Id).ConfigureAwait(false)
-                        ?? entry.ImageLocalUri;
-                    UpdateMembership(entry.PlaylistMembershipIds, playlist.Id, persisted);
-                    CleanupTrackIfNeeded(entry.TrackUri);
                 }
 
-                if (persisted)
+                return;
+            }
+
+            var groupId = App.Downloads.BeginGroup(playlist.Name ?? "Playlist download", playlistTracks.Count);
+            foreach (var track in playlistTracks)
+                App.Downloads.TrackQueued(groupId, track.Uri, track.Name);
+
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                foreach (var track in playlistTracks)
                 {
-                    var existing = _catalog.Playlists.FirstOrDefault(p => p.PlaylistId == playlist.Id);
-                    if (existing == null)
+                    var entry = GetOrCreateTrackEntry(track);
+                    entry.ImageLocalUri = trackImageLocalUris.TryGetValue(track.Uri, out var imageLocalUri)
+                        ? imageLocalUri ?? entry.ImageLocalUri
+                        : entry.ImageLocalUri;
+                    UpdateMembership(entry.PlaylistMembershipIds, playlist.Id, true);
+                    if (entry.DownloadState != DownloadTrackState.Completed)
+                        entry.DownloadState = DownloadTrackState.Queued;
+                }
+
+                var existing = _catalog.Playlists.FirstOrDefault(p => p.PlaylistId == playlist.Id);
+                if (existing == null)
+                {
+                    _catalog.Playlists.Add(new OfflinePlaylistEntry
                     {
-                        _catalog.Playlists.Add(new OfflinePlaylistEntry
-                        {
-                            PlaylistId = playlist.Id,
-                            Name = playlist.Name,
-                            OwnerName = playlist.Owner?.DisplayName,
-                            ImageUrl = playlist.Images?.FirstOrDefault()?.Url,
-                            ImageLocalUri = await CacheImageAsync(playlist.Images?.FirstOrDefault()?.Url, playlist.Id).ConfigureAwait(false),
-                            TrackUris = playlistTracks.Select(t => t.Uri).ToList(),
-                            SavedAtUtc = DateTimeOffset.UtcNow
-                        });
-                    }
-                    else
-                    {
-                        existing.Name = playlist.Name;
-                        existing.OwnerName = playlist.Owner?.DisplayName;
-                        existing.ImageUrl = playlist.Images?.FirstOrDefault()?.Url;
-                        existing.ImageLocalUri = await CacheImageAsync(playlist.Images?.FirstOrDefault()?.Url, playlist.Id).ConfigureAwait(false)
-                            ?? existing.ImageLocalUri;
-                        existing.TrackUris = playlistTracks.Select(t => t.Uri).ToList();
-                    }
+                        PlaylistId = playlist.Id,
+                        Name = playlist.Name,
+                        OwnerName = playlist.Owner?.DisplayName,
+                        ImageUrl = playlistImageUrl,
+                        ImageLocalUri = playlistImageLocalUri,
+                        TrackUris = playlistTracks.Select(t => t.Uri).ToList(),
+                        SavedAtUtc = DateTimeOffset.UtcNow
+                    });
                 }
                 else
                 {
-                    _catalog.Playlists.RemoveAll(p => p.PlaylistId == playlist.Id);
+                    existing.Name = playlist.Name;
+                    existing.OwnerName = playlist.Owner?.DisplayName;
+                    existing.ImageUrl = playlistImageUrl;
+                    existing.ImageLocalUri = playlistImageLocalUri ?? existing.ImageLocalUri;
+                    existing.TrackUris = playlistTracks.Select(t => t.Uri).ToList();
                 }
 
                 await SaveAsync().ConfigureAwait(false);
@@ -279,6 +407,23 @@ namespace LibreSpotUWP.Services
             finally
             {
                 _gate.Release();
+            }
+
+            foreach (var track in playlistTracks)
+            {
+                try
+                {
+                    App.Downloads.TrackStarted(groupId, track.Uri, track.Name);
+                    await App.Librespot.SetTrackPersistedAsync(track.Uri, true).ConfigureAwait(false);
+                    await UpdateTrackDownloadStateAsync(track.Uri, DownloadTrackState.Completed).ConfigureAwait(false);
+                    App.Downloads.TrackCompleted(groupId, track.Uri, track.Name);
+                }
+                catch (Exception ex)
+                {
+                    await UpdateTrackDownloadStateAsync(track.Uri, DownloadTrackState.Failed).ConfigureAwait(false);
+                    App.Downloads.TrackFailed(groupId, track.Uri, track.Name, ToUserFriendlyPersistenceError(ex));
+                    LogService.Error(ex, $"Failed to persist playlist track {track.Uri}");
+                }
             }
         }
 
@@ -319,21 +464,21 @@ namespace LibreSpotUWP.Services
             if (contextUri.StartsWith("spotify:album:", StringComparison.OrdinalIgnoreCase))
             {
                 var albumId = contextUri.Substring("spotify:album:".Length);
-                return
-                    _catalog.Albums.FirstOrDefault(a => a.AlbumId == albumId)?.TrackUris?.ToList()
-                    ?? new List<string>();
+                return FilterDownloadedTrackUris(
+                    _catalog.Albums.FirstOrDefault(a => a.AlbumId == albumId)?.TrackUris);
             }
 
             if (contextUri.StartsWith("spotify:playlist:", StringComparison.OrdinalIgnoreCase))
             {
                 var playlistId = contextUri.Substring("spotify:playlist:".Length);
-                return
-                    _catalog.Playlists.FirstOrDefault(p => p.PlaylistId == playlistId)?.TrackUris?.ToList()
-                    ?? new List<string>();
+                return FilterDownloadedTrackUris(
+                    _catalog.Playlists.FirstOrDefault(p => p.PlaylistId == playlistId)?.TrackUris);
             }
 
             if (contextUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
-                return new List<string> { contextUri };
+                return IsTrackPersisted(contextUri)
+                    ? new List<string> { contextUri }
+                    : new List<string>();
 
             return Array.Empty<string>();
         }
@@ -361,6 +506,7 @@ namespace LibreSpotUWP.Services
                 ImageLocalUri = track.ImageLocalUri,
                 DurationMs = track.DurationMs,
                 IsExplicitlySaved = track.IsExplicitlySaved,
+                DownloadState = track.DownloadState,
                 AlbumMembershipIds = track.AlbumMembershipIds?.ToList() ?? new List<string>(),
                 PlaylistMembershipIds = track.PlaylistMembershipIds?.ToList() ?? new List<string>()
             };
@@ -415,6 +561,37 @@ namespace LibreSpotUWP.Services
             entry.DurationMs = track.DurationMs;
         }
 
+        private async Task UpdateTrackDownloadStateAsync(string trackUri, DownloadTrackState state)
+        {
+            if (string.IsNullOrWhiteSpace(trackUri))
+                return;
+
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var entry = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == trackUri);
+                if (entry == null)
+                    return;
+
+                entry.DownloadState = state;
+                CleanupTrackIfNeeded(trackUri);
+                await SaveAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        private void MigrateDownloadedState()
+        {
+            foreach (var track in _catalog.Tracks.Where(track =>
+                track.DownloadState == DownloadTrackState.Idle && TrackIsRequested(track)))
+            {
+                track.DownloadState = DownloadTrackState.Completed;
+            }
+        }
+
         private void UpdateMembership(List<string> memberships, string id, bool persisted)
         {
             if (persisted)
@@ -431,13 +608,34 @@ namespace LibreSpotUWP.Services
         private void CleanupTrackIfNeeded(string trackUri)
         {
             var track = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == trackUri);
-            if (track != null && !TrackHasPersistence(track))
+            if (track != null && !TrackIsRequested(track))
             {
                 _catalog.Tracks.Remove(track);
             }
         }
 
+        private IReadOnlyList<string> FilterDownloadedTrackUris(IEnumerable<string> trackUris)
+        {
+            if (trackUris == null)
+                return new List<string>();
+
+            var downloaded = new HashSet<string>(
+                _catalog.Tracks
+                    .Where(TrackHasPersistence)
+                    .Select(t => t.TrackUri),
+                StringComparer.OrdinalIgnoreCase);
+
+            return trackUris
+                .Where(uri => !string.IsNullOrWhiteSpace(uri) && downloaded.Contains(uri))
+                .ToList();
+        }
+
         private static bool TrackHasPersistence(OfflineTrackEntry track)
+        {
+            return track.DownloadState == DownloadTrackState.Completed && TrackIsRequested(track);
+        }
+
+        private static bool TrackIsRequested(OfflineTrackEntry track)
         {
             return track.IsExplicitlySaved
                 || (track.AlbumMembershipIds?.Count ?? 0) > 0
