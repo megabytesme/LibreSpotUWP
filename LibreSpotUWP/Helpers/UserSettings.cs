@@ -19,6 +19,7 @@ namespace LibreSpotUWP.Helpers
         private const string AudioReverbEffectEnabledKey = "AudioReverbEffectEnabled";
         private const string AudioLimiterEffectEnabledKey = "AudioLimiterEffectEnabled";
         private const string AudioOutputDeviceIdKey = "AudioOutputDeviceId";
+        private const string SpotifyConnectDeviceIdKey = "SpotifyConnectDeviceId";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
         private const string EqualizerBandsUnitKey = "AudioEffectsEqualizerBandsUnit";
         private const string EqualizerBandsUnitDb = "Db";
@@ -124,6 +125,12 @@ namespace LibreSpotUWP.Helpers
         {
             get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioOutputDeviceIdKey, out object value) ? value as string : string.Empty;
             set => ApplicationData.Current.LocalSettings.Values[AudioOutputDeviceIdKey] = value ?? string.Empty;
+        }
+
+        public static string SpotifyConnectDeviceId
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(SpotifyConnectDeviceIdKey, out object value) ? value as string : string.Empty;
+            set => ApplicationData.Current.LocalSettings.Values[SpotifyConnectDeviceIdKey] = value ?? string.Empty;
         }
 
         public static bool RememberLastPlaybackState

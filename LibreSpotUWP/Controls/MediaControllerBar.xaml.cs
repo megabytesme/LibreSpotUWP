@@ -20,6 +20,9 @@ namespace LibreSpotUWP.Controls
         private bool _isReady = false;
         private string _currentArtworkUri = null;
         private bool _loadingOutputDevices;
+        private bool _loadingSpotifyConnectDevices;
+        private bool _spotifyConnectDropdownOpen;
+        private bool _spotifyConnectRefreshPending;
 
         public MediaControllerBar()
         {
@@ -43,6 +46,7 @@ namespace LibreSpotUWP.Controls
 
             UpdateUI(_media.Current);
             _ = LoadOutputDevicesAsync();
+            _ = LoadSpotifyConnectDevicesAsync();
             _isReady = true;
         }
 
@@ -96,6 +100,7 @@ namespace LibreSpotUWP.Controls
             VolumeSlider.ValueChanged += VolumeSlider_ValueChanged;
 
             UpdateVolumeVisual(volumePercent);
+            UpdateSpotifyConnectSelection(state);
         }
 
         private string Format(uint ms)
@@ -219,6 +224,92 @@ namespace LibreSpotUWP.Controls
                 return;
 
             await _media.SetAudioOutputDeviceAsync(device.Id);
+        }
+
+        private async Task LoadSpotifyConnectDevicesAsync()
+        {
+            if (_media == null || SpotifyConnectDeviceComboBox == null)
+                return;
+
+            _loadingSpotifyConnectDevices = true;
+            try
+            {
+                var devices = await _media.GetSpotifyConnectDevicesAsync();
+                if (_spotifyConnectDropdownOpen)
+                {
+                    _spotifyConnectRefreshPending = true;
+                    return;
+                }
+
+                SpotifyConnectDeviceComboBox.ItemsSource = devices;
+                SelectSpotifyConnectDevice(devices, _media.CurrentSpotifyConnectDeviceId);
+            }
+            finally
+            {
+                _loadingSpotifyConnectDevices = false;
+            }
+        }
+
+        private void UpdateSpotifyConnectSelection(MediaState state)
+        {
+            if (_loadingSpotifyConnectDevices || _spotifyConnectDropdownOpen || state == null || SpotifyConnectDeviceComboBox?.ItemsSource == null)
+                return;
+
+            var devices = SpotifyConnectDeviceComboBox.ItemsSource as IEnumerable<SpotifyConnectDeviceInfo>;
+            if (devices == null)
+                return;
+
+            if (!devices.Any(device => string.Equals(device.Id, state.SpotifyConnectDeviceId, StringComparison.OrdinalIgnoreCase)))
+            {
+                _ = LoadSpotifyConnectDevicesAsync();
+                return;
+            }
+
+            SelectSpotifyConnectDevice(devices, state.SpotifyConnectDeviceId);
+        }
+
+        private void SelectSpotifyConnectDevice(IEnumerable<SpotifyConnectDeviceInfo> devices, string deviceId)
+        {
+            if (_spotifyConnectDropdownOpen || devices == null)
+                return;
+
+            var selected = devices.FirstOrDefault(device => string.Equals(device.Id, deviceId, StringComparison.OrdinalIgnoreCase))
+                ?? devices.FirstOrDefault();
+            if (selected == null || ReferenceEquals(SpotifyConnectDeviceComboBox.SelectedItem, selected))
+                return;
+
+            _loadingSpotifyConnectDevices = true;
+            SpotifyConnectDeviceComboBox.SelectedItem = selected;
+            _loadingSpotifyConnectDevices = false;
+        }
+
+        private async void SpotifyConnectDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loadingSpotifyConnectDevices || !(SpotifyConnectDeviceComboBox.SelectedItem is SpotifyConnectDeviceInfo device) || _media == null)
+                return;
+
+            await _media.SetSpotifyConnectDeviceAsync(device.Id);
+            await LoadSpotifyConnectDevicesAsync();
+        }
+
+        private async void SpotifyConnectDeviceFlyout_Opened(object sender, object e)
+        {
+            await LoadSpotifyConnectDevicesAsync();
+        }
+
+        private async void SpotifyConnectDeviceComboBox_DropDownOpened(object sender, object e)
+        {
+            _spotifyConnectDropdownOpen = true;
+        }
+
+        private void SpotifyConnectDeviceComboBox_DropDownClosed(object sender, object e)
+        {
+            _spotifyConnectDropdownOpen = false;
+            if (!_spotifyConnectRefreshPending)
+                return;
+
+            _spotifyConnectRefreshPending = false;
+            _ = LoadSpotifyConnectDevicesAsync();
         }
 
         private void UpdateVolumeVisual(double value)

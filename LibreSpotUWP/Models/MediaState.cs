@@ -18,6 +18,9 @@ namespace LibreSpotUWP.Models
         public string ArtworkUri { get; set; }
         public string ContextUri { get; set; }
         public string ContextName { get; set; }
+        public string SpotifyConnectDeviceId { get; set; }
+        public string SpotifyConnectDeviceName { get; set; }
+        public bool IsSpotifyConnectRemote { get; set; }
 
         public bool IsPlaying => PlaybackState == LibrespotPlaybackState.Playing;
 
@@ -42,6 +45,9 @@ namespace LibreSpotUWP.Models
                 ArtworkUri = this.ArtworkUri,
                 ContextUri = this.ContextUri,
                 ContextName = this.ContextName,
+                SpotifyConnectDeviceId = this.SpotifyConnectDeviceId,
+                SpotifyConnectDeviceName = this.SpotifyConnectDeviceName,
+                IsSpotifyConnectRemote = this.IsSpotifyConnectRemote,
                 Shuffle = this.Shuffle,
                 RepeatMode = this.RepeatMode
             };

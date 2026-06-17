@@ -38,8 +38,12 @@ namespace LibreSpotUWP.Services
 
         private DispatcherTimer _positionTimer;
         private DispatcherTimer _volumeDebounceTimer;
+        private DispatcherTimer _spotifyConnectTimer;
         private ushort _pendingVolume;
         private bool _volumeDirty = false;
+        private bool _refreshingSpotifyConnectPlayback;
+        private uint _remotePositionBaseMs;
+        private DateTimeOffset _remotePositionUpdatedAt = DateTimeOffset.MinValue;
         private string[] _offlineQueue = Array.Empty<string>();
         private int _offlineQueueIndex = -1;
         private int _contextResolutionVersion;
@@ -59,6 +63,7 @@ namespace LibreSpotUWP.Services
         private const int SnapshotWriteIntervalMs = 5000;
 
         public string CurrentAudioOutputDeviceId => UserSettings.AudioOutputDeviceId;
+        public string CurrentSpotifyConnectDeviceId => GetSelectedSpotifyConnectDeviceId();
 
         private sealed class PlaybackSnapshot
         {
@@ -151,18 +156,38 @@ namespace LibreSpotUWP.Services
             _volumeDebounceTimer.Tick += VolumeDebounceTimer_Tick;
             _volumeDebounceTimer.Start();
 
+            _spotifyConnectTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            _spotifyConnectTimer.Tick += SpotifyConnectTimer_Tick;
+            _spotifyConnectTimer.Start();
+
             NetworkInformation.NetworkStatusChanged += OnNetworkStatusChanged;
             UpdateConnectivityState();
+            UpdateSelectedSpotifyConnectDeviceState(null);
+            _ = RefreshSpotifyConnectPlaybackAsync();
 
             await Task.CompletedTask;
         }
 
         private void PositionTimer_Tick(object sender, object e)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                UpdateEstimatedRemotePosition();
+                return;
+            }
+
             if (_state.PlaybackState != LibrespotPlaybackState.Playing)
                 return;
 
             ApplyPlaybackPosition(_librespot.GetPositionMs(), persistSnapshot: true);
+        }
+
+        private void SpotifyConnectTimer_Tick(object sender, object e)
+        {
+            _ = RefreshSpotifyConnectPlaybackAsync();
         }
 
         private void UpdateSmtcTimeline(uint positionMs)
@@ -218,6 +243,147 @@ namespace LibreSpotUWP.Services
                 : positionMs;
         }
 
+        private string LocalSpotifyConnectDeviceId => _librespot?.DeviceId ?? string.Empty;
+
+        private bool IsSelectedSpotifyConnectDeviceLocal => IsLocalSpotifyConnectDeviceId(GetSelectedSpotifyConnectDeviceId());
+
+        private string GetSelectedSpotifyConnectDeviceId()
+        {
+            var selected = UserSettings.SpotifyConnectDeviceId;
+            return string.IsNullOrWhiteSpace(selected) ? LocalSpotifyConnectDeviceId : selected;
+        }
+
+        private bool IsLocalSpotifyConnectDeviceId(string deviceId)
+        {
+            return string.IsNullOrWhiteSpace(deviceId) ||
+                string.Equals(deviceId, LocalSpotifyConnectDeviceId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void UpdateSelectedSpotifyConnectDeviceState(SpotifyConnectDeviceInfo device)
+        {
+            var selectedId = GetSelectedSpotifyConnectDeviceId();
+            var isLocal = IsLocalSpotifyConnectDeviceId(selectedId);
+            var name = device?.DisplayName ?? (isLocal ? "This device" : device?.Name);
+
+            UpdateState(s =>
+            {
+                s.SpotifyConnectDeviceId = selectedId;
+                s.SpotifyConnectDeviceName = string.IsNullOrWhiteSpace(name) ? "Spotify device" : name;
+                s.IsSpotifyConnectRemote = !isLocal;
+            });
+        }
+
+        public async Task<SpotifyConnectDeviceInfo[]> GetSpotifyConnectDevicesAsync()
+        {
+            var localId = LocalSpotifyConnectDeviceId;
+            var local = new SpotifyConnectDeviceInfo
+            {
+                Id = localId,
+                Name = "This device",
+                Type = "Computer",
+                IsThisDevice = true,
+                SupportsVolume = true,
+                VolumePercent = (int)Math.Round(Current.Volume * 100.0 / 65535.0),
+                IsActive = IsSelectedSpotifyConnectDeviceLocal && Current.PlaybackState == LibrespotPlaybackState.Playing
+            };
+
+            var devices = new System.Collections.Generic.List<SpotifyConnectDeviceInfo> { local };
+
+            if (!ConnectivityHelper.HasInternetAccess())
+                return devices.ToArray();
+
+            try
+            {
+                var response = await _web.GetAvailableDevicesAsync().ConfigureAwait(false);
+                foreach (var device in response?.Devices ?? new System.Collections.Generic.List<Device>())
+                {
+                    if (string.IsNullOrWhiteSpace(device.Id))
+                        continue;
+
+                    if (string.Equals(device.Id, localId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        local.IsActive = device.IsActive;
+                        local.IsRestricted = device.IsRestricted;
+                        local.SupportsVolume = device.SupportsVolume;
+                        local.VolumePercent = device.VolumePercent;
+                        continue;
+                    }
+
+                    devices.Add(new SpotifyConnectDeviceInfo
+                    {
+                        Id = device.Id,
+                        Name = device.Name,
+                        Type = device.Type,
+                        IsActive = device.IsActive,
+                        IsRestricted = device.IsRestricted,
+                        SupportsVolume = device.SupportsVolume,
+                        VolumePercent = device.VolumePercent,
+                        IsThisDevice = false
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.GetSpotifyConnectDevicesAsync] Unable to enumerate Spotify Connect devices: {ex.Message}");
+            }
+
+            return devices
+                .GroupBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .OrderByDescending(device => device.IsThisDevice)
+                .ThenBy(device => device.Name)
+                .ToArray();
+        }
+
+        public async Task SetSpotifyConnectDeviceAsync(string deviceId)
+        {
+            deviceId = string.IsNullOrWhiteSpace(deviceId) ? LocalSpotifyConnectDeviceId : deviceId;
+            if (string.Equals(GetSelectedSpotifyConnectDeviceId(), deviceId, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var devices = await GetSpotifyConnectDevicesAsync().ConfigureAwait(false);
+            var selected = devices.FirstOrDefault(device => string.Equals(device.Id, deviceId, StringComparison.OrdinalIgnoreCase));
+            var wasPlaying = Current.PlaybackState == LibrespotPlaybackState.Playing;
+            var hadPlayback = Current.Track != null || wasPlaying || Current.PlaybackState == LibrespotPlaybackState.Paused;
+            var transferPositionMs = ClampPlaybackPosition(Current.PositionMs);
+            UserSettings.SpotifyConnectDeviceId = deviceId;
+            UpdateSelectedSpotifyConnectDeviceState(selected);
+
+            if (!ConnectivityHelper.HasInternetAccess())
+                return;
+
+            try
+            {
+                if (IsLocalSpotifyConnectDeviceId(deviceId))
+                    await EnsureLocalLibrespotConnectedAsync(interactive: false).ConfigureAwait(false);
+
+                if (hadPlayback)
+                {
+                    await _web.TransferPlaybackAsync(deviceId, wasPlaying).ConfigureAwait(false);
+
+                    if (!IsLocalSpotifyConnectDeviceId(deviceId) && transferPositionMs > 0)
+                    {
+                        try
+                        {
+                            await Task.Delay(250).ConfigureAwait(false);
+                            await _web.SeekToAsync(deviceId, transferPositionMs).ConfigureAwait(false);
+                        }
+                        catch (Exception seekEx)
+                        {
+                            LogService.Warn($"[MediaService.SetSpotifyConnectDeviceAsync] Unable to restore Connect playback position: {seekEx.Message}");
+                        }
+                    }
+                }
+
+                if (!IsLocalSpotifyConnectDeviceId(deviceId))
+                    await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.SetSpotifyConnectDeviceAsync] Unable to transfer playback to {selected?.Name ?? deviceId}: {ex.Message}");
+            }
+        }
+
         public async Task PlayAsync(string contextUri, string startUri = null)
         {
             CancelPlaybackContinuationWatchdog();
@@ -234,6 +400,12 @@ namespace LibreSpotUWP.Services
 
         private async Task PlayCoreAsync(string contextUri, string startUri = null)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                await PlayRemoteAsync(contextUri, startUri).ConfigureAwait(false);
+                return;
+            }
+
             var isOffline = !ConnectivityHelper.HasInternetAccess();
             var wasOffline = Current.IsOffline;
             var originalContextUri = contextUri;
@@ -298,29 +470,8 @@ namespace LibreSpotUWP.Services
             if (!isOffline && wasOffline)
                 await StopOfflinePlaybackForOnlineTransitionAsync();
 
-            var librespotReady = (_librespot as LibrespotService)?.HasInstance == true;
-            var requiresOnlineReconnect = !isOffline && !_librespot.Session.IsConnected;
-            if (!librespotReady || requiresOnlineReconnect)
-            {
-                var accessToken = isOffline
-                    ? await _auth.GetAccessToken()
-                    : await _auth.EnsureValidAccessTokenAsync(interactive: true);
-
-                if (string.IsNullOrEmpty(accessToken) && !isOffline)
-                    return;
-
-                if (string.IsNullOrEmpty(accessToken) && isOffline)
-                {
-                    UpdateState(s =>
-                    {
-                        s.IsOffline = true;
-                        s.StatusMessage = "Offline. Sign in once while online before cached playback can start.";
-                    });
-                    return;
-                }
-
-                await _librespot.ConnectWithAccessTokenAsync(accessToken);
-            }
+            if (!await EnsureLocalLibrespotConnectedAsync(interactive: true, allowOfflineToken: isOffline).ConfigureAwait(false))
+                return;
 
             if (isOffline && !string.IsNullOrWhiteSpace(startUri))
             {
@@ -353,6 +504,62 @@ namespace LibreSpotUWP.Services
             _ringPlayer.Start();
         }
 
+        private async Task<bool> EnsureLocalLibrespotConnectedAsync(bool interactive, bool allowOfflineToken = false)
+        {
+            var isOffline = !ConnectivityHelper.HasInternetAccess();
+            var librespotReady = (_librespot as LibrespotService)?.HasInstance == true;
+            var requiresOnlineReconnect = !isOffline && !_librespot.Session.IsConnected;
+            if (librespotReady && !requiresOnlineReconnect)
+                return true;
+
+            var accessToken = allowOfflineToken || isOffline
+                ? await _auth.GetAccessToken().ConfigureAwait(false)
+                : await _auth.EnsureValidAccessTokenAsync(interactive: interactive).ConfigureAwait(false);
+
+            if (string.IsNullOrEmpty(accessToken) && !isOffline)
+                return false;
+
+            if (string.IsNullOrEmpty(accessToken) && isOffline)
+            {
+                UpdateState(s =>
+                {
+                    s.IsOffline = true;
+                    s.StatusMessage = "Offline. Sign in once while online before cached playback can start.";
+                });
+                return false;
+            }
+
+            await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task PlayRemoteAsync(string contextUri, string startUri)
+        {
+            if (!ConnectivityHelper.HasInternetAccess())
+            {
+                UpdateState(s =>
+                {
+                    s.IsOffline = true;
+                    s.StatusMessage = "Connect playback needs an internet connection.";
+                });
+                return;
+            }
+
+            var deviceId = GetSelectedSpotifyConnectDeviceId();
+            var playbackContextUri = GetPlaybackContextUri(contextUri, startUri);
+
+            UpdateState(s =>
+            {
+                s.IsOffline = false;
+                s.PlaybackState = LibrespotPlaybackState.Loading;
+                s.ContextUri = playbackContextUri;
+                s.StatusMessage = null;
+            });
+
+            await _web.ResumePlaybackAsync(deviceId, contextUri, startUri).ConfigureAwait(false);
+            await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+        }
+
         private async Task StopOfflinePlaybackForOnlineTransitionAsync()
         {
             LogService.Info("[MediaService.StopOfflinePlaybackForOnlineTransitionAsync] Stopping offline playback before switching back online.");
@@ -375,11 +582,27 @@ namespace LibreSpotUWP.Services
         public async Task PauseAsync()
         {
             CancelPlaybackContinuationWatchdog();
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                await _web.PausePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Paused);
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+                return;
+            }
+
             await _librespot.PauseAsync();
         }
 
         public async Task ResumeAsync()
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                await _web.ResumePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Playing);
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+                return;
+            }
+
             if (_lastPlaybackSnapshot != null && _state.PlaybackState == LibrespotPlaybackState.Paused)
             {
                 _pendingRestoreSeekMs = _lastPlaybackSnapshot.PositionMs;
@@ -396,6 +619,14 @@ namespace LibreSpotUWP.Services
         public async Task StopAsync()
         {
             CancelPlaybackContinuationWatchdog();
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                await _web.PausePlaybackAsync(GetSelectedSpotifyConnectDeviceId()).ConfigureAwait(false);
+                UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Stopped);
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+                return;
+            }
+
             await _librespot.StopAsync();
         }
 
@@ -405,7 +636,7 @@ namespace LibreSpotUWP.Services
                 return;
 
             _volumeDirty = false;
-            _ = _librespot.SetVolumeAsync(_pendingVolume);
+            _ = SetVolumeAsync(_pendingVolume);
         }
 
         public void SetVolumeDebounced(double percent)
@@ -422,6 +653,14 @@ namespace LibreSpotUWP.Services
 
         public async Task SetShuffleAsync(bool enabled)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                await _web.SetShuffleAsync(GetSelectedSpotifyConnectDeviceId(), enabled).ConfigureAwait(false);
+                UpdateState(s => s.Shuffle = enabled);
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+                return;
+            }
+
             await _librespot.SetShuffleAsync(enabled);
 
             UpdateState(s => s.Shuffle = enabled);
@@ -429,6 +668,14 @@ namespace LibreSpotUWP.Services
 
         public async Task SetRepeatAsync(int mode)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                await _web.SetRepeatAsync(GetSelectedSpotifyConnectDeviceId(), mode).ConfigureAwait(false);
+                UpdateState(s => s.RepeatMode = mode);
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+                return;
+            }
+
             await _librespot.SetRepeatAsync((uint)mode);
 
             UpdateState(s => s.RepeatMode = mode);
@@ -474,7 +721,13 @@ namespace LibreSpotUWP.Services
             UpdateState(s => s.IsCurrentTrackPersisted = App.OfflineCatalog.IsTrackPersisted(track.Uri));
         }
 
-        public Task SetVolumeAsync(ushort v) => _librespot.SetVolumeAsync(v);
+        public Task SetVolumeAsync(ushort v)
+        {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+                return _web.SetVolumeAsync(GetSelectedSpotifyConnectDeviceId(), (int)Math.Round(v * 100.0 / 65535.0));
+
+            return _librespot.SetVolumeAsync(v);
+        }
 
         public Task SetAudioEffectsPresetAsync(string preset)
         {
@@ -580,6 +833,12 @@ namespace LibreSpotUWP.Services
         }
         public void Next()
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                _ = SkipRemoteAsync(1);
+                return;
+            }
+
             var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
                 || Current.PlaybackState == LibrespotPlaybackState.Loading;
 
@@ -595,6 +854,12 @@ namespace LibreSpotUWP.Services
 
         public void Previous()
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                _ = SkipRemoteAsync(-1);
+                return;
+            }
+
             var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
                 || Current.PlaybackState == LibrespotPlaybackState.Loading;
 
@@ -668,7 +933,48 @@ namespace LibreSpotUWP.Services
             Interlocked.CompareExchange(ref _pendingEndOfTrackContinuationVersion, 0, version);
         }
 
-        public void Seek(uint posMs) => _librespot.Seek(posMs);
+        public void Seek(uint posMs)
+        {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+            {
+                _ = SeekRemoteAsync(posMs);
+                return;
+            }
+
+            _librespot.Seek(posMs);
+        }
+
+        private async Task SkipRemoteAsync(int delta)
+        {
+            try
+            {
+                var deviceId = GetSelectedSpotifyConnectDeviceId();
+                if (delta > 0)
+                    await _web.SkipNextAsync(deviceId).ConfigureAwait(false);
+                else
+                    await _web.SkipPreviousAsync(deviceId).ConfigureAwait(false);
+
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.SkipRemoteAsync] Unable to skip remote playback: {ex.Message}");
+            }
+        }
+
+        private async Task SeekRemoteAsync(uint posMs)
+        {
+            try
+            {
+                await _web.SeekToAsync(GetSelectedSpotifyConnectDeviceId(), posMs).ConfigureAwait(false);
+                ApplyPlaybackPosition(posMs, persistSnapshot: false);
+                await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.SeekRemoteAsync] Unable to seek remote playback: {ex.Message}");
+            }
+        }
 
         private async Task EnsureRingPlayerAsync()
         {
@@ -700,10 +1006,185 @@ namespace LibreSpotUWP.Services
             }
         }
 
+        private async Task RefreshSpotifyConnectPlaybackAsync(bool force = false)
+        {
+            if (!ConnectivityHelper.HasInternetAccess())
+                return;
+
+            if (_refreshingSpotifyConnectPlayback && !force)
+                return;
+
+            _refreshingSpotifyConnectPlayback = true;
+            try
+            {
+                var playback = await _web.GetCurrentPlaybackAsync().ConfigureAwait(false);
+                ApplyRemotePlayback(playback);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.RefreshSpotifyConnectPlaybackAsync] Unable to refresh Connect playback: {ex.Message}");
+            }
+            finally
+            {
+                _refreshingSpotifyConnectPlayback = false;
+            }
+        }
+
+        private void ApplyRemotePlayback(CurrentlyPlayingContext playback)
+        {
+            var selectedId = GetSelectedSpotifyConnectDeviceId();
+            var wasSelectedLocal = IsLocalSpotifyConnectDeviceId(selectedId);
+            if (playback == null)
+            {
+                if (wasSelectedLocal)
+                    return;
+
+                UpdateState(s =>
+                {
+                    s.SpotifyConnectDeviceId = selectedId;
+                    s.IsSpotifyConnectRemote = true;
+                    s.PlaybackState = LibrespotPlaybackState.Stopped;
+                });
+                return;
+            }
+
+            var device = playback.Device;
+            var deviceName = device?.Name;
+            var activeDeviceId = device?.Id;
+            var activeIsLocal = !string.IsNullOrWhiteSpace(activeDeviceId) && IsLocalSpotifyConnectDeviceId(activeDeviceId);
+            if (!string.IsNullOrWhiteSpace(activeDeviceId))
+            {
+                selectedId = activeIsLocal ? LocalSpotifyConnectDeviceId : activeDeviceId;
+                if (!string.Equals(GetSelectedSpotifyConnectDeviceId(), selectedId, StringComparison.OrdinalIgnoreCase))
+                    UserSettings.SpotifyConnectDeviceId = selectedId;
+
+                if (activeIsLocal)
+                {
+                    if (!wasSelectedLocal || Current.IsSpotifyConnectRemote)
+                    {
+                        UpdateSelectedSpotifyConnectDeviceState(new SpotifyConnectDeviceInfo
+                        {
+                            Id = LocalSpotifyConnectDeviceId,
+                            Name = "This device",
+                            Type = device?.Type ?? "Computer",
+                            IsActive = device?.IsActive ?? true,
+                            IsRestricted = device?.IsRestricted ?? false,
+                            SupportsVolume = device?.SupportsVolume ?? true,
+                            VolumePercent = device?.VolumePercent,
+                            IsThisDevice = true
+                        });
+                    }
+                    return;
+                }
+            }
+
+            var trackInfo = CreateTrackInfo(playback.Item);
+            var fullTrack = playback.Item as FullTrack;
+            var progress = playback.ProgressMs < 0 ? 0 : (uint)playback.ProgressMs;
+
+            _remotePositionBaseMs = progress;
+            _remotePositionUpdatedAt = DateTimeOffset.UtcNow;
+
+            UpdateState(s =>
+            {
+                s.SpotifyConnectDeviceId = selectedId;
+                s.SpotifyConnectDeviceName = string.IsNullOrWhiteSpace(deviceName) ? s.SpotifyConnectDeviceName : deviceName;
+                s.IsSpotifyConnectRemote = true;
+                s.Track = trackInfo;
+                s.Metadata = fullTrack;
+                s.PlaybackState = playback.IsPlaying ? LibrespotPlaybackState.Playing : LibrespotPlaybackState.Paused;
+                s.PositionMs = progress;
+                s.DurationMs = trackInfo != null ? (uint)trackInfo.Duration.TotalMilliseconds : s.DurationMs;
+                s.ContextUri = playback.Context?.Uri ?? s.ContextUri;
+                s.ContextName = ResolveImmediateContextName(s.ContextUri, fullTrack);
+                s.ArtworkUri = ResolveRemoteArtwork(playback.Item);
+                s.IsOffline = false;
+                s.IsTrackMetadataFromCache = false;
+                s.IsCurrentTrackPersisted = trackInfo != null && App.OfflineCatalog.IsTrackPersisted(trackInfo.Uri);
+                s.StatusMessage = null;
+                s.Shuffle = playback.ShuffleState;
+                s.RepeatMode = MapRepeatMode(playback.RepeatState);
+                if (device?.VolumePercent.HasValue == true)
+                    s.Volume = (ushort)Math.Max(0, Math.Min(65535, device.VolumePercent.Value * 65535 / 100));
+            });
+
+            UpdateSmtcDisplay();
+            UpdateSmtcTimeline(progress);
+            if (_smtc != null)
+                _smtc.PlaybackStatus = playback.IsPlaying ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+        }
+
+        private void UpdateEstimatedRemotePosition()
+        {
+            if (_state.PlaybackState != LibrespotPlaybackState.Playing || _remotePositionUpdatedAt == DateTimeOffset.MinValue)
+                return;
+
+            var elapsed = DateTimeOffset.UtcNow - _remotePositionUpdatedAt;
+            var estimated = _remotePositionBaseMs + (uint)Math.Max(0, elapsed.TotalMilliseconds);
+            ApplyPlaybackPosition(estimated, persistSnapshot: false);
+        }
+
+        private static LibrespotTrackInfo CreateTrackInfo(IPlayableItem item)
+        {
+            var track = item as FullTrack;
+            if (track != null)
+            {
+                return new LibrespotTrackInfo
+                {
+                    Uri = track.Uri,
+                    Name = track.Name,
+                    Artist = string.Join(", ", track.Artists?.Select(artist => artist.Name) ?? Enumerable.Empty<string>()),
+                    Album = track.Album?.Name,
+                    CoverUrl = track.Album?.Images?.FirstOrDefault()?.Url,
+                    Duration = TimeSpan.FromMilliseconds(track.DurationMs)
+                };
+            }
+
+            var episode = item as FullEpisode;
+            if (episode != null)
+            {
+                return new LibrespotTrackInfo
+                {
+                    Uri = episode.Uri,
+                    Name = episode.Name,
+                    Artist = episode.Show?.Name,
+                    Album = episode.Show?.Name,
+                    CoverUrl = episode.Images?.FirstOrDefault()?.Url,
+                    Duration = TimeSpan.FromMilliseconds(episode.DurationMs)
+                };
+            }
+
+            return null;
+        }
+
+        private static string ResolveRemoteArtwork(IPlayableItem item)
+        {
+            var track = item as FullTrack;
+            if (track != null)
+                return track.Album?.Images?.FirstOrDefault()?.Url;
+
+            var episode = item as FullEpisode;
+            return episode?.Images?.FirstOrDefault()?.Url;
+        }
+
+        private static int MapRepeatMode(string repeatState)
+        {
+            if (string.Equals(repeatState, "context", StringComparison.OrdinalIgnoreCase))
+                return 1;
+
+            if (string.Equals(repeatState, "track", StringComparison.OrdinalIgnoreCase))
+                return 2;
+
+            return 0;
+        }
+
         private async void OnTrackChanged(object sender, LibrespotTrackInfo track)
         {
             try
             {
+                if (!IsSelectedSpotifyConnectDeviceLocal)
+                    return;
+
                 if (track == null)
                 {
                     UpdateState(state =>
@@ -809,6 +1290,9 @@ namespace LibreSpotUWP.Services
         {
             try
             {
+                if (!IsSelectedSpotifyConnectDeviceLocal)
+                    return;
+
                 UpdateState(s => s.PlaybackState = state);
 
                 uint currentPos = _librespot.GetPositionMs();
@@ -865,6 +1349,9 @@ namespace LibreSpotUWP.Services
         {
             try
             {
+                if (!IsSelectedSpotifyConnectDeviceLocal)
+                    return;
+
                 ApplyPlaybackPosition(positionMs, persistSnapshot: _state.PlaybackState == LibrespotPlaybackState.Playing);
             }
             catch (Exception ex)
@@ -907,6 +1394,9 @@ namespace LibreSpotUWP.Services
 
         private void OnVolumeChanged(object sender, ushort volume)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+                return;
+
             _pendingVolume = volume;
             UpdateState(s => s.Volume = volume);
 
@@ -917,11 +1407,17 @@ namespace LibreSpotUWP.Services
 
         private void OnShuffleChanged(object sender, bool enabled)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+                return;
+
             UpdateState(s => s.Shuffle = enabled);
         }
 
         private void OnRepeatChanged(object sender, uint mode)
         {
+            if (!IsSelectedSpotifyConnectDeviceLocal)
+                return;
+
             UpdateState(s => s.RepeatMode = (int)mode);
         }
 
