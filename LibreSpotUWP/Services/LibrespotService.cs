@@ -64,6 +64,7 @@ namespace LibreSpotUWP.Services
         public event EventHandler<LibrespotSessionState> SessionStateChanged;
         public event EventHandler<LibrespotTrackInfo> TrackChanged;
         public event EventHandler<LibrespotPlaybackState> PlaybackStateChanged;
+        public event EventHandler<uint> PositionChanged;
         public event EventHandler<ushort> VolumeChanged;
         public event EventHandler<string> EndOfTrack;
         public event EventHandler<string> LogMessage;
@@ -1064,6 +1065,7 @@ namespace LibreSpotUWP.Services
 
         private void UpdatePosition(uint positionMs)
         {
+            RaiseOnMainThread(() => PositionChanged?.Invoke(this, positionMs), nameof(PositionChanged));
             RaiseOnMainThread(() => Seeked?.Invoke(this, positionMs), nameof(Seeked));
         }
 
