@@ -245,6 +245,43 @@ namespace LibreSpotUWP.Services
             return apiEx?.Response != null && apiEx.Response.StatusCode == (HttpStatusCode)429;
         }
 
+        private static string ExtractSpotifyId(string idOrUri)
+        {
+            if (string.IsNullOrWhiteSpace(idOrUri))
+                return null;
+
+            var parts = idOrUri.Split(':');
+            return parts.Length >= 3 ? parts[2] : idOrUri;
+        }
+
+        private static IEnumerable<List<string>> Batch(IEnumerable<string> values, int size)
+        {
+            var batch = new List<string>(size);
+            foreach (var value in values)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                batch.Add(value);
+                if (batch.Count < size)
+                    continue;
+
+                yield return batch;
+                batch = new List<string>(size);
+            }
+
+            if (batch.Count > 0)
+                yield return batch;
+        }
+
+        private Task InvalidatePlaylistAsync(string playlistId)
+        {
+            return Task.WhenAll(
+                _cache.InvalidateAsync($"global/playlists/{playlistId}"),
+                _cache.InvalidateAsync($"global/playlist_items/{playlistId}"),
+                _cache.InvalidateAsync("users/current/playlists"));
+        }
+
         private static FullTrack MapFullTrack(LibrespotTrackData payload)
         {
             if (payload == null)
@@ -859,6 +896,284 @@ namespace LibreSpotUWP.Services
                 forceRefresh);
         }
 
+        public async Task<CacheResponse<Paging<FullPlaylist>>> GetCurrentUserPlaylistsPageAsync(
+            int limit,
+            int offset,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
+
+            limit = Math.Max(1, Math.Min(50, limit));
+            offset = Math.Max(0, offset);
+
+            var key = $"users/current/playlists_page/{limit}_{offset}";
+            return await GetCachedResponseAsync(
+                key,
+                () => ExecuteAsync(
+                    c => c.Playlists.CurrentUsers(
+                        new PlaylistCurrentUsersRequest
+                        {
+                            Limit = limit,
+                            Offset = offset
+                        },
+                        ct),
+                    ct),
+                TtlSession,
+                forceRefresh);
+        }
+
+        public async Task<IReadOnlyDictionary<string, bool>> CheckTracksSavedAsync(
+            IEnumerable<string> trackIds,
+            CancellationToken ct = new CancellationToken())
+        {
+            var ids = (trackIds ?? Enumerable.Empty<string>())
+                .Select(ExtractSpotifyId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var result = ids.ToDictionary(id => id, id => false, StringComparer.OrdinalIgnoreCase);
+            foreach (var batch in Batch(ids, 50))
+            {
+                var checks = await ExecuteAsync(
+                    c => c.Library.CheckTracks(new LibraryCheckTracksRequest(batch), ct),
+                    ct).ConfigureAwait(false);
+
+                for (int i = 0; i < batch.Count && i < checks.Count; i++)
+                    result[batch[i]] = checks[i];
+            }
+
+            return result;
+        }
+
+        public async Task SetTracksSavedAsync(
+            IEnumerable<string> trackIds,
+            bool saved,
+            CancellationToken ct = new CancellationToken())
+        {
+            var ids = (trackIds ?? Enumerable.Empty<string>())
+                .Select(ExtractSpotifyId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (ids.Count == 0)
+                return;
+
+            foreach (var batch in Batch(ids, 50))
+            {
+                if (saved)
+                {
+                    await ExecuteAsync(
+                        c => c.Library.SaveTracks(new LibrarySaveTracksRequest(batch), ct),
+                        ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await ExecuteAsync(
+                        c => c.Library.RemoveTracks(new LibraryRemoveTracksRequest(batch), ct),
+                        ct).ConfigureAwait(false);
+                }
+            }
+
+            await _cache.InvalidateAsync("users/current/saved_tracks").ConfigureAwait(false);
+        }
+
+        public async Task<bool> CheckAlbumSavedAsync(
+            string albumId,
+            CancellationToken ct = new CancellationToken())
+        {
+            albumId = ExtractSpotifyId(albumId);
+            if (string.IsNullOrWhiteSpace(albumId))
+                return false;
+
+            var checks = await ExecuteAsync(
+                c => c.Library.CheckAlbums(new LibraryCheckAlbumsRequest(new List<string> { albumId }), ct),
+                ct).ConfigureAwait(false);
+
+            return checks.Count > 0 && checks[0];
+        }
+
+        public async Task SetAlbumSavedAsync(
+            string albumId,
+            bool saved,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
+
+            albumId = ExtractSpotifyId(albumId);
+            if (string.IsNullOrWhiteSpace(albumId))
+                return;
+
+            if (saved)
+            {
+                await ExecuteAsync(
+                    c => c.Library.SaveAlbums(new LibrarySaveAlbumsRequest(new List<string> { albumId }), ct),
+                    ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await ExecuteAsync(
+                    c => c.Library.RemoveAlbums(new LibraryRemoveAlbumsRequest(new List<string> { albumId }), ct),
+                    ct).ConfigureAwait(false);
+            }
+
+            await _cache.InvalidateAsync($"users/{_userId}/saved_albums").ConfigureAwait(false);
+        }
+
+        public async Task<bool> CheckPlaylistFollowedAsync(
+            string playlistId,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
+
+            playlistId = ExtractSpotifyId(playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId) || string.IsNullOrWhiteSpace(_userId))
+                return false;
+
+            var checks = await ExecuteAsync(
+                c => c.Follow.CheckPlaylist(
+                    playlistId,
+                    new FollowCheckPlaylistRequest(new List<string> { _userId }),
+                    ct),
+                ct).ConfigureAwait(false);
+
+            return checks.Count > 0 && checks[0];
+        }
+
+        public async Task SetPlaylistFollowedAsync(
+            string playlistId,
+            bool followed,
+            CancellationToken ct = new CancellationToken())
+        {
+            playlistId = ExtractSpotifyId(playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId))
+                return;
+
+            if (followed)
+                await ExecuteAsync(c => c.Follow.FollowPlaylist(playlistId, ct), ct).ConfigureAwait(false);
+            else
+                await ExecuteAsync(c => c.Follow.UnfollowPlaylist(playlistId, ct), ct).ConfigureAwait(false);
+
+            await _cache.InvalidateAsync("users/current/playlists").ConfigureAwait(false);
+        }
+
+        public async Task<bool> PlaylistContainsTrackAsync(
+            string playlistId,
+            string trackUri,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
+
+            playlistId = ExtractSpotifyId(playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId) || string.IsNullOrWhiteSpace(trackUri))
+                return false;
+
+            var trackId = ExtractSpotifyId(trackUri);
+            if (string.IsNullOrWhiteSpace(trackId))
+                return false;
+
+            var offset = 0;
+            const int limit = 100;
+            while (true)
+            {
+                var request = new PlaylistGetItemsRequest
+                {
+                    Limit = limit,
+                    Offset = offset
+                };
+                request.Fields.Add("items(track(type,id,uri)),next,total");
+
+                var page = await ExecuteAsync(
+                    c => c.Playlists.GetItems(
+                        playlistId,
+                        request,
+                        ct),
+                    ct).ConfigureAwait(false);
+
+                var items = page?.Items ?? new List<PlaylistTrack<IPlayableItem>>();
+                if (items.Any(item =>
+                    item?.Track is FullTrack track &&
+                    (string.Equals(track.Uri, trackUri, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(track.Id, trackId, StringComparison.OrdinalIgnoreCase))))
+                {
+                    return true;
+                }
+
+                if (items.Count == 0 || string.IsNullOrWhiteSpace(page?.Next))
+                    return false;
+
+                offset += items.Count;
+            }
+        }
+
+        public async Task AddTrackToPlaylistAsync(
+            string playlistId,
+            string trackUri,
+            CancellationToken ct = new CancellationToken())
+        {
+            playlistId = ExtractSpotifyId(playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId) || string.IsNullOrWhiteSpace(trackUri))
+                return;
+
+            await ExecuteAsync(
+                c => c.Playlists.AddItems(
+                    playlistId,
+                    new PlaylistAddItemsRequest(new List<string> { trackUri }),
+                    ct),
+                ct).ConfigureAwait(false);
+
+            await InvalidatePlaylistAsync(playlistId).ConfigureAwait(false);
+        }
+
+        public async Task RemoveTrackFromPlaylistAsync(
+            string playlistId,
+            string trackUri,
+            CancellationToken ct = new CancellationToken())
+        {
+            playlistId = ExtractSpotifyId(playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId) || string.IsNullOrWhiteSpace(trackUri))
+                return;
+
+            var request = new PlaylistRemoveItemsRequest
+            {
+                Tracks = new List<PlaylistRemoveItemsRequest.Item>
+                {
+                    new PlaylistRemoveItemsRequest.Item { Uri = trackUri }
+                }
+            };
+
+            await ExecuteAsync(
+                c => c.Playlists.RemoveItems(playlistId, request, ct),
+                ct).ConfigureAwait(false);
+
+            await InvalidatePlaylistAsync(playlistId).ConfigureAwait(false);
+        }
+
+        public async Task ReorderPlaylistItemsAsync(
+            string playlistId,
+            int rangeStart,
+            int insertBefore,
+            int rangeLength = 1,
+            CancellationToken ct = new CancellationToken())
+        {
+            playlistId = ExtractSpotifyId(playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId))
+                return;
+
+            var request = new PlaylistReorderItemsRequest(rangeStart, insertBefore)
+            {
+                RangeLength = Math.Max(1, rangeLength)
+            };
+
+            await ExecuteAsync(
+                c => c.Playlists.ReorderItems(playlistId, request, ct),
+                ct).ConfigureAwait(false);
+
+            await InvalidatePlaylistAsync(playlistId).ConfigureAwait(false);
+        }
+
         public async Task<CacheResponse<Paging<SavedTrack>>> GetSavedTracksAsync(
             bool forceRefresh = false,
             CancellationToken ct = new CancellationToken())
@@ -873,6 +1188,33 @@ namespace LibreSpotUWP.Services
                     ct.ThrowIfCancellationRequested();
                     return await ExecuteAsync(c => c.Library.GetTracks(ct), ct).ConfigureAwait(false);
                 },
+                TtlSession,
+                forceRefresh);
+        }
+
+        public async Task<CacheResponse<Paging<SavedTrack>>> GetSavedTracksPageAsync(
+            int limit,
+            int offset,
+            bool forceRefresh = false,
+            CancellationToken ct = new CancellationToken())
+        {
+            await EnsureUserContextAsync(ct).ConfigureAwait(false);
+
+            limit = Math.Max(1, Math.Min(50, limit));
+            offset = Math.Max(0, offset);
+
+            var key = $"users/current/saved_tracks_page/{limit}_{offset}";
+            return await GetCachedResponseAsync(
+                key,
+                () => ExecuteAsync(
+                    c => c.Library.GetTracks(
+                        new LibraryTracksRequest
+                        {
+                            Limit = limit,
+                            Offset = offset
+                        },
+                        ct),
+                    ct),
                 TtlSession,
                 forceRefresh);
         }

@@ -3,6 +3,7 @@ using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -83,15 +84,16 @@ namespace LibreSpotUWP.Controls
 
         public void AddTracks(IEnumerable<FullTrack> tracks, bool clearExisting, int startingIndex = 0)
         {
+            var trackList = (tracks ?? Enumerable.Empty<FullTrack>()).ToList();
             if (clearExisting)
             {
                 TrackListView.Items.Clear();
                 _rowVisuals.Clear();
-                _showAlbum = tracks.Any(t => t.Album != null);
+                _showAlbum = trackList.Any(t => t.Album != null);
                 AddHeader();
             }
 
-            foreach (var t in tracks)
+            foreach (var t in trackList)
             {
                 var item = new TrackListItem
                 {
@@ -113,6 +115,7 @@ namespace LibreSpotUWP.Controls
 
             _isLoadingMore = false;
             LoadingIndicator.Visibility = Visibility.Collapsed;
+            _ = UpdateLikedStatesAsync(trackList);
         }
 
         private void AddHeader()
@@ -220,12 +223,10 @@ namespace LibreSpotUWP.Controls
             Grid.SetColumn(dur, col++);
             rowGrid.Children.Add(dur);
 
-            var track = item.RawTrack as FullTrack;
-            var persisted = track != null && IsTrackPersistedResolver?.Invoke(track) == true;
             var persistIcon = new FontIcon
             {
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                Glyph = persisted ? "\uE738" : "\uE710"
+                Glyph = TrackAddToFlyoutHelper.AddToGlyph
             };
             var persistButton = new Button
             {
@@ -246,10 +247,18 @@ namespace LibreSpotUWP.Controls
             actionHost.Children.Add(persistButton);
             actionHost.Children.Add(progressRing);
 
+            persistButton.Click += async (s, e) =>
+            {
+                if (item.RawTrack is FullTrack clickedTrack)
+                {
+                    await TrackAddToFlyoutHelper.HandleTrackAddToAsync(persistButton, clickedTrack, persistIcon);
+                    if (!string.IsNullOrWhiteSpace(clickedTrack.Uri) && _rowVisuals.TryGetValue(clickedTrack.Uri, out var visuals))
+                        UpdateRowVisuals(visuals, clickedTrack.Uri);
+                }
+            };
             persistButton.Tapped += (s, e) =>
             {
                 e.Handled = true;
-                TrackPersistRequested?.Invoke(this, new TrackClickedEventArgs(item.RawTrack));
             };
             Grid.SetColumn(actionHost, col++);
             rowGrid.Children.Add(actionHost);
@@ -333,18 +342,40 @@ namespace LibreSpotUWP.Controls
                 });
         }
 
+        private async Task UpdateLikedStatesAsync(IReadOnlyList<FullTrack> tracks)
+        {
+            if (tracks == null || tracks.Count == 0)
+                return;
+
+            await TrackAddToFlyoutHelper.LoadLikedStatesAsync(tracks);
+            await Dispatcher.RunAsync(
+                Windows.UI.Core.CoreDispatcherPriority.Normal,
+                () =>
+                {
+                    foreach (var track in tracks)
+                    {
+                        if (!string.IsNullOrWhiteSpace(track?.Uri) && _rowVisuals.TryGetValue(track.Uri, out var visuals))
+                            UpdateRowVisuals(visuals, track.Uri);
+                    }
+                });
+        }
+
         private void UpdateRowVisuals(TrackRowVisuals visuals, string trackUri)
         {
-            var persisted = IsTrackPersistedResolver?.Invoke(new FullTrack { Uri = trackUri }) == true;
-            var downloadState = App.Downloads?.GetTrackStatus(trackUri)?.State ?? DownloadTrackState.Idle;
-            var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
+            if (visuals == null)
+                return;
 
-            visuals.ProgressRing.IsActive = isDownloading;
-            visuals.ProgressRing.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
-            visuals.ProgressBar.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
-            visuals.PersistButton.Visibility = isDownloading ? Visibility.Collapsed : Visibility.Visible;
-            visuals.PersistButton.IsEnabled = !isDownloading;
-            visuals.PersistIcon.Glyph = (persisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
+            var track = new FullTrack { Uri = trackUri, Id = SpotifyIdHelper.TrackUriToId(trackUri) };
+            var liked = TrackAddToFlyoutHelper.TryGetCachedLikedState(track, out var cachedLiked) && cachedLiked;
+
+            visuals.ProgressRing.IsActive = false;
+            visuals.ProgressRing.Visibility = Visibility.Collapsed;
+            visuals.ProgressBar.Visibility = Visibility.Collapsed;
+            visuals.PersistButton.Visibility = Visibility.Visible;
+            visuals.PersistButton.IsEnabled = ConnectivityHelper.HasInternetAccess();
+            visuals.PersistIcon.Glyph = TrackAddToFlyoutHelper.AddToGlyph;
+            visuals.PersistIcon.Foreground = TrackAddToFlyoutHelper.GetStateBrush(liked);
+            ToolTipService.SetToolTip(visuals.PersistButton, liked ? "Add to playlist" : "Add to liked songs");
             visuals.RowGrid.Opacity = IsTrackAvailable(trackUri) ? 1.0 : 0.45;
             ApplyRowBackground(visuals);
         }

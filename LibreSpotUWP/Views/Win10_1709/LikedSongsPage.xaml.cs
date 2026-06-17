@@ -56,8 +56,15 @@ namespace LibreSpotUWP.Views.Win10_1709
             if (ViewModel.LastLoadedBatch.Any())
             {
                 TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
-                TrackList.AddTracks(MapToFullTracks(ViewModel.GetOrderedTracks()), true, 0);
+                TrackList.AddTracks(
+                    MapToFullTracks(ViewModel.LastLoadedBatch),
+                    false,
+                    ViewModel.TotalTracksLoaded - ViewModel.LastLoadedBatch.Count);
                 UpdateSummary();
+            }
+            else
+            {
+                TrackList.SetIsLoading(false);
             }
         }
 
@@ -143,15 +150,14 @@ namespace LibreSpotUWP.Views.Win10_1709
             SummaryText.Text = $"{ViewModel.SongCount} songs • {durationText}{approximate}";
         }
 
-        private void SortComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void SortComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!(SortComboBox.SelectedItem is ComboBoxItem item))
                 return;
 
             ViewModel.SortDescending = !string.Equals(item.Tag as string, "asc", StringComparison.OrdinalIgnoreCase);
-            TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
-            TrackList.AddTracks(MapToFullTracks(ViewModel.GetOrderedTracks()), true, 0);
-            UpdateSummary();
+            if (ViewModel.Tracks != null)
+                await LoadLikedSongsAsync(false);
         }
 
         private static string BuildCacheTooltip(DateTimeOffset? cachedAt)

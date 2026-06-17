@@ -18,7 +18,7 @@ namespace LibreSpotUWP.Services
         private string _codeVerifier;
 
         private const string StorageKey = "spotify_auth_state";
-        private const int RequiredScopeVersion = 2;
+        private const int RequiredScopeVersion = 3;
 
         public AuthState Current { get; private set; }
         public event EventHandler<AuthState> AuthStateChanged;
@@ -53,6 +53,9 @@ namespace LibreSpotUWP.Services
                     Scopes.UserReadRecentlyPlayed,
                     Scopes.UserTopRead,
                     Scopes.UserLibraryRead,
+                    Scopes.UserLibraryModify,
+                    Scopes.PlaylistModifyPrivate,
+                    Scopes.PlaylistModifyPublic,
                     Scopes.UserReadPlaybackState,
                     Scopes.UserModifyPlaybackState,
                     Scopes.UserReadCurrentlyPlaying,

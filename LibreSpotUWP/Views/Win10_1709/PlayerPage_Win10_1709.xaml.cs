@@ -1,3 +1,4 @@
+using LibreSpotUWP.Controls;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Helpers;
@@ -109,16 +110,10 @@ namespace LibreSpotUWP.Views.Win10_1709
             }
 
             PlayPauseIcon.Symbol = state.IsPlaying ? Symbol.Pause : Symbol.Play;
-            var downloadState = App.Downloads?.GetTrackStatus(state.Track?.Uri)?.State ?? DownloadTrackState.Idle;
-            var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
-            PersistButton.IsEnabled = state.Track != null && !isDownloading;
-            PersistButton.Visibility = isDownloading ? Visibility.Collapsed : Visibility.Visible;
-            PersistProgressRing.IsActive = isDownloading;
-            PersistProgressRing.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
-            PersistIcon.Glyph = (state.IsCurrentTrackPersisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
-            ToolTipService.SetToolTip(
-                PersistButton,
-                state.IsCurrentTrackPersisted ? "Remove from downloads" : "Download this track");
+            PersistButton.Visibility = Visibility.Visible;
+            PersistProgressRing.IsActive = false;
+            PersistProgressRing.Visibility = Visibility.Collapsed;
+            _ = TrackAddToFlyoutHelper.UpdateTrackLikeVisualAsync(state, PersistIcon, PersistButton);
             CacheIndicator.Visibility = Visibility.Collapsed;
             UpdateCacheStatus(state);
 
@@ -221,7 +216,7 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         private async void PersistButton_Click(object sender, RoutedEventArgs e)
         {
-            await ToggleCurrentTrackPersistenceAsync();
+            await TrackAddToFlyoutHelper.HandleTrackAddToAsync(PersistButton, Media?.Current, PersistIcon);
         }
 
         private void ShareButton_Click(object sender, RoutedEventArgs e)
@@ -492,14 +487,6 @@ namespace LibreSpotUWP.Views.Win10_1709
                 return;
 
             await App.Media.PlayAsync(trackUri, null);
-        }
-
-        private Task ToggleCurrentTrackPersistenceAsync()
-        {
-            if (Media?.Current == null)
-                return Task.CompletedTask;
-
-            return Media.SetCurrentTrackPersistedAsync(!Media.Current.IsCurrentTrackPersisted);
         }
 
         private void DataTransferManager_DataRequested(DataTransferManager sender, DataRequestedEventArgs args)

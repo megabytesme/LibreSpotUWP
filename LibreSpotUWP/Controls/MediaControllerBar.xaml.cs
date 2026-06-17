@@ -80,16 +80,10 @@ namespace LibreSpotUWP.Controls
             TotalTime.Text = Format(state.DurationMs);
 
             PlayPauseIcon.Glyph = state.IsPlaying ? "\uE769" : "\uE768";
-            var downloadState = App.Downloads?.GetTrackStatus(state.Track?.Uri)?.State ?? DownloadTrackState.Idle;
-            var isDownloading = downloadState == DownloadTrackState.Queued || downloadState == DownloadTrackState.Downloading;
-            PersistButton.IsEnabled = state.Track != null && !isDownloading;
-            PersistButton.Visibility = isDownloading ? Visibility.Collapsed : Visibility.Visible;
-            PersistProgressRing.IsActive = isDownloading;
-            PersistProgressRing.Visibility = isDownloading ? Visibility.Visible : Visibility.Collapsed;
-            PersistIcon.Glyph = (state.IsCurrentTrackPersisted || downloadState == DownloadTrackState.Completed) ? "\uE738" : "\uE710";
-            ToolTipService.SetToolTip(
-                PersistButton,
-                state.IsCurrentTrackPersisted ? "Remove from downloads" : "Download this track");
+            PersistButton.Visibility = Visibility.Visible;
+            PersistProgressRing.IsActive = false;
+            PersistProgressRing.Visibility = Visibility.Collapsed;
+            _ = TrackAddToFlyoutHelper.UpdateTrackLikeVisualAsync(state, PersistIcon, PersistButton);
 
             UpdateShuffleVisual(state.Shuffle);
             UpdateRepeatVisual(state.RepeatMode);
@@ -133,7 +127,7 @@ namespace LibreSpotUWP.Controls
 
         private async void PersistButton_Click(object sender, RoutedEventArgs e)
         {
-            await ToggleCurrentTrackPersistenceAsync();
+            await TrackAddToFlyoutHelper.HandleTrackAddToAsync(PersistButton, _media?.Current, PersistIcon);
         }
 
         private void TrackArtistButton_Click(object sender, RoutedEventArgs e)
@@ -356,14 +350,6 @@ namespace LibreSpotUWP.Controls
                 case 1: RepeatIcon.Glyph = "\uE8EE"; break;
                 case 2: RepeatIcon.Glyph = "\uE8ED"; break;
             }
-        }
-
-        private Task ToggleCurrentTrackPersistenceAsync()
-        {
-            if (_media?.Current == null)
-                return Task.CompletedTask;
-
-            return _media.SetCurrentTrackPersistedAsync(!_media.Current.IsCurrentTrackPersisted);
         }
 
         private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)

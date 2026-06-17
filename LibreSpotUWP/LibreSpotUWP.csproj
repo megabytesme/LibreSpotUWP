@@ -153,6 +153,7 @@
     <Compile Include="Controls\PlayActionsControl.xaml.cs">
       <DependentUpon>PlayActionsControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Controls\TrackAddToFlyoutHelper.cs" />
     <Compile Include="Controls\HeaderImageControl.xaml.cs">
       <DependentUpon>HeaderImageControl.xaml</DependentUpon>
     </Compile>

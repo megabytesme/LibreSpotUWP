@@ -1,4 +1,4 @@
-using LibreSpotUWP.Controls;
+﻿using LibreSpotUWP.Controls;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.ViewModels;
@@ -44,7 +44,8 @@ namespace LibreSpotUWP.Views.Win11
             {
                 ViewModel.ShufflePlaylist();
             };
-            PlayActions.PersistRequested += async (s, e) => await TogglePlaylistPersistenceAsync();
+            PlayActions.AddToRequested += async (s, e) => await TogglePlaylistFollowedAsync();
+            PlayActions.DownloadRequested += async (s, e) => await TogglePlaylistPersistenceAsync();
 
             TrackList.TrackClicked += OnTrackClicked;
             TrackList.TrackPersistRequested += OnTrackPersistRequested;
@@ -85,7 +86,8 @@ namespace LibreSpotUWP.Views.Win11
 
                 HeaderControl.SetPlaylist(ViewModel.Playlist);
                 UpdateStatusBanner();
-                PlayActions.SetPersisted(App.OfflineCatalog.IsPlaylistPersisted(ViewModel.Playlist?.Id));
+                PlayActions.SetDownloaded(App.OfflineCatalog.IsPlaylistPersisted(ViewModel.Playlist?.Id));
+                await UpdatePlaylistFollowedStateAsync();
 
                 var tracks = ViewModel.Tracks?.Items?.Select(t => t.Track as FullTrack).Where(t => t != null)
                     ?? Enumerable.Empty<FullTrack>();
@@ -137,6 +139,39 @@ namespace LibreSpotUWP.Views.Win11
             TrackList.AddTracks(ViewModel.Tracks.Items.Select(t => t.Track as FullTrack).Where(t => t != null), true, 0);
         }
 
+        private async Task UpdatePlaylistFollowedStateAsync()
+        {
+            if (ViewModel.Playlist == null)
+                return;
+
+            try
+            {
+                var followed = await App.SpotifyWeb.CheckPlaylistFollowedAsync(ViewModel.Playlist.Id);
+                PlayActions.SetAdded(followed, "Remove playlist from library", "Add playlist to library");
+            }
+            catch
+            {
+                PlayActions.SetAdded(false, "Remove playlist from library", "Add playlist to library");
+            }
+        }
+
+        private async Task TogglePlaylistFollowedAsync()
+        {
+            if (ViewModel.Playlist == null || !Helpers.ConnectivityHelper.HasInternetAccess())
+                return;
+
+            try
+            {
+                var followed = await App.SpotifyWeb.CheckPlaylistFollowedAsync(ViewModel.Playlist.Id);
+                await App.SpotifyWeb.SetPlaylistFollowedAsync(ViewModel.Playlist.Id, !followed);
+                PlayActions.SetAdded(!followed, "Remove playlist from library", "Add playlist to library");
+            }
+            catch
+            {
+                await UpdatePlaylistFollowedStateAsync();
+            }
+        }
+
         private async Task TogglePlaylistPersistenceAsync()
         {
             if (ViewModel.Playlist == null || ViewModel.Tracks?.Items == null)
@@ -147,7 +182,7 @@ namespace LibreSpotUWP.Views.Win11
             var tracks = ViewModel.Tracks.Items.Select(t => t.Track as FullTrack).Where(t => t != null).ToList();
             var persisted = App.OfflineCatalog.IsPlaylistPersisted(ViewModel.Playlist.Id);
             await App.OfflineCatalog.SetPlaylistPersistedAsync(ViewModel.Playlist, tracks, !persisted);
-            PlayActions.SetPersisted(!persisted);
+            PlayActions.SetDownloaded(!persisted);
             TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
             TrackList.AddTracks(tracks, true, 0);
         }
@@ -168,6 +203,8 @@ namespace LibreSpotUWP.Views.Win11
                 await ViewModel.LoadAsync(ViewModel.Playlist.Id, true);
                 HeaderControl.SetPlaylist(ViewModel.Playlist);
                 UpdateStatusBanner();
+                PlayActions.SetDownloaded(App.OfflineCatalog.IsPlaylistPersisted(ViewModel.Playlist?.Id));
+                await UpdatePlaylistFollowedStateAsync();
                 TrackList.AddTracks(
                     ViewModel.Tracks?.Items?.Select(t => t.Track as FullTrack).Where(t => t != null)
                         ?? Enumerable.Empty<FullTrack>(),

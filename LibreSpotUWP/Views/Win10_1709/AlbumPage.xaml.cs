@@ -1,4 +1,4 @@
-using LibreSpotUWP.Controls;
+﻿using LibreSpotUWP.Controls;
 using LibreSpotUWP.ViewModels;
 using SpotifyAPI.Web;
 using System;
@@ -24,7 +24,8 @@ namespace LibreSpotUWP.Views.Win10_1709
             TrackList.AlbumClicked += (s, albumId) => NavigateToMain("Album", albumId);
             PlayActions.PlayRequested += (s, e) => ViewModel.PlayAlbum();
             PlayActions.ShuffleRequested += (s, e) => ViewModel.ShuffleAlbum();
-            PlayActions.PersistRequested += async (s, e) => await ToggleAlbumPersistenceAsync();
+            PlayActions.AddToRequested += async (s, e) => await ToggleAlbumSavedAsync();
+            PlayActions.DownloadRequested += async (s, e) => await ToggleAlbumPersistenceAsync();
             TrackList.TrackClicked += OnTrackClicked;
             TrackList.TrackPersistRequested += OnTrackPersistRequested;
             TrackList.LoadMoreRequested += OnLoadMoreRequested;
@@ -49,7 +50,8 @@ namespace LibreSpotUWP.Views.Win10_1709
 
                 HeaderControl.SetAlbum(ViewModel.Album);
                 UpdateStatusBanner();
-                PlayActions.SetPersisted(App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album?.Id));
+                PlayActions.SetDownloaded(App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album?.Id));
+                await UpdateAlbumSavedStateAsync();
 
                 var tracks = MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>());
                 TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
@@ -130,6 +132,39 @@ namespace LibreSpotUWP.Views.Win10_1709
             TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks.Items), true, 0);
         }
 
+        private async Task UpdateAlbumSavedStateAsync()
+        {
+            if (ViewModel.Album == null)
+                return;
+
+            try
+            {
+                var saved = await App.SpotifyWeb.CheckAlbumSavedAsync(ViewModel.Album.Id);
+                PlayActions.SetAdded(saved, "Remove album from library", "Add album to library");
+            }
+            catch
+            {
+                PlayActions.SetAdded(false, "Remove album from library", "Add album to library");
+            }
+        }
+
+        private async Task ToggleAlbumSavedAsync()
+        {
+            if (ViewModel.Album == null || !Helpers.ConnectivityHelper.HasInternetAccess())
+                return;
+
+            try
+            {
+                var saved = await App.SpotifyWeb.CheckAlbumSavedAsync(ViewModel.Album.Id);
+                await App.SpotifyWeb.SetAlbumSavedAsync(ViewModel.Album.Id, !saved);
+                PlayActions.SetAdded(!saved, "Remove album from library", "Add album to library");
+            }
+            catch
+            {
+                await UpdateAlbumSavedStateAsync();
+            }
+        }
+
         private async Task ToggleAlbumPersistenceAsync()
         {
             if (ViewModel.Album == null || ViewModel.Tracks?.Items == null)
@@ -139,7 +174,7 @@ namespace LibreSpotUWP.Views.Win10_1709
 
             var persisted = App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album.Id);
             await App.OfflineCatalog.SetAlbumPersistedAsync(ViewModel.Album, ViewModel.Tracks.Items, !persisted);
-            PlayActions.SetPersisted(!persisted);
+            PlayActions.SetDownloaded(!persisted);
             TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
             TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks.Items), true, 0);
         }
@@ -160,6 +195,8 @@ namespace LibreSpotUWP.Views.Win10_1709
                 await ViewModel.LoadAsync(ViewModel.Album.Id, true);
                 HeaderControl.SetAlbum(ViewModel.Album);
                 UpdateStatusBanner();
+                PlayActions.SetDownloaded(App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album?.Id));
+                await UpdateAlbumSavedStateAsync();
                 TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks?.Items ?? new List<SimpleTrack>()), true, 0);
             }
             catch (OperationCanceledException)
