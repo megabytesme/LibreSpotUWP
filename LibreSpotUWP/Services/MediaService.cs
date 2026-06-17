@@ -127,6 +127,7 @@ namespace LibreSpotUWP.Services
 
             _mediaPlayer.Source = CreateSilentMediaSource();
             await RestorePlaybackSnapshotAsync();
+            await PrewarmRingPlayerAsync();
 
             _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _positionTimer.Tick += PositionTimer_Tick;
@@ -213,6 +214,16 @@ namespace LibreSpotUWP.Services
             }
             else if (isOffline)
             {
+                if (isDirectTrack && !App.OfflineCatalog.IsTrackPersisted(directTrackUri))
+                {
+                    UpdateState(s =>
+                    {
+                        s.IsOffline = true;
+                        s.StatusMessage = "Offline. This track has not finished downloading yet.";
+                    });
+                    return;
+                }
+
                 var queueSeed = await App.OfflineCatalog.GetTrackUrisForContextAsync(originalContextUri);
                 _offlineQueue = queueSeed.ToArray();
                 _offlineQueueIndex = Array.IndexOf(_offlineQueue, directTrackUri);
@@ -465,6 +476,23 @@ namespace LibreSpotUWP.Services
             _ringPlayer = new LibrespotRingBufferPlayer(props);
             await _ringPlayer.InitializeAsync();
             _ringPlayer.SetAudioEffectsPreset(UserSettings.AudioEffectsPreset);
+        }
+
+        private async Task PrewarmRingPlayerAsync()
+        {
+            if ((_librespot as LibrespotService)?.HasInstance != true)
+                return;
+
+            try
+            {
+                await EnsureRingPlayerAsync();
+                _ringPlayer?.Stop();
+                LogService.Info("[MediaService.PrewarmRingPlayerAsync] Ring buffer player initialized during startup.");
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.PrewarmRingPlayerAsync] Unable to prewarm ring buffer player: {ex.Message}");
+            }
         }
 
         private async void OnTrackChanged(object sender, LibrespotTrackInfo track)
