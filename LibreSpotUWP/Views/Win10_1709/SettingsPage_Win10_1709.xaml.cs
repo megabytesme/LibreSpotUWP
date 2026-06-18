@@ -460,7 +460,9 @@ namespace LibreSpotUWP.Views.Win10_1709
 
             try
             {
-                // todo: reset
+                LoadingProgressRing.IsActive = true;
+                LoadingOverlay.Visibility = Visibility.Visible;
+                await AppResetHelper.ResetAllAppDataAsync();
 #if UWP1507
                 await ShowSimpleDialogAsync("Restart Required", "The app will now close. Please restart it to apply the reset.");
                 Application.Current.Exit();
@@ -471,6 +473,11 @@ namespace LibreSpotUWP.Views.Win10_1709
 #endif
             }
             catch (Exception ex) { await ShowSimpleDialogAsync("Error", ex.Message); }
+            finally
+            {
+                LoadingProgressRing.IsActive = false;
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+            }
         }
 
         protected ContentDialog CreateDialog() => new ContentDialog();
@@ -597,7 +604,18 @@ namespace LibreSpotUWP.Views.Win10_1709
         private void RunOnUI(Action action)
             => _ = Dispatcher.RunAsync(
                 Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () => action());
+                () =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Error(ex, "[SettingsPage_Win10_1709.RunOnUI] Failed.");
+                        throw;
+                    }
+                });
 
         private void UpdateLibrespotStatus(LibrespotSessionState state)
         {
@@ -607,19 +625,27 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         private void UpdateSpotifyApiStatus(AuthState state)
         {
-            SpotifyApiStatusText.Text = (state == null || state.IsExpired) ? "Web API: Logged Out" : "Web API: Authenticated";
-            LastTokenRefreshText.Text = state?.LastTokenRefreshAt.HasValue == true
-                ? $"Last token refresh: {state.LastTokenRefreshAt.Value.LocalDateTime:G}"
-                : "Last token refresh: Never";
-            TokenValidUntilText.Text = state != null
-                ? $"Token valid until: {state.ExpiresAt.LocalDateTime:G}"
-                : "Token valid until: Unknown";
-            RefreshTokenValidUntilText.Visibility = state?.RefreshTokenExpiresAt.HasValue == true
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            RefreshTokenValidUntilText.Text = state?.RefreshTokenExpiresAt.HasValue == true
-                ? $"Refresh token expiry: {state.RefreshTokenExpiresAt.Value.LocalDateTime:G}"
-                : string.Empty;
+            try
+            {
+                SpotifyApiStatusText.Text = (state == null || state.IsExpired) ? "Web API: Logged Out" : "Web API: Authenticated";
+                LastTokenRefreshText.Text = state?.LastTokenRefreshAt.HasValue == true
+                    ? $"Last token refresh: {state.LastTokenRefreshAt.Value.LocalDateTime:G}"
+                    : "Last token refresh: Never";
+                TokenValidUntilText.Text = state != null
+                    ? $"Token valid until: {state.ExpiresAt.LocalDateTime:G}"
+                    : "Token valid until: Unknown";
+                RefreshTokenValidUntilText.Visibility = state?.RefreshTokenExpiresAt.HasValue == true
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                RefreshTokenValidUntilText.Text = state?.RefreshTokenExpiresAt.HasValue == true
+                    ? $"Refresh token expiry: {state.RefreshTokenExpiresAt.Value.LocalDateTime:G}"
+                    : string.Empty;
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[SettingsPage_Win10_1709.UpdateSpotifyApiStatus] Failed.");
+                throw;
+            }
         }
 
         private async Task RefreshStorageStatusAsync()
@@ -692,93 +718,15 @@ namespace LibreSpotUWP.Views.Win10_1709
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-
-            if (ScannerPage.LastScanResult != null)
-            {
-                var rawData = ScannerPage.LastScanResult.Text;
-                ScannerPage.LastScanResult = null;
-
-                await ProcessQrLoginAsync(rawData);
-            }
+            await QrLoginHelper.TryConsumePendingScanAsync(
+                _auth ?? App.SpotifyAuth,
+                isBusy => RunOnUI(() =>
+                {
+                    LoadingProgressRing.IsActive = isBusy;
+                    LoadingOverlay.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+                }));
         }
 
-        private async Task ProcessQrLoginAsync(string json)
-        {
-            try
-            {
-                var importedState = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
-
-                if (importedState != null)
-                {
-                    var stackPanel = new StackPanel();
-                    stackPanel.Children.Add(new TextBlock
-                    {
-                        Text = "A Spotify session was found in the QR code. Would you like to import it and sign in?",
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(0, 0, 0, 12)
-                    });
-
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Import Session",
-                        Content = stackPanel,
-                        PrimaryButtonText = "Cancel",
-                        DefaultButton = ContentDialogButton.Primary
-                    };
-
-                    var btnImport = new Button
-                    {
-                        Content = "Confirm Import",
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        Style = (Style)Application.Current.Resources["AccentButtonStyle"]
-                    };
-
-                    bool userConfirmed = false;
-                    btnImport.Click += (s, args) => { userConfirmed = true; dialog.Hide(); };
-                    stackPanel.Children.Add(btnImport);
-
-                    await dialog.ShowAsync();
-
-                    if (userConfirmed)
-                    {
-                        RunOnUI(() =>
-                        {
-                            LoadingProgressRing.IsActive = true;
-                            LoadingOverlay.Visibility = Visibility.Visible;
-                        });
-                        await _auth.ImportAuthStateAsync(importedState);
-
-                        var successDialog = new ContentDialog
-                        {
-                            Title = "Success",
-                            Content = new TextBlock { Text = "Session imported successfully via QR!" },
-                            PrimaryButtonText = "OK"
-                        };
-                        await successDialog.ShowAsync();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"QR Import Error: {ex}");
-
-                var errorDialog = new ContentDialog
-                {
-                    Title = "Import Failed",
-                    Content = new TextBlock { Text = "Failed to read Login QR Code. It may be corrupted or in an invalid format." },
-                    PrimaryButtonText = "Close"
-                };
-                await errorDialog.ShowAsync();
-            }
-            finally
-            {
-                RunOnUI(() =>
-                {
-                    LoadingProgressRing.IsActive = false;
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                });
-            }
-        }
     }
 }
 

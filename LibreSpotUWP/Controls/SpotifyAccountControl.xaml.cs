@@ -273,21 +273,20 @@ namespace LibreSpotUWP.Controls
 
         private async Task ShowQrSignInHelpAsync()
         {
-            var content = new StackPanel
-            {
-                Spacing = 12
-            };
+            var content = new StackPanel();
 
             content.Children.Add(new TextBlock
             {
                 Text = "Scan a QR code from another LibreSpotUWP device that is already signed in, or use the LibreSpotUWP Login Helper app on another Windows device to generate one.",
+                Margin = new Thickness(0, 0, 0, 12),
                 TextWrapping = TextWrapping.Wrap
             });
 
             var linkButton = new HyperlinkButton
             {
                 Content = "Open LibreSpotUWP on GitHub",
-                HorizontalAlignment = HorizontalAlignment.Left
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 12)
             };
             linkButton.Click += async (s, e) => await Launcher.LaunchUriAsync(LoginHelperProjectUri);
             content.Children.Add(linkButton);

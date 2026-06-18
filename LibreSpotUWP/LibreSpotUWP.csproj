@@ -181,8 +181,10 @@
     <Compile Include="Converters\Converters.cs" />
     <Compile Include="Helpers\AudioFormatProbe.cs" />
     <Compile Include="Helpers\BarcodeHelper.cs" />
+    <Compile Include="Helpers\AppResetHelper.cs" />
     <Compile Include="Helpers\NavigationHelper.cs" />
     <Compile Include="Helpers\OSHelper.cs" />
+    <Compile Include="Helpers\QrLoginHelper.cs" />
     <Compile Include="Helpers\SpotifyIdHelper.cs" />
     <Compile Include="Models\CacheResponse.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
