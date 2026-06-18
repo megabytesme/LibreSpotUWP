@@ -32,7 +32,7 @@ namespace LibreSpotUWP.Controls
 
     public sealed partial class SpotifyAccountControl : UserControl
     {
-        private static readonly Uri LoginHelperProjectUri = new Uri("https://github.com/megabytesme/LibreSpotUWP");
+        private static readonly Uri LoginHelperProjectUri = new Uri("https://github.com/megabytesme/LibreSpotUWPLoginHelper/releases/latest");
         private ISpotifyAuthService _auth;
         private ISpotifyWebService _web;
 
@@ -284,7 +284,7 @@ namespace LibreSpotUWP.Controls
 
             var linkButton = new HyperlinkButton
             {
-                Content = "Open LibreSpotUWP on GitHub",
+                Content = "Open LibreSpotUWP Login Helper on GitHub",
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 0, 0, 12)
             };
