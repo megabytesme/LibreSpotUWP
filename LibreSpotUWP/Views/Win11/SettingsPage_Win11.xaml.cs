@@ -510,8 +510,8 @@ namespace LibreSpotUWP.Views.Win11
                         new Run { Text = "LibreSpot Commit: " },
                         new Hyperlink
                         {
-                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/ad7e58284499914ccda9b3c872589f0363263b2a"),
-                            Inlines = { new Run { Text = "ad7e58284499914ccda9b3c872589f0363263b2a" } }
+                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/39d2ac92c7e7e8be768a89b8f491b3dd6b5cbe85"),
+                            Inlines = { new Run { Text = "39d2ac92c7e7e8be768a89b8f491b3dd6b5cbe85" } }
                         },
                         new LineBreak(),
                         new LineBreak(),
