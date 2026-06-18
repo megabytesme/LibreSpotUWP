@@ -18,6 +18,9 @@ namespace LibreSpotUWP.Services
 {
     public sealed class OfflineCatalogService : IOfflineCatalogService
     {
+        private const int MaxPersistedTrackCount = 10000;
+        private const string PersistenceLimitMessage = "Downloaded music is limited to 10,000 tracks.";
+        private static readonly TimeSpan PersistenceLeaseDuration = TimeSpan.FromDays(30);
         private static readonly HttpClient _httpClient = new HttpClient();
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
         private readonly string _catalogPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "offline-catalog.json");
@@ -37,7 +40,8 @@ namespace LibreSpotUWP.Services
                 {
                     var json = await File.ReadAllTextAsync(_catalogPath).ConfigureAwait(false);
                     _catalog = JsonConvert.DeserializeObject<OfflineCatalogData>(json) ?? new OfflineCatalogData();
-                    MigrateDownloadedState();
+                    if (MigrateDownloadedState())
+                        await SaveAsync().ConfigureAwait(false);
                 }
 
                 _initialized = true;
@@ -51,18 +55,29 @@ namespace LibreSpotUWP.Services
 
         public bool IsTrackPersisted(string trackUri)
         {
+            var now = DateTimeOffset.UtcNow;
             var track = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == trackUri);
-            return track != null && TrackHasPersistence(track);
+            return track != null && TrackHasPersistence(track, now);
         }
 
         public bool IsAlbumPersisted(string albumId)
         {
-            return _catalog.Albums.Any(a => a.AlbumId == albumId);
+            if (string.IsNullOrWhiteSpace(albumId))
+                return false;
+
+            var now = DateTimeOffset.UtcNow;
+            var album = _catalog.Albums.FirstOrDefault(a => a.AlbumId == albumId);
+            return album?.TrackUris?.Any(uri => IsTrackPersistedInCatalog(uri, now)) == true;
         }
 
         public bool IsPlaylistPersisted(string playlistId)
         {
-            return _catalog.Playlists.Any(p => p.PlaylistId == playlistId);
+            if (string.IsNullOrWhiteSpace(playlistId))
+                return false;
+
+            var now = DateTimeOffset.UtcNow;
+            var playlist = _catalog.Playlists.FirstOrDefault(p => p.PlaylistId == playlistId);
+            return playlist?.TrackUris?.Any(uri => IsTrackPersistedInCatalog(uri, now)) == true;
         }
 
         public async Task SetTrackPersistedAsync(FullTrack track, bool persisted)
@@ -73,9 +88,16 @@ namespace LibreSpotUWP.Services
             await InitializeAsync().ConfigureAwait(false);
 
             LogService.Info($"[OfflineCatalogService.SetTrackPersistedAsync] Persisted={persisted} track={track.Uri}.");
+            if (persisted && !CanAddPersistedTracks(new[] { track.Uri }, out var activeTracks, out var newTracks))
+            {
+                LogService.Warn($"[OfflineCatalogService.SetTrackPersistedAsync] {PersistenceLimitMessage} active={activeTracks}, requestedNew={newTracks}.");
+                return;
+            }
+
             var groupId = persisted ? App.Downloads.BeginGroup(track.Name ?? "Song download", 1) : null;
             var imageLocalUri = await CacheImageAsync(track.Album?.Images?.FirstOrDefault()?.Url, track.Album?.Id ?? track.Id).ConfigureAwait(false);
             var alreadyDownloaded = false;
+            var leaseExpiresAtUtc = CreateLeaseExpiration();
 
             if (persisted)
             {
@@ -86,6 +108,7 @@ namespace LibreSpotUWP.Services
                     var entry = GetOrCreateTrackEntry(track);
                     entry.ImageLocalUri = imageLocalUri ?? entry.ImageLocalUri;
                     entry.IsExplicitlySaved = true;
+                    TouchLease(entry, leaseExpiresAtUtc);
                     alreadyDownloaded = entry.DownloadState == DownloadTrackState.Completed;
                     if (entry.DownloadState != DownloadTrackState.Completed)
                         entry.DownloadState = DownloadTrackState.Queued;
@@ -156,6 +179,8 @@ namespace LibreSpotUWP.Services
                 var entry = GetOrCreateTrackEntry(track);
                 entry.ImageLocalUri = imageLocalUri ?? entry.ImageLocalUri;
                 entry.IsExplicitlySaved = persisted;
+                if (persisted)
+                    TouchLease(entry, leaseExpiresAtUtc);
                 entry.DownloadState = persisted ? DownloadTrackState.Completed : DownloadTrackState.Idle;
                 CleanupTrackIfNeeded(entry.TrackUri);
                 await SaveAsync().ConfigureAwait(false);
@@ -179,8 +204,15 @@ namespace LibreSpotUWP.Services
             await InitializeAsync().ConfigureAwait(false);
 
             LogService.Info($"[OfflineCatalogService.SetAlbumPersistedAsync] Persisted={persisted} album={album.Id}.");
+            if (persisted && !CanAddPersistedTracks(albumTracks.Select(t => t.Uri), out var activeTracks, out var newTracks))
+            {
+                LogService.Warn($"[OfflineCatalogService.SetAlbumPersistedAsync] {PersistenceLimitMessage} active={activeTracks}, requestedNew={newTracks}, album={album.Id}.");
+                return;
+            }
+
             var albumImageUrl = album.Images?.FirstOrDefault()?.Url;
             var albumImageLocalUri = await CacheImageAsync(albumImageUrl, album.Id).ConfigureAwait(false);
+            var leaseExpiresAtUtc = CreateLeaseExpiration();
 
             if (!persisted)
             {
@@ -240,6 +272,7 @@ namespace LibreSpotUWP.Services
                     var entry = GetOrCreateTrackEntry(track, album);
                     entry.ImageLocalUri = albumImageLocalUri ?? entry.ImageLocalUri;
                     UpdateMembership(entry.AlbumMembershipIds, album.Id, true);
+                    TouchLease(entry, leaseExpiresAtUtc);
                     if (entry.DownloadState != DownloadTrackState.Completed)
                         entry.DownloadState = DownloadTrackState.Queued;
                 }
@@ -302,9 +335,16 @@ namespace LibreSpotUWP.Services
             await InitializeAsync().ConfigureAwait(false);
 
             LogService.Info($"[OfflineCatalogService.SetPlaylistPersistedAsync] Persisted={persisted} playlist={playlist.Id}.");
+            if (persisted && !CanAddPersistedTracks(playlistTracks.Select(t => t.Uri), out var activeTracks, out var newTracks))
+            {
+                LogService.Warn($"[OfflineCatalogService.SetPlaylistPersistedAsync] {PersistenceLimitMessage} active={activeTracks}, requestedNew={newTracks}, playlist={playlist.Id}.");
+                return;
+            }
+
             var playlistImageUrl = playlist.Images?.FirstOrDefault()?.Url;
             var playlistImageLocalUri = await CacheImageAsync(playlistImageUrl, playlist.Id).ConfigureAwait(false);
             var trackImageLocalUris = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var leaseExpiresAtUtc = CreateLeaseExpiration();
             if (persisted)
             {
                 foreach (var track in playlistTracks)
@@ -375,6 +415,7 @@ namespace LibreSpotUWP.Services
                         ? imageLocalUri ?? entry.ImageLocalUri
                         : entry.ImageLocalUri;
                     UpdateMembership(entry.PlaylistMembershipIds, playlist.Id, true);
+                    TouchLease(entry, leaseExpiresAtUtc);
                     if (entry.DownloadState != DownloadTrackState.Completed)
                         entry.DownloadState = DownloadTrackState.Queued;
                 }
@@ -430,8 +471,9 @@ namespace LibreSpotUWP.Services
         public async Task<IReadOnlyList<OfflineTrackEntry>> GetDownloadedTracksAsync()
         {
             await InitializeAsync().ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
             IReadOnlyList<OfflineTrackEntry> tracks = _catalog.Tracks
-                .Where(TrackHasPersistence)
+                .Where(track => TrackHasPersistence(track, now))
                 .OrderBy(t => t.Name)
                 .ToList();
             return tracks;
@@ -440,7 +482,9 @@ namespace LibreSpotUWP.Services
         public async Task<IReadOnlyList<OfflineAlbumEntry>> GetDownloadedAlbumsAsync()
         {
             await InitializeAsync().ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
             IReadOnlyList<OfflineAlbumEntry> albums = _catalog.Albums
+                .Where(album => album.TrackUris?.Any(uri => IsTrackPersistedInCatalog(uri, now)) == true)
                 .OrderByDescending(a => a.SavedAtUtc)
                 .ToList();
             return albums;
@@ -449,7 +493,9 @@ namespace LibreSpotUWP.Services
         public async Task<IReadOnlyList<OfflinePlaylistEntry>> GetDownloadedPlaylistsAsync()
         {
             await InitializeAsync().ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
             IReadOnlyList<OfflinePlaylistEntry> playlists = _catalog.Playlists
+                .Where(playlist => playlist.TrackUris?.Any(uri => IsTrackPersistedInCatalog(uri, now)) == true)
                 .OrderByDescending(p => p.SavedAtUtc)
                 .ToList();
             return playlists;
@@ -489,7 +535,8 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrWhiteSpace(trackUri))
                 return null;
 
-            var track = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == trackUri && TrackHasPersistence(t));
+            var now = DateTimeOffset.UtcNow;
+            var track = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == trackUri && TrackHasPersistence(t, now));
             if (track == null)
                 return null;
 
@@ -506,10 +553,112 @@ namespace LibreSpotUWP.Services
                 ImageLocalUri = track.ImageLocalUri,
                 DurationMs = track.DurationMs,
                 IsExplicitlySaved = track.IsExplicitlySaved,
+                PersistenceExpiresAtUtc = track.PersistenceExpiresAtUtc,
                 DownloadState = track.DownloadState,
                 AlbumMembershipIds = track.AlbumMembershipIds?.ToList() ?? new List<string>(),
                 PlaylistMembershipIds = track.PlaylistMembershipIds?.ToList() ?? new List<string>()
             };
+        }
+
+        public async Task RenewPersistedTrackLeasesAsync(DateTimeOffset expiresAtUtc)
+        {
+            await InitializeAsync().ConfigureAwait(false);
+
+            var renewed = 0;
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                foreach (var track in _catalog.Tracks.Where(TrackIsRequested))
+                {
+                    track.PersistenceExpiresAtUtc = expiresAtUtc.ToUniversalTime();
+                    renewed++;
+                }
+
+                if (renewed > 0)
+                    await SaveAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            if (renewed > 0)
+                LogService.Info($"[OfflineCatalogService.RenewPersistedTrackLeasesAsync] Renewed {renewed} persisted track leases until {expiresAtUtc:u}.");
+        }
+
+        public async Task RemoveExpiredPersistedTracksAsync()
+        {
+            await InitializeAsync().ConfigureAwait(false);
+
+            var now = DateTimeOffset.UtcNow;
+            List<string> expiredTrackUris;
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                expiredTrackUris = _catalog.Tracks
+                    .Where(track => TrackIsRequested(track) && IsTrackExpired(track, now))
+                    .Select(track => track.TrackUri)
+                    .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            if (expiredTrackUris.Count == 0)
+                return;
+
+            if (App.Librespot == null)
+            {
+                LogService.Warn("[OfflineCatalogService.RemoveExpiredPersistedTracksAsync] Librespot is not available; expired persisted tracks will be removed later.");
+                return;
+            }
+
+            LogService.Info($"[OfflineCatalogService.RemoveExpiredPersistedTracksAsync] Removing {expiredTrackUris.Count} expired persisted tracks.");
+
+            var removedTrackUris = new List<string>();
+            foreach (var trackUri in expiredTrackUris)
+            {
+                try
+                {
+                    await App.Librespot.SetTrackPersistedAsync(trackUri, false).ConfigureAwait(false);
+                    removedTrackUris.Add(trackUri);
+                    App.Downloads?.ClearTrack(trackUri);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Warn($"[OfflineCatalogService.RemoveExpiredPersistedTracksAsync] Unable to remove expired persisted track {trackUri}: {ex.Message}");
+                }
+            }
+
+            if (removedTrackUris.Count == 0)
+                return;
+
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                foreach (var trackUri in removedTrackUris)
+                {
+                    var entry = _catalog.Tracks.FirstOrDefault(t => string.Equals(t.TrackUri, trackUri, StringComparison.OrdinalIgnoreCase));
+                    if (entry == null)
+                        continue;
+
+                    entry.IsExplicitlySaved = false;
+                    entry.AlbumMembershipIds?.Clear();
+                    entry.PlaylistMembershipIds?.Clear();
+                    entry.DownloadState = DownloadTrackState.Idle;
+                    CleanupTrackIfNeeded(trackUri);
+                }
+
+                RemoveEmptyContextEntries();
+                await SaveAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Release();
+            }
         }
 
         private OfflineTrackEntry GetOrCreateTrackEntry(FullTrack track)
@@ -517,6 +666,7 @@ namespace LibreSpotUWP.Services
             var entry = _catalog.Tracks.FirstOrDefault(t => t.TrackUri == track.Uri);
             if (entry != null)
             {
+                EnsureTrackCollections(entry);
                 PopulateTrackEntry(entry, track);
                 return entry;
             }
@@ -534,6 +684,10 @@ namespace LibreSpotUWP.Services
             {
                 entry = new OfflineTrackEntry();
                 _catalog.Tracks.Add(entry);
+            }
+            else
+            {
+                EnsureTrackCollections(entry);
             }
 
             entry.TrackUri = track.Uri;
@@ -583,13 +737,29 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private void MigrateDownloadedState()
+        private bool MigrateDownloadedState()
         {
-            foreach (var track in _catalog.Tracks.Where(track =>
-                track.DownloadState == DownloadTrackState.Idle && TrackIsRequested(track)))
+            var changed = false;
+            var leaseExpiresAtUtc = CreateLeaseExpiration();
+
+            foreach (var track in _catalog.Tracks.Where(TrackIsRequested))
             {
-                track.DownloadState = DownloadTrackState.Completed;
+                EnsureTrackCollections(track);
+
+                if (track.DownloadState == DownloadTrackState.Idle)
+                {
+                    track.DownloadState = DownloadTrackState.Completed;
+                    changed = true;
+                }
+
+                if (!track.PersistenceExpiresAtUtc.HasValue)
+                {
+                    track.PersistenceExpiresAtUtc = leaseExpiresAtUtc;
+                    changed = true;
+                }
             }
+
+            return ExpireTracksOverLimit(DateTimeOffset.UtcNow) || changed;
         }
 
         private void UpdateMembership(List<string> memberships, string id, bool persisted)
@@ -619,9 +789,10 @@ namespace LibreSpotUWP.Services
             if (trackUris == null)
                 return new List<string>();
 
+            var now = DateTimeOffset.UtcNow;
             var downloaded = new HashSet<string>(
                 _catalog.Tracks
-                    .Where(TrackHasPersistence)
+                    .Where(track => TrackHasPersistence(track, now))
                     .Select(t => t.TrackUri),
                 StringComparer.OrdinalIgnoreCase);
 
@@ -630,16 +801,101 @@ namespace LibreSpotUWP.Services
                 .ToList();
         }
 
-        private static bool TrackHasPersistence(OfflineTrackEntry track)
+        private bool CanAddPersistedTracks(IEnumerable<string> trackUris, out int activeTracks, out int newTracks)
         {
-            return track.DownloadState == DownloadTrackState.Completed && TrackIsRequested(track);
+            var now = DateTimeOffset.UtcNow;
+            var active = new HashSet<string>(
+                _catalog.Tracks
+                    .Where(track => TrackIsRequested(track) && !IsTrackExpired(track, now))
+                    .Select(track => track.TrackUri)
+                    .Where(uri => !string.IsNullOrWhiteSpace(uri)),
+                StringComparer.OrdinalIgnoreCase);
+
+            activeTracks = active.Count;
+            newTracks = (trackUris ?? Enumerable.Empty<string>())
+                .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count(uri => !active.Contains(uri));
+
+            return activeTracks + newTracks <= MaxPersistedTrackCount;
+        }
+
+        private bool ExpireTracksOverLimit(DateTimeOffset now)
+        {
+            var active = _catalog.Tracks
+                .Where(track => TrackIsRequested(track) && !IsTrackExpired(track, now))
+                .OrderByDescending(track => track.PersistenceExpiresAtUtc ?? DateTimeOffset.MinValue)
+                .ThenBy(track => track.TrackUri)
+                .ToList();
+
+            if (active.Count <= MaxPersistedTrackCount)
+                return false;
+
+            foreach (var track in active.Skip(MaxPersistedTrackCount))
+                track.PersistenceExpiresAtUtc = now.AddTicks(-1);
+
+            LogService.Warn($"[OfflineCatalogService.ExpireTracksOverLimit] Expired {active.Count - MaxPersistedTrackCount} tracks to enforce the {MaxPersistedTrackCount} track limit.");
+            return true;
+        }
+
+        private bool IsTrackPersistedInCatalog(string trackUri, DateTimeOffset now)
+        {
+            var track = _catalog.Tracks.FirstOrDefault(t => string.Equals(t.TrackUri, trackUri, StringComparison.OrdinalIgnoreCase));
+            return track != null && TrackHasPersistence(track, now);
+        }
+
+        private static bool TrackHasPersistence(OfflineTrackEntry track, DateTimeOffset now)
+        {
+            return track.DownloadState == DownloadTrackState.Completed &&
+                TrackIsRequested(track) &&
+                !IsTrackExpired(track, now);
+        }
+
+        private static bool IsTrackExpired(OfflineTrackEntry track, DateTimeOffset now)
+        {
+            return track?.PersistenceExpiresAtUtc.HasValue == true &&
+                track.PersistenceExpiresAtUtc.Value.ToUniversalTime() <= now;
         }
 
         private static bool TrackIsRequested(OfflineTrackEntry track)
         {
-            return track.IsExplicitlySaved
+            return track != null &&
+                (track.IsExplicitlySaved
                 || (track.AlbumMembershipIds?.Count ?? 0) > 0
-                || (track.PlaylistMembershipIds?.Count ?? 0) > 0;
+                || (track.PlaylistMembershipIds?.Count ?? 0) > 0);
+        }
+
+        private static DateTimeOffset CreateLeaseExpiration()
+        {
+            return DateTimeOffset.UtcNow.Add(PersistenceLeaseDuration);
+        }
+
+        private static void TouchLease(OfflineTrackEntry track, DateTimeOffset expiresAtUtc)
+        {
+            if (track != null)
+                track.PersistenceExpiresAtUtc = expiresAtUtc.ToUniversalTime();
+        }
+
+        private static void EnsureTrackCollections(OfflineTrackEntry track)
+        {
+            if (track == null)
+                return;
+
+            if (track.ArtistNames == null)
+                track.ArtistNames = new List<string>();
+            if (track.AlbumMembershipIds == null)
+                track.AlbumMembershipIds = new List<string>();
+            if (track.PlaylistMembershipIds == null)
+                track.PlaylistMembershipIds = new List<string>();
+        }
+
+        private void RemoveEmptyContextEntries()
+        {
+            _catalog.Albums.RemoveAll(album => album.TrackUris == null || !album.TrackUris.Any(uri =>
+                _catalog.Tracks.Any(track => string.Equals(track.TrackUri, uri, StringComparison.OrdinalIgnoreCase) && TrackIsRequested(track))));
+
+            _catalog.Playlists.RemoveAll(playlist => playlist.TrackUris == null || !playlist.TrackUris.Any(uri =>
+                _catalog.Tracks.Any(track => string.Equals(track.TrackUri, uri, StringComparison.OrdinalIgnoreCase) && TrackIsRequested(track))));
         }
 
         private Task SaveAsync()

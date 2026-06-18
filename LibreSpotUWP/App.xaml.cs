@@ -174,7 +174,12 @@ namespace LibreSpotUWP
                     : await SpotifyAuth.GetAccessToken();
 
                 if (!string.IsNullOrEmpty(token))
+                {
                     await Librespot.ConnectWithAccessTokenAsync(token);
+
+                    if (hasInternet)
+                        await OfflineCatalog.RemoveExpiredPersistedTracksAsync();
+                }
 
                 if (hasInternet && !string.IsNullOrEmpty(token))
                 {

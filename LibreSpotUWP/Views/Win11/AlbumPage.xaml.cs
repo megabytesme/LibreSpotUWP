@@ -175,7 +175,7 @@ namespace LibreSpotUWP.Views.Win11
 
             var persisted = App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album.Id);
             await App.OfflineCatalog.SetAlbumPersistedAsync(ViewModel.Album, ViewModel.Tracks.Items, !persisted);
-            PlayActions.SetDownloaded(!persisted);
+            PlayActions.SetDownloaded(App.OfflineCatalog.IsAlbumPersisted(ViewModel.Album.Id));
             TrackList.IsTrackPersistedResolver = track => App.OfflineCatalog.IsTrackPersisted(track?.Uri);
             TrackList.AddTracks(MapToFullTracks(ViewModel.Tracks.Items), true, 0);
         }

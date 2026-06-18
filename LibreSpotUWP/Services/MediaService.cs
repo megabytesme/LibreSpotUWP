@@ -1896,6 +1896,8 @@ namespace LibreSpotUWP.Services
                 {
                     LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored, reconnecting librespot.");
                     await _librespot.ConnectWithAccessTokenAsync(accessToken);
+                    if (App.OfflineCatalog != null)
+                        await App.OfflineCatalog.RemoveExpiredPersistedTracksAsync();
                 }
             }
             catch (Exception ex)
