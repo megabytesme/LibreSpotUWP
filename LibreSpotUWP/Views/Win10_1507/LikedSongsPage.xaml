@@ -12,13 +12,15 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,0,24" Spacing="8">
+        <StackPanel Grid.Row="0" Margin="0,0,0,24">
             <TextBlock
+                Margin="0,0,0,8"
                 FontSize="34"
                 FontWeight="SemiBold"
                 Text="Liked Songs" />
             <TextBlock
                 x:Name="SummaryText"
+                Margin="0,0,0,8"
                 Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                 Text="Your saved tracks in one place." />
             <ComboBox
@@ -35,7 +37,6 @@
             Grid.Row="1"
             Margin="0,0,0,16"
             Orientation="Horizontal"
-            Spacing="8"
             Visibility="Collapsed">
             <FontIcon
                 Foreground="{ThemeResource SystemAccentColor}"
@@ -43,6 +44,7 @@
                 Glyph="&#xE946;" />
             <TextBlock
                 x:Name="CacheIndicatorText"
+                Margin="0,0,8,0"
                 Foreground="{ThemeResource SystemAccentColor}"
                 Text="Cached" />
             <Button
@@ -67,11 +69,11 @@
             Visibility="Collapsed">
             <StackPanel
                 HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Spacing="12">
+                VerticalAlignment="Center">
                 <ProgressRing
                     Width="40"
                     Height="40"
+                    Margin="0,0,0,12"
                     IsActive="True" />
                 <TextBlock
                     x:Name="LoadingText"

@@ -53,10 +53,10 @@
             <StackPanel
                 x:Name="LyricsStack"
                 MaxWidth="840"
-                HorizontalAlignment="Center"
-                Spacing="8">
+                HorizontalAlignment="Center">
                 <ListView
                     x:Name="LyricsListView"
+                    Margin="0,0,0,8"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"
                     ContainerContentChanging="LyricsListView_ContainerContentChanging"

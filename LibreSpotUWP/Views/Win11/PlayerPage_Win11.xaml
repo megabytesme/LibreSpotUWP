@@ -190,9 +190,9 @@
                 <Border
                     x:Name="CurrentLyricPreview"
                     MaxWidth="620"
-                    HorizontalAlignment="Stretch"
                     Margin="0,0,0,12"
                     Padding="16,10"
+                    HorizontalAlignment="Stretch"
                     CornerRadius="8"
                     Visibility="Collapsed">
                     <TextBlock
@@ -309,7 +309,7 @@
                     x:Name="ShuffleButton"
                     Width="40"
                     Height="40"
-                    Margin="0,0,20,0"
+                    Margin="0,0,16,0"
                     Click="ShuffleButton_Click">
                     <FontIcon
                         x:Name="ShuffleIcon"
@@ -322,7 +322,7 @@
                     x:Name="PrevButton"
                     Width="48"
                     Height="48"
-                    Margin="0,0,20,0"
+                    Margin="0,0,16,0"
                     Click="PrevButton_Click">
                     <SymbolIcon Symbol="Previous" />
                 </Button>
@@ -331,7 +331,7 @@
                     x:Name="PlayPauseButton"
                     Width="64"
                     Height="64"
-                    Margin="0,0,20,0"
+                    Margin="0,0,16,0"
                     Click="PlayPauseButton_Click">
                     <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" />
                 </Button>
@@ -340,7 +340,7 @@
                     x:Name="NextButton"
                     Width="48"
                     Height="48"
-                    Margin="0,0,20,0"
+                    Margin="0,0,16,0"
                     Click="NextButton_Click">
                     <SymbolIcon Symbol="Next" />
                 </Button>

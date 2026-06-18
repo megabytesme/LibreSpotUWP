@@ -81,7 +81,6 @@
             Grid.Row="0"
             Margin="16,16,16,0"
             Orientation="Horizontal"
-            Spacing="8"
             Visibility="Collapsed">
             <FontIcon
                 Foreground="{ThemeResource SystemAccentColor}"
@@ -89,6 +88,7 @@
                 Glyph="&#xE946;" />
             <TextBlock
                 x:Name="CacheIndicatorText"
+                Margin="0,0,8,0"
                 Foreground="{ThemeResource SystemAccentColor}"
                 Text="Cached" />
             <Button

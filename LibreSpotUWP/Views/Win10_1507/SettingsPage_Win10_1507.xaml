@@ -103,13 +103,15 @@
                         </ListView.ItemTemplate>
                     </ListView>
 
-                    <StackPanel Orientation="Horizontal" Spacing="8">
+                    <StackPanel Orientation="Horizontal">
                         <Button
                             x:Name="HomeOrderUpButton"
+                            Margin="0,0,8,0"
                             Click="HomeOrderUpButton_Click"
                             Content="Move up" />
                         <Button
                             x:Name="HomeOrderDownButton"
+                            Margin="0,0,8,0"
                             Click="HomeOrderDownButton_Click"
                             Content="Move down" />
                         <Button Click="ResetHomeOrderButton_Click" Content="Reset order" />

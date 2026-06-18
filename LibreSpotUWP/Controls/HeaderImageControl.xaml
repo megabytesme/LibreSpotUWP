@@ -50,8 +50,7 @@
 
                     <StackPanel
                         x:Name="MetadataPanel"
-                        Margin="0,8,0,0"
-                        Spacing="2" />
+                        Margin="0,8,0,0" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

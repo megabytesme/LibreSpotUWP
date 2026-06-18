@@ -69,15 +69,16 @@
             Grid.Column="1"
             HorizontalAlignment="Center"
             VerticalAlignment="Center">
-            <StackPanel Width="280" Spacing="8">
+            <StackPanel Width="280">
                 <StackPanel
+                    Margin="0,0,0,8"
                     HorizontalAlignment="Center"
-                    Orientation="Horizontal"
-                    Spacing="20">
+                    Orientation="Horizontal">
                     <Button
                         x:Name="ShuffleButton"
                         Width="36"
                         Height="36"
+                        Margin="0,0,8,0"
                         Click="Shuffle_Click">
                         <FontIcon
                             x:Name="ShuffleIcon"
@@ -89,6 +90,7 @@
                         x:Name="PrevButton"
                         Width="36"
                         Height="36"
+                        Margin="0,0,8,0"
                         Click="Prev_Click">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -99,6 +101,7 @@
                         x:Name="PlayPauseButton"
                         Width="48"
                         Height="48"
+                        Margin="0,0,8,0"
                         Click="PlayPause_Click">
                         <FontIcon
                             x:Name="PlayPauseIcon"
@@ -109,6 +112,7 @@
                         x:Name="NextButton"
                         Width="36"
                         Height="36"
+                        Margin="0,0,8,0"
                         Click="Next_Click">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -164,12 +168,12 @@
             Padding="16"
             HorizontalAlignment="Right"
             VerticalAlignment="Center"
-            Orientation="Horizontal"
-            Spacing="10">
+            Orientation="Horizontal">
             <Button
                 x:Name="PersistButton"
                 Width="40"
                 Height="40"
+                Margin="0,0,8,0"
                 Click="PersistButton_Click">
                 <FontIcon
                     x:Name="PersistIcon"
@@ -181,6 +185,7 @@
                 x:Name="PersistProgressRing"
                 Width="18"
                 Height="18"
+                Margin="0,0,10,0"
                 VerticalAlignment="Center"
                 IsActive="False"
                 Visibility="Collapsed" />
@@ -189,6 +194,7 @@
                 x:Name="SpotifyConnectDeviceButton"
                 Width="40"
                 Height="40"
+                Margin="0,0,8,0"
                 Background="Transparent">
                 <FontIcon
                     FontFamily="Segoe MDL2 Assets"
@@ -215,6 +221,7 @@
 
             <FontIcon
                 x:Name="VolumeIcon"
+                Margin="0,0,10,0"
                 FontFamily="Segoe MDL2 Assets"
                 FontSize="16"
                 Glyph="&#xE994;" />
@@ -222,6 +229,7 @@
             <Slider
                 x:Name="VolumeSlider"
                 Width="120"
+                Margin="0,0,8,0"
                 Maximum="100"
                 Minimum="0"
                 ValueChanged="VolumeSlider_ValueChanged" />
