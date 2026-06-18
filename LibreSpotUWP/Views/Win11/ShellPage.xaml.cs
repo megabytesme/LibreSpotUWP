@@ -30,6 +30,7 @@ namespace LibreSpotUWP.Views.Win11
         public ShellPage()
         {
             InitializeComponent();
+            NormalizePaneState();
             SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
             SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
                 AppViewBackButtonVisibility.Disabled;
@@ -55,13 +56,21 @@ namespace LibreSpotUWP.Views.Win11
         {
             base.OnNavigatedTo(e);
 
-            await HeaderAccountControl.Initialize();
-
-            if (ContentFrame.Content == null)
+            try
             {
-                var startupTag = GetStartupPageTag();
-                NavigateTo(startupTag, true);
-                SelectNavigationItem(startupTag);
+                NormalizePaneState();
+                await HeaderAccountControl.Initialize();
+
+                if (ContentFrame.Content == null)
+                {
+                    var startupTag = GetStartupPageTag();
+                    NavigateTo(startupTag, true);
+                    SelectNavigationItem(startupTag);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[ShellPage.OnNavigatedTo] Failed during shell startup.");
             }
         }
 
@@ -76,7 +85,8 @@ namespace LibreSpotUWP.Views.Win11
                     ? value as string
                     : null;
 
-                if (!string.IsNullOrWhiteSpace(lastPage))
+                if (!string.IsNullOrWhiteSpace(lastPage) &&
+                    !string.Equals(lastPage, "Player", StringComparison.OrdinalIgnoreCase))
                     return lastPage;
             }
 
@@ -133,55 +143,62 @@ namespace LibreSpotUWP.Views.Win11
 
         public async void NavigateTo(string pageTag, bool forceReload = false)
         {
-            ClearCacheStatus();
-
-            if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
-                _history.Add(pageTag);
-            PersistLastOpenPage(pageTag);
-
-            if (string.Equals(pageTag, "Player", StringComparison.Ordinal))
+            try
             {
-                var playerType = NavigationHelper.GetPageType(pageTag);
-                if (forceReload || FullWindowFrame.CurrentSourcePageType != playerType)
-                    FullWindowFrame.Navigate(playerType);
+                ClearCacheStatus();
 
-                SetFullWindowMode(true);
+                if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
+                    _history.Add(pageTag);
+                PersistLastOpenPage(pageTag);
+
+                if (string.Equals(pageTag, "Player", StringComparison.Ordinal))
+                {
+                    var playerType = NavigationHelper.GetPageType(pageTag);
+                    if (forceReload || FullWindowFrame.CurrentSourcePageType != playerType)
+                        FullWindowFrame.Navigate(playerType);
+
+                    SetFullWindowMode(true);
+                    SelectNavigationItem(pageTag);
+                    UpdateBackButton();
+                    return;
+                }
+
+                SetFullWindowMode(false);
+
+                if (pageTag == "Home" && !await EnsureAuthenticatedAsync())
+                {
+                    var settingsType = NavigationHelper.GetPageType("Settings");
+                    if (ContentFrame.CurrentSourcePageType != settingsType)
+                        ContentFrame.Navigate(settingsType);
+
+                    SelectNavigationItem("Settings");
+                    UpdateBackButton();
+                    return;
+                }
+
+                if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var parameter = pageTag.Substring(pageTag.IndexOf(':') + 1);
+                    ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag), parameter);
+                    UpdateBackButton();
+                    return;
+                }
+
+                var pageType = NavigationHelper.GetPageType(pageTag);
+                if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
+                    ContentFrame.Navigate(pageType);
+
                 SelectNavigationItem(pageTag);
                 UpdateBackButton();
-                return;
             }
-
-            SetFullWindowMode(false);
-
-            if (pageTag == "Home" && !await EnsureAuthenticatedAsync())
+            catch (Exception ex)
             {
-                var settingsType = NavigationHelper.GetPageType("Settings");
-                if (ContentFrame.CurrentSourcePageType != settingsType)
-                    ContentFrame.Navigate(settingsType);
-
-                SelectNavigationItem("Settings");
-                UpdateBackButton();
-                return;
+                LogService.Error(ex, $"[ShellPage.NavigateTo] Failed to navigate to {pageTag}.");
             }
-
-            if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
-            {
-                var parameter = pageTag.Substring(pageTag.IndexOf(':') + 1);
-                ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag), parameter);
-                UpdateBackButton();
-                return;
-            }
-
-            var pageType = NavigationHelper.GetPageType(pageTag);
-            if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
-                ContentFrame.Navigate(pageType);
-
-            SelectNavigationItem(pageTag);
-            UpdateBackButton();
         }
 
         private void NavigationSearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -306,7 +323,13 @@ namespace LibreSpotUWP.Views.Win11
             NavView.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
             MediaBarHost.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
             CacheStatusPanel.Visibility = enabled ? Visibility.Collapsed : CacheStatusPanel.Visibility;
+            NormalizePaneState();
             UpdateMediaBarVisibility();
+        }
+
+        public void NormalizePaneState()
+        {
+            NavView.IsPaneOpen = false;
         }
 
         private void OnBackRequested(object sender, BackRequestedEventArgs e)
@@ -364,32 +387,45 @@ namespace LibreSpotUWP.Views.Win11
 
         private void HeaderAccountControl_LoadingStateChanged(object sender, bool isLoading)
         {
-            AccountLoadingRing.IsActive = isLoading;
-            AccountPersonPicture.Opacity = isLoading ? 0.35 : 1.0;
+            try
+            {
+                AccountLoadingRing.IsActive = isLoading;
+                AccountPersonPicture.Opacity = isLoading ? 0.35 : 1.0;
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[ShellPage.HeaderAccountControl_LoadingStateChanged] Failed.");
+                throw;
+            }
         }
 
         private void HeaderAccountControl_UserChanged(object sender, SpotifyAccountControl.UserChangedEventArgs e)
         {
-            var user = e.User;
-            if (user != null)
+            try
             {
-                var imageUrl = user.Images != null && user.Images.Count > 0
-                    ? user.Images[0].Url
-                    : null;
+                var user = e.User;
+                if (user != null)
+                {
+                    var imageUrl = user.Images != null && user.Images.Count > 0
+                        ? user.Images[0].Url
+                        : null;
 
-                if (!string.IsNullOrWhiteSpace(imageUrl))
-                    AccountPersonPicture.ProfilePicture = new BitmapImage(new Uri(imageUrl));
+                    AccountPersonPicture.ProfilePicture = ImageUriHelper.CreateBitmapImage(imageUrl, useFallback: false);
+
+                    AccountNameText.Text = !string.IsNullOrWhiteSpace(user.DisplayName)
+                        ? user.DisplayName
+                        : user.Id;
+                }
                 else
+                {
                     AccountPersonPicture.ProfilePicture = null;
-
-                AccountNameText.Text = !string.IsNullOrWhiteSpace(user.DisplayName)
-                    ? user.DisplayName
-                    : user.Id;
+                    AccountNameText.Text = "Account";
+                }
             }
-            else
+            catch (Exception ex)
             {
-                AccountPersonPicture.ProfilePicture = null;
-                AccountNameText.Text = "Account";
+                LogService.Error(ex, "[ShellPage.HeaderAccountControl_UserChanged] Failed.");
+                throw;
             }
         }
 
