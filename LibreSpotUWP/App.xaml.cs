@@ -21,7 +21,6 @@ using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
-using Muxc = Microsoft.UI.Xaml.Controls;
 
 namespace LibreSpotUWP
 {
@@ -80,18 +79,11 @@ namespace LibreSpotUWP
                     break;
             }
 
-            if (HasXamlControlsResources(appResources) && HasThemeResource(appResources, themePath))
+            if (HasThemeResource(appResources, themePath))
                 return;
 
             appResources.MergedDictionaries.Clear();
-            appResources.MergedDictionaries.Add(new Muxc.XamlControlsResources());
             appResources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(themePath) });
-        }
-
-        private static bool HasXamlControlsResources(ResourceDictionary appResources)
-        {
-            return appResources.MergedDictionaries
-                .Any(dictionary => dictionary is Muxc.XamlControlsResources);
         }
 
         private static bool HasThemeResource(ResourceDictionary appResources, string themePath)
