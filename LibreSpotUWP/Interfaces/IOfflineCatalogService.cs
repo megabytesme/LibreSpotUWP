@@ -1,5 +1,6 @@
 using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -19,5 +20,7 @@ namespace LibreSpotUWP.Interfaces
         Task<IReadOnlyList<OfflinePlaylistEntry>> GetDownloadedPlaylistsAsync();
         Task<IReadOnlyList<string>> GetTrackUrisForContextAsync(string contextUri);
         Task<OfflineTrackEntry> GetDownloadedTrackAsync(string trackUri);
+        Task RenewPersistedTrackLeasesAsync(DateTimeOffset expiresAtUtc);
+        Task RemoveExpiredPersistedTracksAsync();
     }
 }

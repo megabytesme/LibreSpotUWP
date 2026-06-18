@@ -19,6 +19,7 @@ namespace LibreSpotUWP.Services
 
         private const string StorageKey = "spotify_auth_state";
         private const int RequiredScopeVersion = 3;
+        private static readonly TimeSpan OfflinePersistenceLeaseDuration = TimeSpan.FromDays(30);
 
         public AuthState Current { get; private set; }
         public event EventHandler<AuthState> AuthStateChanged;
@@ -137,6 +138,7 @@ namespace LibreSpotUWP.Services
                 Current.RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response);
                 Current.ScopeVersion = RequiredScopeVersion;
 
+                await RenewOfflinePersistenceLeaseAsync().ConfigureAwait(false);
                 await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true).ConfigureAwait(false);
             }
             finally
@@ -290,6 +292,23 @@ namespace LibreSpotUWP.Services
                 return DateTimeOffset.UtcNow.AddSeconds(secondsDouble);
 
             return null;
+        }
+
+        private static async Task RenewOfflinePersistenceLeaseAsync()
+        {
+            if (App.OfflineCatalog == null)
+                return;
+
+            try
+            {
+                await App.OfflineCatalog
+                    .RenewPersistedTrackLeasesAsync(DateTimeOffset.UtcNow.Add(OfflinePersistenceLeaseDuration))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[SpotifyAuthService.RenewOfflinePersistenceLeaseAsync] Failed to renew offline persistence lease.");
+            }
         }
 
         private async Task<AuthState> GetOrLoadCurrentStateAsync()

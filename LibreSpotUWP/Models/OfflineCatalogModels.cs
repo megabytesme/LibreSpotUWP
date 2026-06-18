@@ -16,6 +16,7 @@ namespace LibreSpotUWP.Models
         public string ImageLocalUri { get; set; }
         public int DurationMs { get; set; }
         public bool IsExplicitlySaved { get; set; }
+        public DateTimeOffset? PersistenceExpiresAtUtc { get; set; }
         public DownloadTrackState DownloadState { get; set; } = DownloadTrackState.Idle;
         public List<string> AlbumMembershipIds { get; set; } = new List<string>();
         public List<string> PlaylistMembershipIds { get; set; } = new List<string>();
