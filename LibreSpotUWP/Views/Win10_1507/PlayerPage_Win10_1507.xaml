@@ -33,9 +33,10 @@
                             HorizontalAlignment="Center"
                             FontWeight="SemiBold"
                             Text="Volume" />
-                        <StackPanel Orientation="Horizontal" Spacing="10">
+                        <StackPanel Orientation="Horizontal">
                             <FontIcon
                                 x:Name="VolumeIcon"
+                                Margin="0,0,10,0"
                                 VerticalAlignment="Center"
                                 FontFamily="Segoe MDL2 Assets"
                                 FontSize="16"
@@ -87,8 +88,9 @@
                             Margin="0,16,0,0"
                             Click="ShareButton_Click"
                             Padding="10,6">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Orientation="Horizontal">
                                 <FontIcon
+                                    Margin="0,0,6,0"
                                     FontFamily="Segoe MDL2 Assets"
                                     Glyph="&#xE72D;" />
                                 <TextBlock Text="Share" />
@@ -98,8 +100,9 @@
                             Margin="0,8,0,0"
                             Click="LyricsButton_Click"
                             Padding="10,6">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
+                            <StackPanel Orientation="Horizontal">
                                 <FontIcon
+                                    Margin="0,0,6,0"
                                     FontFamily="Segoe MDL2 Assets"
                                     Glyph="&#xE720;" />
                                 <TextBlock Text="Lyrics" />
@@ -119,10 +122,10 @@
             Grid.Row="0"
             Margin="24,24,24,20"
             HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            Spacing="16">
+            VerticalAlignment="Center">
             <Button
                 x:Name="ContextButton"
+                Margin="0,0,0,16"
                 HorizontalAlignment="Center"
                 Background="Transparent"
                 BorderThickness="0"
@@ -162,7 +165,6 @@
                     Margin="0,0,0,12"
                     HorizontalAlignment="Center"
                     Orientation="Horizontal"
-                    Spacing="8"
                     Visibility="Collapsed">
                     <FontIcon
                         Foreground="{ThemeResource SystemAccentColor}"
@@ -170,6 +172,7 @@
                         Glyph="&#xE946;" />
                     <TextBlock
                         x:Name="CacheIndicatorText"
+                        Margin="0,0,8,0"
                         Foreground="{ThemeResource SystemAccentColor}"
                         Text="Cached" />
                     <Button

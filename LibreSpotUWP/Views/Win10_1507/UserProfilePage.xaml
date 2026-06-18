@@ -30,14 +30,16 @@
                         Stretch="UniformToFill" />
                 </Border>
 
-                <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center" Spacing="8">
+                <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center">
                     <TextBlock
                         x:Name="ProfileNameText"
+                        Margin="0,0,0,8"
                         FontSize="34"
                         FontWeight="SemiBold"
                         Text="Profile" />
                     <TextBlock
                         x:Name="ProfileIdText"
+                        Margin="0,0,0,8"
                         Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
                     <TextBlock
                         x:Name="ProfileMetaText"
@@ -68,11 +70,11 @@
                 Visibility="Collapsed">
                 <StackPanel
                     HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Spacing="12">
+                    VerticalAlignment="Center">
                     <ProgressRing
                         Width="40"
                         Height="40"
+                        Margin="0,0,0,12"
                         IsActive="True" />
                     <TextBlock
                         HorizontalAlignment="Center"
