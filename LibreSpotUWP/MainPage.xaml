@@ -136,7 +136,6 @@
                         x:Name="CacheStatusPanel"
                         Grid.Row="2"
                         Margin="0,0,8,0"
-                        ColumnSpacing="8"
                         Visibility="Collapsed">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -157,11 +156,11 @@
                         <StackPanel
                             Grid.Column="2"
                             VerticalAlignment="Center"
-                            Orientation="Horizontal"
-                            Spacing="6">
+                            Orientation="Horizontal">
                             <TextBlock
                                 x:Name="CacheStatusText"
                                 VerticalAlignment="Center"
+                                Margin="0,0,6,0"
                                 Foreground="{ThemeResource SystemAccentColor}"
                                 Tapped="CacheStatusText_Tapped"
                                 Text="Cached Content" />

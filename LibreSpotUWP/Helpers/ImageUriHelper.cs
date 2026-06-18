@@ -48,10 +48,26 @@ namespace LibreSpotUWP.Helpers
 
         public static BitmapImage CreateBitmapImage(string value, bool useFallback = true)
         {
-            if (TryCreateImageUri(value, out var uri))
-                return new BitmapImage(uri);
+            try
+            {
+                if (TryCreateImageUri(value, out var uri))
+                    return new BitmapImage(uri);
+            }
+            catch
+            {
+            }
 
-            return useFallback ? new BitmapImage(GetFallbackLogoUri()) : null;
+            if (!useFallback)
+                return null;
+
+            try
+            {
+                return new BitmapImage(GetFallbackLogoUri());
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static bool LooksLikeSpotifyImageId(string value)

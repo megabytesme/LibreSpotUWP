@@ -98,11 +98,23 @@ namespace LibreSpotUWP
         {
             base.OnNavigatedTo(e);
 
-            UpdateMediaBarVisibility();
-            if (ContentFrame.Content == null)
-                NavigateTo(GetStartupPageTag(), true);
+            try
+            {
+                UpdateMediaBarVisibility();
+                if (ContentFrame.Content == null)
+                {
+                    var startupTag = GetStartupPageTag();
+                    LogService.Info($"[MainPage.OnNavigatedTo] Initial startup page: {startupTag}");
+                    NavigateTo(startupTag, true);
+                }
 
-            await HeaderAccountControl.Initialize();
+                await QrLoginHelper.TryConsumePendingScanAsync(App.SpotifyAuth);
+                await HeaderAccountControl.Initialize();
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[MainPage.OnNavigatedTo] Failed during shell startup.");
+            }
         }
 
         private string GetStartupPageTag()
@@ -190,67 +202,88 @@ namespace LibreSpotUWP
 
         public async void NavigateTo(string pageTag, bool forceReload = false)
         {
-            ClearCacheStatus();
-
-            if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
-                _history.Add(pageTag);
-
-            if (pageTag == "Player")
+            try
             {
-                ShowPlayer();
+                LogService.Info($"[MainPage.NavigateTo] pageTag={pageTag}, forceReload={forceReload}");
+                ClearCacheStatus();
+
+                if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
+                    _history.Add(pageTag);
+
+                if (pageTag == "Player")
+                {
+                    ShowPlayer();
+                    SetSelectedNavigationTag(pageTag);
+                    UpdateBackButton();
+                    return;
+                }
+
+                HidePlayer();
+                PersistLastOpenPage(pageTag);
+
+                bool requiresAuth = pageTag == "Home";
+
+                if (requiresAuth)
+                {
+                    if (!await EnsureAuthenticatedAsync())
+                    {
+                        var settingsType = NavigationHelper.GetPageType("Settings");
+                        if (ContentFrame.CurrentSourcePageType != settingsType)
+                            ContentFrame.Navigate(settingsType);
+
+                        SetSelectedNavigationTag("Settings");
+
+                        UpdateBackButton();
+                        return;
+                    }
+                }
+
+                if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase) ||
+                    pageTag.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var parameter = pageTag.Substring(pageTag.IndexOf(':') + 1);
+                    ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag), parameter);
+                    SetSelectedNavigationTag(null);
+                    UpdateBackButton();
+                    return;
+                }
+
+                if (pageTag == "Lyrics")
+                {
+                    ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag));
+                    SetSelectedNavigationTag(pageTag);
+                    UpdateBackButton();
+                    return;
+                }
+
+                var pageType = NavigationHelper.GetPageType(pageTag);
+                if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
+                    ContentFrame.Navigate(pageType);
+
                 SetSelectedNavigationTag(pageTag);
+
                 UpdateBackButton();
-                return;
             }
-
-            HidePlayer();
-            PersistLastOpenPage(pageTag);
-
-            bool requiresAuth = pageTag == "Home";
-
-            if (requiresAuth)
+            catch (Exception ex)
             {
-                if (!await EnsureAuthenticatedAsync())
+                LogService.Error(ex, $"[MainPage.NavigateTo] Failed to navigate to {pageTag}.");
+
+                try
                 {
                     var settingsType = NavigationHelper.GetPageType("Settings");
                     if (ContentFrame.CurrentSourcePageType != settingsType)
                         ContentFrame.Navigate(settingsType);
-
                     SetSelectedNavigationTag("Settings");
-
                     UpdateBackButton();
-                    return;
+                }
+                catch (Exception fallbackEx)
+                {
+                    LogService.Error(fallbackEx, "[MainPage.NavigateTo] Failed to navigate to Settings fallback.");
                 }
             }
-
-            if (pageTag.StartsWith("Search:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase) ||
-                pageTag.StartsWith("User:", StringComparison.OrdinalIgnoreCase))
-            {
-                var parameter = pageTag.Substring(pageTag.IndexOf(':') + 1);
-                ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag), parameter);
-                SetSelectedNavigationTag(null);
-                UpdateBackButton();
-                return;
-            }
-
-            if (pageTag == "Lyrics")
-            {
-                ContentFrame.Navigate(NavigationHelper.GetPageType(pageTag));
-                SetSelectedNavigationTag(pageTag);
-                UpdateBackButton();
-                return;
-            }
-
-            var pageType = NavigationHelper.GetPageType(pageTag);
-            if (forceReload || ContentFrame.CurrentSourcePageType != pageType)
-                ContentFrame.Navigate(pageType);
-
-            SetSelectedNavigationTag(pageTag);
-
-            UpdateBackButton();
         }
 
         private void HamburgerButton_Click(object sender, RoutedEventArgs e)
