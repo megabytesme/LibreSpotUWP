@@ -20,7 +20,6 @@
 
 ## Download
 ### See the [Latest Release](https://github.com/megabytesme/LibreSpotUWP/releases/latest).
-#### Windows Store releases are upcoming... If allowed 😅
 
 ## Build Guide
 
