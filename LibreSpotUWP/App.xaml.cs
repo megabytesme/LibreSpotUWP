@@ -209,6 +209,7 @@ namespace LibreSpotUWP
                     }
 
                     Window.Current.Activate();
+                    _ = CheckForUpdatesAtStartup();
                 }
             }
             catch (Exception ex)
@@ -226,6 +227,76 @@ namespace LibreSpotUWP
         void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
         {
             throw new Exception("Failed to load Page " + e.SourcePageType.FullName);
+        }
+
+        private async Task CheckForUpdatesAtStartup()
+        {
+            try
+            {
+                var updateInfo = await UpdateService.CheckForUpdatesAsync();
+
+                if (updateInfo.IsUpdateAvailable)
+                {
+                    await Window.Current.Dispatcher.RunAsync(
+                        CoreDispatcherPriority.Normal,
+                        async () =>
+                        {
+                            var scrollViewer = new ScrollViewer
+                            {
+                                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                                MaxHeight = 350
+                            };
+
+                            var panel = new StackPanel();
+
+                            var headerText = new TextBlock
+                            {
+                                Text = $"Version {updateInfo.LatestVersion} is available to download!",
+                                FontWeight = Windows.UI.Text.FontWeights.Bold,
+                                Margin = new Thickness(0, 0, 0, 12)
+                            };
+
+                            var bodyText = new TextBlock
+                            {
+                                Text = updateInfo.Body,
+                                TextWrapping = TextWrapping.Wrap
+                            };
+
+                            panel.Children.Add(headerText);
+                            panel.Children.Add(bodyText);
+                            scrollViewer.Content = panel;
+
+                            var dialog = new ContentDialog
+                            {
+                                Title = "Update Available",
+                                Content = scrollViewer,
+                                PrimaryButtonText = "Download",
+                                CloseButtonText = "Skip",
+                                DefaultButton = ContentDialogButton.Primary
+                            };
+
+                            try
+                            {
+                                var result = await dialog.ShowAsync();
+                                if (result == ContentDialogResult.Primary)
+                                {
+                                    if (!string.IsNullOrEmpty(updateInfo.ReleaseUrl))
+                                    {
+                                        await Windows.System.Launcher.LaunchUriAsync(new Uri(updateInfo.ReleaseUrl));
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Warn($"Update dialog failed to show: {ex.Message}");
+                            }
+                        });
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Update check failed during startup: {ex.Message}");
+            }
         }
 
         /// <summary>
