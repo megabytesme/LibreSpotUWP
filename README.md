@@ -21,6 +21,25 @@
 ## Download
 ### See the [Latest Release](https://github.com/megabytesme/LibreSpotUWP/releases/latest).
 
+## FAQ
+### How do I login?
+#### To login, you must do the following:
+1. Download the latest version of [LibreSpotUWP Login Helper](https://github.com/megabytesme/LibreSpotUWPLoginHelper/releases/latest)
+2. Follow the instructions within the release notes.
+3. Once you have completed the steps of the LibreSpotUWP Login Helper, you'll see a QR Code and the option to copy the text.
+4. On your device, open LibreSpotUWP and then press Login. Then press either Scan QR Code or Paste login text to complete the sign in.
+
+### After logging in, the app crashes/hangs (v1.0.0-v1.0.1)
+#### This is a known issue to be addressed - Currently if you keep opening the app enough times, it **will** work eventually (takes 3x attempts on a Lumia 950XL).
+#### If it still does not work then do the following and try again:
+1. Go to Windows Settings, then Apps, then Apps and Features, then LibreSpotUWP, then Advanced options, then Reset
+
+### I had the beta installed (v0.1.0-beta), can I upgrade to the latest version?
+#### You must do the following before upgrading:
+1. If the beta is still installed and opens, make sure to log out.
+2. Install the newest release. 
+3. Go to Windows Settings, then Apps, then Apps and Features, then LibreSpotUWP, then Advanced options, then Reset
+
 ## Build Guide
 
 Building LibreSpotUWP is unique because it combines a C# UWP Host with a Rust Dynamic Library (`librespot.dll`).
