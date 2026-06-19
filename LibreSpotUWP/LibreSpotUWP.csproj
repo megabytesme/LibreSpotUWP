@@ -221,6 +221,7 @@
     <Compile Include="Services\FileMetadataCache.cs" />
     <Compile Include="Services\FileSystem.cs" />
     <Compile Include="Services\LogService.cs" />
+    <Compile Include="Services\LiveTileService.cs" />
     <Compile Include="Services\UpdateService.cs" />
     <Compile Include="Services\DownloadTrackerService.cs" />
     <Compile Include="Services\OfflineCatalogService.cs" />
