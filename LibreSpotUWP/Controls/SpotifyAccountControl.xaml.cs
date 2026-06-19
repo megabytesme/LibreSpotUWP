@@ -90,7 +90,10 @@ namespace LibreSpotUWP.Controls
             if (state == null)
             {
                 _user = null;
-                UpdateUserUI(null);
+                if (SpotifyAccountManager.Instance.User != null)
+                    SpotifyAccountManager.Instance.SetUser(null);
+                else
+                    UpdateUserUI(null);
                 return;
             }
 
