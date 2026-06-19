@@ -687,6 +687,7 @@ namespace LibreSpotUWP.Services
             try
             {
                 Librespot.librespot_load(_instance, contextPtr, startPtr, true);
+                LogService.Info("[LibrespotService.LoadAndPlayAsync] librespot_load returned.");
             }
             finally
             {

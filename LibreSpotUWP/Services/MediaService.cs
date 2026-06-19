@@ -1406,6 +1406,8 @@ namespace LibreSpotUWP.Services
                 PersistPlaybackSnapshot(forceWrite: true);
 
                 await EnsureRingPlayerAsync();
+                _ringPlayer?.PrepareForPlaybackStartLog(track.Uri);
+                LogService.Info($"[MediaService.OnTrackChanged] Prepared first audio frame marker for {track.Uri}.");
 
                 if (TryConsumeEndOfTrackContinuation())
                     SchedulePlaybackContinuationWatchdog(true, "end-of-track", allowStopped: true);
@@ -1442,6 +1444,7 @@ namespace LibreSpotUWP.Services
                 if (!IsSelectedSpotifyConnectDeviceLocal)
                     return;
 
+                var previousState = _state.PlaybackState;
                 UpdateState(s => s.PlaybackState = state);
 
                 uint currentPos = _librespot.GetPositionMs();
@@ -1462,11 +1465,17 @@ namespace LibreSpotUWP.Services
                         }
 
                         await EnsureRingPlayerAsync();
+                        if (previousState != LibrespotPlaybackState.Playing)
+                        {
+                            _ringPlayer.PrepareForPlaybackStartLog(_state.Track?.Uri);
+                            LogService.Info($"[MediaService.OnPlaybackChanged] Playback entered Playing for {_state.Track?.Uri ?? "(unknown)"} at {currentPos}ms.");
+                        }
 
                         if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
                             _mediaPlayer.Play();
 
                         _ringPlayer.Start();
+                        LogService.Info($"[MediaService.OnPlaybackChanged] MediaPlayer and AudioGraph started for {_state.Track?.Uri ?? "(unknown)"}.");
                         _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
                         break;
 

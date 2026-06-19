@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
@@ -36,6 +37,8 @@ namespace LibreSpotUWP.Services
         private int _capacityBytes;
         private int _readPos;
         private int _frameSize;
+        private int _firstAudioFrameLogged = 1;
+        private string _firstAudioFrameTrackUri = "(unknown)";
 
         private readonly ConcurrentQueue<PooledFrame> _framePool = new ConcurrentQueue<PooledFrame>();
         private const int PoolSize = 6;
@@ -159,6 +162,10 @@ namespace LibreSpotUWP.Services
             }
 
             sender.AddFrame(pooled.Frame);
+            if (Interlocked.CompareExchange(ref _firstAudioFrameLogged, 1, 0) == 0)
+            {
+                LogService.Info($"[LibrespotRingBufferPlayer.OnQuantumStarted] First audio frame submitted to AudioGraph track={_firstAudioFrameTrackUri}, bytes={bytesToCopy}, available={available}, requested={bytesRequested}, writePos={writePos}, readPos={_readPos}.");
+            }
 
             if (pooled.Capacity <= _maxFrameBytes)
                 _framePool.Enqueue(pooled);
@@ -167,6 +174,12 @@ namespace LibreSpotUWP.Services
 
             _readPos = (_readPos + bytesToCopy) % _capacityBytes;
             librespot_audio_set_read_cursor((UIntPtr)_readPos);
+        }
+
+        public void PrepareForPlaybackStartLog(string trackUri)
+        {
+            _firstAudioFrameTrackUri = string.IsNullOrWhiteSpace(trackUri) ? "(unknown)" : trackUri;
+            Interlocked.Exchange(ref _firstAudioFrameLogged, 0);
         }
 
         public void Start() => _graph?.Start();
