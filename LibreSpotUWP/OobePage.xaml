@@ -36,33 +36,44 @@
         <FlipView x:Name="OobeFlipView">
             <FlipViewItem>
                 <Border Style="{StaticResource SetupCardStyle}">
-                    <StackPanel Padding="40">
-                        <TextBlock
-                            Margin="0,0,0,16"
-                            HorizontalAlignment="Center"
-                            FontSize="30"
-                            FontWeight="SemiBold"
-                            Text="Welcome to LibreSpotUWP"
-                            TextAlignment="Center"
-                            TextWrapping="WrapWholeWords" />
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Padding="40">
+                            <TextBlock
+                                Margin="0,0,0,16"
+                                HorizontalAlignment="Center"
+                                FontSize="30"
+                                FontWeight="SemiBold"
+                                Text="Welcome to LibreSpotUWP"
+                                TextAlignment="Center"
+                                TextWrapping="WrapWholeWords" />
 
-                        <TextBlock
-                            Margin="0,0,0,24"
-                            HorizontalAlignment="Center"
-                            FontSize="16"
-                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                            Text="This setup will connect your Spotify account so the app can load your library, playlists, saved music, playback state, and offline content."
-                            TextAlignment="Center"
-                            TextWrapping="Wrap" />
+                            <TextBlock
+                                Margin="0,0,0,18"
+                                HorizontalAlignment="Center"
+                                FontSize="16"
+                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                Text="This setup will connect your Spotify account so the app can load your library, playlists, saved music, playback state, and offline content."
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
 
-                        <Button
-                            Padding="32,12"
-                            HorizontalAlignment="Center"
-                            Click="Next_Click"
-                            Content="Continue"
-                            FontSize="16"
-                            Style="{ThemeResource AccentButtonStyle}" />
-                    </StackPanel>
+                            <TextBlock
+                                Margin="0,0,0,24"
+                                HorizontalAlignment="Center"
+                                FontSize="13"
+                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                Text="Disclaimer: This is an unofficial, third-party implementation of a Spotify client for the Universal Windows Platform (UWP). This project is not affiliated with, endorsed, or sponsored by Spotify AB. Spotify is a trademark of Spotify AB."
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+
+                            <Button
+                                Padding="32,12"
+                                HorizontalAlignment="Center"
+                                Click="Next_Click"
+                                Content="Continue"
+                                FontSize="16"
+                                Style="{ThemeResource AccentButtonStyle}" />
+                        </StackPanel>
+                    </ScrollViewer>
                 </Border>
             </FlipViewItem>
 
