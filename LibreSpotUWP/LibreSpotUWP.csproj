@@ -232,6 +232,9 @@
     <Compile Include="Services\LibrespotRingBufferPlayer.cs" />
     <Compile Include="Interop\LibreSpot.cs" />
     <Compile Include="Interop\NativeProbe.cs" />
+    <Compile Include="OobePage.xaml.cs">
+      <DependentUpon>OobePage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
@@ -440,6 +443,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="ScannerPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="OobePage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

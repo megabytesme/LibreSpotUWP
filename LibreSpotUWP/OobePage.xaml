@@ -1,0 +1,287 @@
+<Page
+    x:Class="LibreSpotUWP.OobePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.Resources>
+        <Style x:Key="SetupCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource SystemControlBackgroundAltHighBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource SystemControlForegroundBaseLowBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Margin" Value="16" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="MaxWidth" Value="760" />
+        </Style>
+
+        <Style x:Key="BodyTextStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="LineHeight" Value="20" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
+
+        <Style x:Key="ActionButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+    </Page.Resources>
+
+    <Grid>
+        <FlipView x:Name="OobeFlipView">
+            <FlipViewItem>
+                <Border Style="{StaticResource SetupCardStyle}">
+                    <StackPanel Padding="40">
+                        <TextBlock
+                            Margin="0,0,0,16"
+                            HorizontalAlignment="Center"
+                            FontSize="30"
+                            FontWeight="SemiBold"
+                            Text="Welcome to LibreSpotUWP"
+                            TextAlignment="Center"
+                            TextWrapping="WrapWholeWords" />
+
+                        <TextBlock
+                            Margin="0,0,0,24"
+                            HorizontalAlignment="Center"
+                            FontSize="16"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Text="This setup will connect your Spotify account so the app can load your library, playlists, saved music, playback state, and offline content."
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+
+                        <Button
+                            Padding="32,12"
+                            HorizontalAlignment="Center"
+                            Click="Next_Click"
+                            Content="Continue"
+                            FontSize="16"
+                            Style="{ThemeResource AccentButtonStyle}" />
+                    </StackPanel>
+                </Border>
+            </FlipViewItem>
+
+            <FlipViewItem>
+                <Border Style="{StaticResource SetupCardStyle}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Padding="40">
+                            <TextBlock
+                                Margin="0,0,0,16"
+                                FontSize="24"
+                                FontWeight="SemiBold"
+                                Text="How sign-in works"
+                                TextWrapping="WrapWholeWords" />
+
+                            <TextBlock
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="LibreSpotUWP needs a Spotify login session before the main app opens. The easiest path is to use the LibreSpotUWP Login Helper on another Windows device, then scan the QR code or paste the sign-in details here." />
+
+                            <TextBlock
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="You can also sign in directly with Spotify on supported desktop devices after setting a Spotify client ID. If you are on a phone or do not know what that means, use the Login Helper path." />
+
+                            <TextBlock
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="Only import QR codes or sign-in text that you created yourself. They contain your login session." />
+
+                            <Button
+                                Padding="32,12"
+                                HorizontalAlignment="Right"
+                                Click="Next_Click"
+                                Content="Set up sign-in"
+                                Style="{ThemeResource AccentButtonStyle}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </FlipViewItem>
+
+            <FlipViewItem>
+                <Border Style="{StaticResource SetupCardStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Padding="40">
+                                <TextBlock
+                                    Margin="0,0,0,8"
+                                    FontSize="24"
+                                    FontWeight="SemiBold"
+                                    Text="Connect your account"
+                                    TextWrapping="WrapWholeWords" />
+
+                                <TextBlock
+                                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="Choose one of these sign-in methods. The QR and paste options work well for Windows phones because the Login Helper can prepare the session on another device." />
+
+                                <Button
+                                    x:Name="BtnOpenHelper"
+                                    Click="BtnOpenHelper_Click"
+                                    Style="{StaticResource ActionButtonStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            Grid.Column="0"
+                                            Margin="0,0,12,0"
+                                            FontFamily="Segoe MDL2 Assets"
+                                            Glyph="&#xE774;" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock FontWeight="SemiBold" Text="Open Login Helper download" />
+                                            <TextBlock
+                                                Opacity="0.72"
+                                                Text="Use another Windows device to create a QR code or sign-in text."
+                                                TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+
+                                <Button
+                                    x:Name="BtnScanQr"
+                                    Click="BtnScanQr_Click"
+                                    Style="{StaticResource ActionButtonStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            Grid.Column="0"
+                                            Margin="0,0,12,0"
+                                            FontFamily="Segoe MDL2 Assets"
+                                            Glyph="&#xE722;" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock FontWeight="SemiBold" Text="Scan QR code" />
+                                            <TextBlock
+                                                Opacity="0.72"
+                                                Text="Point this device at a Login Helper QR code or another signed-in LibreSpotUWP device."
+                                                TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+
+                                <Button
+                                    x:Name="BtnPasteDetails"
+                                    Click="BtnPasteDetails_Click"
+                                    Style="{StaticResource ActionButtonStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            Grid.Column="0"
+                                            Margin="0,0,12,0"
+                                            FontFamily="Segoe MDL2 Assets"
+                                            Glyph="&#xE77F;" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock FontWeight="SemiBold" Text="Paste sign-in details" />
+                                            <TextBlock
+                                                Opacity="0.72"
+                                                Text="Paste the text from the Login Helper app if scanning is not convenient."
+                                                TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+
+                                <StackPanel
+                                    x:Name="DirectSignInPanel"
+                                    Margin="0,10,0,0"
+                                    Visibility="Collapsed">
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Style="{StaticResource BodyTextStyle}"
+                                        Text="Direct Spotify sign-in" />
+                                    <TextBlock
+                                        x:Name="DirectSignInStatusText"
+                                        Style="{StaticResource BodyTextStyle}" />
+                                    <TextBox
+                                        x:Name="ClientIdTextBox"
+                                        Margin="0,0,0,10"
+                                        PlaceholderText="Optional Spotify client ID" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button
+                                            x:Name="BtnSaveClientId"
+                                            Margin="0,0,10,10"
+                                            Click="BtnSaveClientId_Click"
+                                            Content="Save client ID" />
+                                        <Button
+                                            x:Name="BtnSpotifySignIn"
+                                            Margin="0,0,0,10"
+                                            Click="BtnSpotifySignIn_Click"
+                                            Content="Sign in with Spotify"
+                                            Style="{ThemeResource AccentButtonStyle}"
+                                            Visibility="Collapsed" />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <ProgressRing
+                                    x:Name="LoginProgressRing"
+                                    Margin="0,8,0,12"
+                                    HorizontalAlignment="Center"
+                                    IsActive="False"
+                                    Visibility="Collapsed" />
+
+                                <TextBlock
+                                    x:Name="TxtAuthStatus"
+                                    FontWeight="SemiBold"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <CommandBar Grid.Row="1" Background="Transparent" DefaultLabelPosition="Right">
+                            <AppBarButton
+                                x:Name="BtnReadyNext"
+                                Click="Next_Click"
+                                Icon="Accept"
+                                IsEnabled="False"
+                                Label="Continue" />
+                        </CommandBar>
+                    </Grid>
+                </Border>
+            </FlipViewItem>
+
+            <FlipViewItem>
+                <Border Style="{StaticResource SetupCardStyle}">
+                    <StackPanel Padding="40" HorizontalAlignment="Center">
+                        <TextBlock
+                            Margin="0,0,0,12"
+                            HorizontalAlignment="Center"
+                            FontSize="30"
+                            FontWeight="Light"
+                            Text="Ready to listen"
+                            TextAlignment="Center"
+                            TextWrapping="WrapWholeWords" />
+
+                        <TextBlock
+                            x:Name="TxtReadyAccount"
+                            Margin="0,0,0,24"
+                            HorizontalAlignment="Center"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+
+                        <Button
+                            x:Name="BtnLaunch"
+                            Width="240"
+                            Height="56"
+                            Click="BtnLaunch_Click"
+                            Content="Launch LibreSpotUWP"
+                            FontSize="16"
+                            Style="{ThemeResource AccentButtonStyle}" />
+                    </StackPanel>
+                </Border>
+            </FlipViewItem>
+        </FlipView>
+    </Grid>
+</Page>
