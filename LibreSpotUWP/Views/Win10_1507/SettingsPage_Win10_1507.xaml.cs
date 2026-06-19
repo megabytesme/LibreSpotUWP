@@ -41,6 +41,7 @@ namespace LibreSpotUWP.Views.Win10_1507
         {
             _media = App.Media;
             _auth = App.SpotifyAuth;
+            SpotifyCustomClientIdTextBox.Text = UserSettings.SpotifyCustomClientId;
             SyncAppearanceRadioSelection();
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
             LyricsThemeToggle.IsOn = UserSettings.LyricsUseSpotifyTheme;
@@ -160,6 +161,14 @@ namespace LibreSpotUWP.Views.Win10_1507
                 return;
 
             UserSettings.LyricsUseSpotifyTheme = LyricsThemeToggle.IsOn;
+        }
+
+        private void SpotifyCustomClientIdTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.SpotifyCustomClientId = SpotifyCustomClientIdTextBox.Text;
         }
 
         private void ResumeLastPlaybackToggle_Toggled(object sender, RoutedEventArgs e)
