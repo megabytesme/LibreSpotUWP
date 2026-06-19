@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Constants;
 using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
 using System;
@@ -16,9 +17,10 @@ namespace LibreSpotUWP.Services
         private readonly ISecureStorage _storage;
         private readonly SemaphoreSlim _authGate = new SemaphoreSlim(1, 1);
         private string _codeVerifier;
+        private string _pendingClientId;
 
         private const string StorageKey = "spotify_auth_state";
-        private const int RequiredScopeVersion = 3;
+        private const int RequiredScopeVersion = 4;
         private static readonly TimeSpan OfflinePersistenceLeaseDuration = TimeSpan.FromDays(30);
 
         public AuthState Current { get; private set; }
@@ -32,14 +34,19 @@ namespace LibreSpotUWP.Services
 
         public async Task BeginPkceLoginAsync()
         {
+            var clientId = UserSettings.SpotifyCustomClientId;
+            if (string.IsNullOrWhiteSpace(clientId))
+                return;
+
             var (verifier, challenge) = PKCEUtil.GenerateCodes();
             _codeVerifier = verifier;
+            _pendingClientId = clientId;
 
-            var redirect = new Uri("librespotuwp://callback/");
+            var redirect = new Uri(SpotifyConfig.AppRedirectUri);
 
             var login = new LoginRequest(
                 redirect,
-                SpotifyConfig.ClientId,
+                clientId,
                 LoginRequest.ResponseType.Code)
             {
                 CodeChallenge = challenge,
@@ -73,10 +80,16 @@ namespace LibreSpotUWP.Services
                 return;
 
             LogService.Info("[SpotifyAuthService.ExchangePkceCodeAsync] Exchanging PKCE code for token.");
-            var redirect = new Uri("librespotuwp://callback/");
+            var clientId = string.IsNullOrWhiteSpace(_pendingClientId)
+                ? UserSettings.SpotifyCustomClientId
+                : _pendingClientId;
+            if (string.IsNullOrWhiteSpace(clientId))
+                return;
+
+            var redirect = new Uri(SpotifyConfig.AppRedirectUri);
 
             var request = new PKCETokenRequest(
-                SpotifyConfig.ClientId,
+                clientId,
                 code,
                 redirect,
                 _codeVerifier);
@@ -89,6 +102,7 @@ namespace LibreSpotUWP.Services
             {
                 AccessToken = response.AccessToken,
                 RefreshToken = response.RefreshToken,
+                ClientId = clientId,
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn),
                 LastTokenRefreshAt = DateTimeOffset.UtcNow,
                 RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response),
@@ -98,6 +112,7 @@ namespace LibreSpotUWP.Services
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
             LogService.Info("[SpotifyAuthService.ExchangePkceCodeAsync] PKCE auth state persisted.");
             _codeVerifier = null;
+            _pendingClientId = null;
         }
 
         public async Task RefreshAsync()
@@ -113,7 +128,7 @@ namespace LibreSpotUWP.Services
                     return;
 
                 var refresh = new PKCETokenRefreshRequest(
-                    SpotifyConfig.ClientId,
+                    ResolveStateClientId(Current),
                     Current.RefreshToken);
 
                 var oauth = new OAuthClient();
@@ -250,6 +265,7 @@ namespace LibreSpotUWP.Services
                 throw new ArgumentException("Invalid AuthState imported.");
 
             Current = state;
+            Current.ClientId = ResolveStateClientId(Current);
             Current.ScopeVersion = RequiredScopeVersion;
             if (!Current.LastTokenRefreshAt.HasValue)
                 Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
@@ -266,7 +282,16 @@ namespace LibreSpotUWP.Services
 
         private static bool HasRequiredScopeVersion(AuthState state)
         {
-            return state != null && state.ScopeVersion >= RequiredScopeVersion;
+            return state != null &&
+                state.ScopeVersion >= RequiredScopeVersion &&
+                !string.IsNullOrWhiteSpace(state.ClientId);
+        }
+
+        private static string ResolveStateClientId(AuthState state)
+        {
+            return string.IsNullOrWhiteSpace(state?.ClientId)
+                ? SpotifyConfig.DefaultClientId
+                : state.ClientId;
         }
 
         private static DateTimeOffset? TryGetRefreshTokenExpiresAt(object response)

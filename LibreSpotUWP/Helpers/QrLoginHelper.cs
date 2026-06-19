@@ -31,12 +31,12 @@ namespace LibreSpotUWP.Helpers
             {
                 var importedState = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
                 if (importedState == null)
-                    throw new InvalidOperationException("The QR code did not contain a valid session.");
+                    throw new InvalidOperationException("The sign-in details did not contain a valid session.");
 
                 var stackPanel = new StackPanel();
                 stackPanel.Children.Add(new TextBlock
                 {
-                    Text = "A Spotify session was found in the QR code. Would you like to import it and sign in?",
+                    Text = "A Spotify session was found. Would you like to import it and sign in?",
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 0, 0, 12)
                 });
@@ -74,7 +74,7 @@ namespace LibreSpotUWP.Helpers
                 var successDialog = new ContentDialog
                 {
                     Title = "Success",
-                    Content = new TextBlock { Text = "Session imported successfully via QR!" },
+                    Content = new TextBlock { Text = "Session imported successfully." },
                     PrimaryButtonText = "OK"
                 };
                 await successDialog.ShowAsync();
@@ -84,7 +84,7 @@ namespace LibreSpotUWP.Helpers
                 var errorDialog = new ContentDialog
                 {
                     Title = "Import Failed",
-                    Content = new TextBlock { Text = "Failed to read Login QR Code. It may be corrupted or in an invalid format." },
+                    Content = new TextBlock { Text = "Failed to read sign-in details. They may be corrupted or in an invalid format." },
                     PrimaryButtonText = "Close"
                 };
                 await errorDialog.ShowAsync();

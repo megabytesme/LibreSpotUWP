@@ -178,7 +178,8 @@ namespace LibreSpotUWP.Controls
                 var btnScan = new Button
                 {
                     Content = "Scan QR to Sign in",
-                    HorizontalAlignment = HorizontalAlignment.Stretch
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Margin = new Thickness(0, 0, 0, 10)
                 };
                 btnScan.Click += async (s, args) =>
                 {
@@ -186,7 +187,18 @@ namespace LibreSpotUWP.Controls
                     await ShowQrSignInHelpAsync();
                 };
 
-                if (OSHelper.SupportsBrowserSpotifyLogin)
+                var btnPaste = new Button
+                {
+                    Content = "Paste Sign-in Details",
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+                btnPaste.Click += async (s, args) =>
+                {
+                    dialog.Hide();
+                    await PasteSignInDetailsAsync();
+                };
+
+                if (OSHelper.SupportsBrowserSpotifyLogin && UserSettings.HasSpotifyCustomClientId)
                 {
                     var btnLogin = new Button
                     {
@@ -199,6 +211,7 @@ namespace LibreSpotUWP.Controls
                 }
 
                 stackPanel.Children.Add(btnScan);
+                stackPanel.Children.Add(btnPaste);
             }
             else
             {
@@ -209,6 +222,14 @@ namespace LibreSpotUWP.Controls
                     Margin = new Thickness(0, 0, 0, 10)
                 };
                 btnShare.Click += async (s, args) => { dialog.Hide(); await ShareCurrentAccountQrAsync(); };
+
+                var btnShareText = new Button
+                {
+                    Content = "Share My Session (Text)",
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Margin = new Thickness(0, 0, 0, 10)
+                };
+                btnShareText.Click += async (s, args) => { dialog.Hide(); await ShareCurrentAccountTextAsync(); };
 
                 var btnLogout = new Button
                 {
@@ -225,6 +246,7 @@ namespace LibreSpotUWP.Controls
                 };
 
                 stackPanel.Children.Add(btnShare);
+                stackPanel.Children.Add(btnShareText);
                 stackPanel.Children.Add(btnLogout);
             }
 
@@ -236,7 +258,7 @@ namespace LibreSpotUWP.Controls
             if (_auth.Current == null)
                 return;
 
-            string json = Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
+            string json = BuildCurrentAccountPayload();
             var qrBitmap = await BarcodeUIService.GenerateQrCodeBitmapAsync(json);
 
             if (qrBitmap != null)
@@ -269,6 +291,79 @@ namespace LibreSpotUWP.Controls
 
                 await qrDialog.ShowAsync();
             }
+        }
+
+        private async Task ShareCurrentAccountTextAsync()
+        {
+            if (_auth.Current == null)
+                return;
+
+            var textBox = new TextBox
+            {
+                Text = BuildCurrentAccountPayload(),
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                IsReadOnly = true,
+                Height = 220
+            };
+
+            var container = new StackPanel();
+            container.Children.Add(new TextBlock
+            {
+                Text = "This text contains your login session. Only paste it into your own LibreSpotUWP devices or trusted clients.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+            container.Children.Add(textBox);
+
+            var dialog = new ContentDialog
+            {
+                Title = "Share Login Details",
+                Content = container,
+                PrimaryButtonText = "Close"
+            };
+
+            await dialog.ShowAsync();
+        }
+
+        private async Task PasteSignInDetailsAsync()
+        {
+            var textBox = new TextBox
+            {
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Height = 220,
+                PlaceholderText = "Paste sign-in details from another LibreSpotUWP client or the Login Helper app"
+            };
+
+            var container = new StackPanel();
+            container.Children.Add(new TextBlock
+            {
+                Text = "Paste the full sign-in details text. It uses the same data as the QR code.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+            container.Children.Add(textBox);
+
+            var dialog = new ContentDialog
+            {
+                Title = "Paste Sign-in Details",
+                Content = container,
+                PrimaryButtonText = "Import",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary)
+                return;
+
+            await QrLoginHelper.ImportQrLoginAsync(textBox.Text, _auth, value => IsLoading = value);
+        }
+
+        private string BuildCurrentAccountPayload()
+        {
+            return Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
         }
 
         private async Task ShowQrSignInHelpAsync()

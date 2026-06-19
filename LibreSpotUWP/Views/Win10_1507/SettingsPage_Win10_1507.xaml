@@ -288,6 +288,20 @@
                         Style="{StaticResource SubtitleTextBlockStyle}"
                         Text="Authentication" />
 
+                    <TextBox
+                        x:Name="SpotifyCustomClientIdTextBox"
+                        Margin="0,0,0,6"
+                        Header="Custom Spotify Client ID"
+                        MaxLength="64"
+                        PlaceholderText="Optional, advanced users only"
+                        TextChanged="SpotifyCustomClientIdTextBox_TextChanged" />
+
+                    <TextBlock
+                        Margin="0,0,0,10"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Optional and recommended only for advanced users. To enable Sign in with Spotify, create and configure your own Spotify app/client ID with the required callback URL: librespotuwp://callback/. Leave empty to use the default app client ID for imported sessions." />
+
                     <TextBlock
                         x:Name="LibrespotStatusText"
                         Margin="0,0,0,4"

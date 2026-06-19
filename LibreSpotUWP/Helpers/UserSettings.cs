@@ -20,6 +20,7 @@ namespace LibreSpotUWP.Helpers
         private const string AudioLimiterEffectEnabledKey = "AudioLimiterEffectEnabled";
         private const string AudioOutputDeviceIdKey = "AudioOutputDeviceId";
         private const string SpotifyConnectDeviceIdKey = "SpotifyConnectDeviceId";
+        private const string SpotifyCustomClientIdKey = "SpotifyCustomClientId";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
         private const string EqualizerBandsUnitKey = "AudioEffectsEqualizerBandsUnit";
         private const string EqualizerBandsUnitDb = "Db";
@@ -132,6 +133,15 @@ namespace LibreSpotUWP.Helpers
             get => ApplicationData.Current.LocalSettings.Values.TryGetValue(SpotifyConnectDeviceIdKey, out object value) ? value as string : string.Empty;
             set => ApplicationData.Current.LocalSettings.Values[SpotifyConnectDeviceIdKey] = value ?? string.Empty;
         }
+
+        public static string SpotifyCustomClientId
+        {
+            get => ApplicationData.Current.LocalSettings.Values.TryGetValue(SpotifyCustomClientIdKey, out object value) ? value as string : string.Empty;
+            set => ApplicationData.Current.LocalSettings.Values[SpotifyCustomClientIdKey] = value?.Trim() ?? string.Empty;
+        }
+
+        public static bool HasSpotifyCustomClientId =>
+            !string.IsNullOrWhiteSpace(SpotifyCustomClientId);
 
         public static bool RememberLastPlaybackState
         {

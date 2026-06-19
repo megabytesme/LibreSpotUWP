@@ -275,6 +275,17 @@
                         </StackPanel>
                     </muxc:Expander.Header>
                     <StackPanel Spacing="8">
+                        <TextBox
+                            x:Name="SpotifyCustomClientIdTextBox"
+                            Header="Custom Spotify Client ID"
+                            MaxLength="64"
+                            PlaceholderText="Optional, advanced users only"
+                            TextChanged="SpotifyCustomClientIdTextBox_TextChanged" />
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Optional and recommended only for advanced users. To enable Sign in with Spotify, create and configure your own Spotify app/client ID with the required callback URL: librespotuwp://callback/. Leave empty to use the default app client ID for imported sessions."
+                            TextWrapping="WrapWholeWords" />
                         <TextBlock
                             x:Name="LibrespotStatusText"
                             Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
