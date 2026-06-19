@@ -17,6 +17,10 @@ namespace LibreSpotUWP
         private static readonly Uri LoginHelperProjectUri =
             new Uri("https://github.com/megabytesme/LibreSpotUWPLoginHelper/releases/latest");
 
+        private const int SignInPageIndex = 2;
+        private const int ReadyPageIndex = 3;
+        private static bool _returningFromQrScanner;
+
         private bool _checkingAuthState;
         private bool _listeningForAuthState;
 
@@ -32,6 +36,7 @@ namespace LibreSpotUWP
         {
             base.OnNavigatedTo(e);
 
+            RestoreQrScannerReturnPage();
             await QrLoginHelper.TryConsumePendingScanAsync(App.SpotifyAuth, SetBusy);
             await RefreshSignedInStateAsync();
         }
@@ -74,6 +79,8 @@ namespace LibreSpotUWP
 
         private void BtnScanQr_Click(object sender, RoutedEventArgs e)
         {
+            _returningFromQrScanner = true;
+
             _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 Frame?.Navigate(typeof(ScannerPage));
@@ -169,13 +176,24 @@ namespace LibreSpotUWP
 
                 await TryLoadCurrentUserAsync();
 
-                if (OobeFlipView.SelectedIndex == 2)
-                    await MoveToOobePageAsync(3);
+                if (OobeFlipView.SelectedIndex >= SignInPageIndex && OobeFlipView.SelectedIndex < ReadyPageIndex)
+                    await MoveToOobePageAsync(ReadyPageIndex);
             }
             finally
             {
                 _checkingAuthState = false;
             }
+        }
+
+        private void RestoreQrScannerReturnPage()
+        {
+            if (!_returningFromQrScanner)
+                return;
+
+            _returningFromQrScanner = false;
+
+            if (OobeFlipView.SelectedIndex < SignInPageIndex)
+                OobeFlipView.SelectedIndex = SignInPageIndex;
         }
 
         private async Task MoveToNextOobePageAsync()
