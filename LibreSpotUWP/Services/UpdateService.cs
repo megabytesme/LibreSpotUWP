@@ -63,18 +63,25 @@ namespace LibreSpotUWP.Services
                 var currentVer = Package.Current.Id.Version;
 
                 ushort localMajor = currentVer.Major;
+                Version bestVersion = null;
+                UpdateInfo bestUpdate = null;
 
                 foreach (var item in releases)
                 {
                     var obj = item.GetObject();
 
-                    if (obj.ContainsKey("draft") && obj["draft"].GetBoolean())
+                    bool isDraft = GetBoolean(obj, "draft");
+                    bool isPrerelease = GetBoolean(obj, "prerelease");
+
+                    if (isDraft || isPrerelease)
                         continue;
 
-                    string tagName = obj["tag_name"].GetString();
-                    string cleanVer = tagName.StartsWith("v") ? tagName.Substring(1) : tagName;
+                    if (!TryGetString(obj, "tag_name", out string tagName))
+                        continue;
 
-                    Debug.WriteLine($"Found release: {tagName}, draft={obj["draft"].GetBoolean()}");
+                    string cleanVer = tagName.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? tagName.Substring(1) : tagName;
+
+                    Debug.WriteLine($"Found release: {tagName}, draft={isDraft}, prerelease={isPrerelease}");
 
                     if (Version.TryParse(cleanVer, out Version remoteVer))
                     {
@@ -82,17 +89,24 @@ namespace LibreSpotUWP.Services
                         {
                             if (IsNewer(remoteVer, currentVer))
                             {
-                                return new UpdateInfo
+                                if (bestVersion == null || IsNewer(remoteVer, bestVersion))
                                 {
-                                    IsUpdateAvailable = true,
-                                    LatestVersion = tagName,
-                                    ReleaseUrl = obj["html_url"].GetString(),
-                                    Body = obj.ContainsKey("body") ? obj["body"].GetString() : ""
-                                };
+                                    bestVersion = remoteVer;
+                                    bestUpdate = new UpdateInfo
+                                    {
+                                        IsUpdateAvailable = true,
+                                        LatestVersion = tagName,
+                                        ReleaseUrl = TryGetString(obj, "html_url", out string releaseUrl) ? releaseUrl : "",
+                                        Body = TryGetString(obj, "body", out string body) ? body : ""
+                                    };
+                                }
                             }
                         }
                     }
                 }
+
+                if (bestUpdate != null)
+                    return bestUpdate;
             }
             catch (Exception ex)
             {
@@ -103,20 +117,75 @@ namespace LibreSpotUWP.Services
             return new UpdateInfo { IsUpdateAvailable = false };
         }
 
+        private static bool TryGetString(JsonObject obj, string key, out string value)
+        {
+            value = null;
+
+            if (obj == null || !obj.ContainsKey(key))
+                return false;
+
+            try
+            {
+                value = obj[key].GetString();
+                return !string.IsNullOrWhiteSpace(value);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool GetBoolean(JsonObject obj, string key)
+        {
+            if (obj == null || !obj.ContainsKey(key))
+                return false;
+
+            try
+            {
+                return obj[key].GetBoolean();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static bool IsNewer(Version remote, PackageVersion local)
         {
-            if (remote.Major > local.Major) return true;
-            if (remote.Major < local.Major) return false;
+            if (CompareVersionPart(remote.Major, local.Major) > 0) return true;
+            if (CompareVersionPart(remote.Major, local.Major) < 0) return false;
 
-            if (remote.Minor > local.Minor) return true;
-            if (remote.Minor < local.Minor) return false;
+            if (CompareVersionPart(remote.Minor, local.Minor) > 0) return true;
+            if (CompareVersionPart(remote.Minor, local.Minor) < 0) return false;
 
-            if (remote.Build > local.Build) return true;
-            if (remote.Build < local.Build) return false;
+            if (CompareVersionPart(remote.Build, local.Build) > 0) return true;
+            if (CompareVersionPart(remote.Build, local.Build) < 0) return false;
 
-            if (remote.Revision > local.Revision) return true;
+            return CompareVersionPart(remote.Revision, local.Revision) > 0;
+        }
 
-            return false;
+        private static bool IsNewer(Version remote, Version local)
+        {
+            if (CompareVersionPart(remote.Major, local.Major) > 0) return true;
+            if (CompareVersionPart(remote.Major, local.Major) < 0) return false;
+
+            if (CompareVersionPart(remote.Minor, local.Minor) > 0) return true;
+            if (CompareVersionPart(remote.Minor, local.Minor) < 0) return false;
+
+            if (CompareVersionPart(remote.Build, local.Build) > 0) return true;
+            if (CompareVersionPart(remote.Build, local.Build) < 0) return false;
+
+            return CompareVersionPart(remote.Revision, local.Revision) > 0;
+        }
+
+        private static int CompareVersionPart(int remotePart, int localPart)
+        {
+            return NormalizeVersionPart(remotePart).CompareTo(NormalizeVersionPart(localPart));
+        }
+
+        private static int NormalizeVersionPart(int part)
+        {
+            return Math.Max(part, 0);
         }
     }
 }
