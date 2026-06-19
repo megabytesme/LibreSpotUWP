@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -16,6 +17,7 @@ namespace LibreSpotUWP.Services
     public sealed class AudioKeyCache
     {
         private const string KeyExtension = ".key";
+        private const string KeyFolderName = "keys";
         private const byte PayloadVersion = 1;
 
         private readonly ConcurrentDictionary<string, byte[]> _hotCache = new ConcurrentDictionary<string, byte[]>();
@@ -25,9 +27,8 @@ namespace LibreSpotUWP.Services
         private readonly DataProtectionProvider _protector = new DataProtectionProvider("LOCAL=user");
         private readonly SemaphoreSlim _initializationGate = new SemaphoreSlim(1, 1);
 
-        private readonly string _volatileKeyFolderPath = Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "keys");
-        private readonly string _persistedKeyFolderPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "keys");
-
+        private StorageFolder _volatileKeyFolder;
+        private StorageFolder _persistedKeyFolder;
         private bool _isInitialized;
 
         public byte[] GetKeySync(string trackId)
@@ -77,13 +78,13 @@ namespace LibreSpotUWP.Services
                 if (_isInitialized)
                     return;
 
-                Directory.CreateDirectory(_volatileKeyFolderPath);
-                Directory.CreateDirectory(_persistedKeyFolderPath);
+                var volatileFolder = await GetVolatileKeyFolderAsync().ConfigureAwait(false);
+                var persistedFolder = await GetPersistedKeyFolderAsync().ConfigureAwait(false);
 
-                var persistedCount = await LoadFolderAsync(_persistedKeyFolderPath, persisted: true).ConfigureAwait(false);
-                var volatileCount = await LoadFolderAsync(_volatileKeyFolderPath, persisted: false).ConfigureAwait(false);
+                var persistedCount = await LoadFolderAsync(persistedFolder, persisted: true).ConfigureAwait(false);
+                var volatileCount = await LoadFolderAsync(volatileFolder, persisted: false).ConfigureAwait(false);
 
-                DeleteLegacyDatabaseFiles();
+                await DeleteLegacyDatabaseFilesAsync().ConfigureAwait(false);
 
                 _isInitialized = true;
 
@@ -93,8 +94,8 @@ namespace LibreSpotUWP.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[KeyCache] Init Error: {ex.Message}");
-                LogService.Error(ex, "[AudioKeyCache.InitializeAsync] Failed to initialize key cache.");
-                throw;
+                LogService.Error(ex, "[AudioKeyCache.InitializeAsync] Failed to initialize key cache. Continuing without preloaded keys.");
+                _isInitialized = true;
             }
             finally
             {
@@ -121,8 +122,9 @@ namespace LibreSpotUWP.Services
             try
             {
                 var storedKey = rawKey.ToArray();
-                await WriteProtectedKeyAsync(GetVolatileKeyPath(trackId), trackId, storedKey).ConfigureAwait(false);
-                TryDeleteFile(GetPersistedKeyPath(trackId));
+                var fileName = GetKeyFileName(trackId);
+                await WriteProtectedKeyAsync(await GetVolatileKeyFolderAsync().ConfigureAwait(false), fileName, trackId, storedKey).ConfigureAwait(false);
+                await TryDeleteStorageFileAsync(await GetPersistedKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false);
 
                 _hotCache[trackId] = storedKey;
                 _persistedTrackIndex.TryRemove(trackId, out _);
@@ -154,8 +156,9 @@ namespace LibreSpotUWP.Services
             try
             {
                 var storedKey = rawKey.ToArray();
-                await WriteProtectedKeyAsync(GetPersistedKeyPath(trackId), trackId, storedKey).ConfigureAwait(false);
-                TryDeleteFile(GetVolatileKeyPath(trackId));
+                var fileName = GetKeyFileName(trackId);
+                await WriteProtectedKeyAsync(await GetPersistedKeyFolderAsync().ConfigureAwait(false), fileName, trackId, storedKey).ConfigureAwait(false);
+                await TryDeleteStorageFileAsync(await GetVolatileKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false);
 
                 _hotCache[trackId] = storedKey;
                 _persistedTrackIndex[trackId] = 1;
@@ -186,8 +189,9 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                TryDeleteFile(GetVolatileKeyPath(trackId));
-                TryDeleteFile(GetPersistedKeyPath(trackId));
+                var fileName = GetKeyFileName(trackId);
+                await TryDeleteStorageFileAsync(await GetVolatileKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false);
+                await TryDeleteStorageFileAsync(await GetPersistedKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false);
                 _hotCache.TryRemove(trackId, out _);
                 _persistedTrackIndex.TryRemove(trackId, out _);
 
@@ -212,9 +216,10 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                TryDeleteFile(GetVolatileKeyPath(trackId));
+                var fileName = GetKeyFileName(trackId);
+                await TryDeleteStorageFileAsync(await GetVolatileKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false);
 
-                if (!_persistedTrackIndex.ContainsKey(trackId) && !File.Exists(GetPersistedKeyPath(trackId)))
+                if (!_persistedTrackIndex.ContainsKey(trackId) && !await StorageFileExistsAsync(await GetPersistedKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false))
                     _hotCache.TryRemove(trackId, out _);
 
                 System.Diagnostics.Debug.WriteLine("[KeyCache] Removed volatile key.");
@@ -238,10 +243,11 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                TryDeleteFile(GetPersistedKeyPath(trackId));
+                var fileName = GetKeyFileName(trackId);
+                await TryDeleteStorageFileAsync(await GetPersistedKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false);
                 _persistedTrackIndex.TryRemove(trackId, out _);
 
-                if (!File.Exists(GetVolatileKeyPath(trackId)))
+                if (!await StorageFileExistsAsync(await GetVolatileKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false))
                     _hotCache.TryRemove(trackId, out _);
 
                 System.Diagnostics.Debug.WriteLine("[KeyCache] Removed persisted key.");
@@ -267,21 +273,22 @@ namespace LibreSpotUWP.Services
             {
                 MarkPersisted(trackId);
 
-                var volatilePath = GetVolatileKeyPath(trackId);
-                var persistedPath = GetPersistedKeyPath(trackId);
+                var fileName = GetKeyFileName(trackId);
+                var volatileFolder = await GetVolatileKeyFolderAsync().ConfigureAwait(false);
+                var persistedFolder = await GetPersistedKeyFolderAsync().ConfigureAwait(false);
+                var volatileFile = await TryGetStorageFileAsync(volatileFolder, fileName).ConfigureAwait(false);
 
-                if (File.Exists(volatilePath))
+                if (volatileFile != null && await CopyFileReplacingDestinationAsync(volatileFile, persistedFolder).ConfigureAwait(false))
                 {
-                    CopyFileReplacingDestination(volatilePath, persistedPath);
-                    TryDeleteFile(volatilePath);
+                    await TryDeleteStorageFileAsync(volatileFile).ConfigureAwait(false);
                     System.Diagnostics.Debug.WriteLine("[KeyCache] Moved key to persisted storage.");
                     return;
                 }
 
                 if (_hotCache.TryGetValue(trackId, out var rawKey))
                 {
-                    await WriteProtectedKeyAsync(persistedPath, trackId, rawKey).ConfigureAwait(false);
-                    TryDeleteFile(volatilePath);
+                    await WriteProtectedKeyAsync(persistedFolder, fileName, trackId, rawKey).ConfigureAwait(false);
+                    await TryDeleteStorageFileAsync(volatileFolder, fileName).ConfigureAwait(false);
                     System.Diagnostics.Debug.WriteLine("[KeyCache] Rebuilt persisted key from hot cache.");
                     return;
                 }
@@ -314,21 +321,22 @@ namespace LibreSpotUWP.Services
             {
                 MarkVolatile(trackId);
 
-                var persistedPath = GetPersistedKeyPath(trackId);
-                var volatilePath = GetVolatileKeyPath(trackId);
+                var fileName = GetKeyFileName(trackId);
+                var persistedFolder = await GetPersistedKeyFolderAsync().ConfigureAwait(false);
+                var volatileFolder = await GetVolatileKeyFolderAsync().ConfigureAwait(false);
+                var persistedFile = await TryGetStorageFileAsync(persistedFolder, fileName).ConfigureAwait(false);
 
-                if (File.Exists(persistedPath))
+                if (persistedFile != null && await CopyFileReplacingDestinationAsync(persistedFile, volatileFolder).ConfigureAwait(false))
                 {
-                    CopyFileReplacingDestination(persistedPath, volatilePath);
-                    TryDeleteFile(persistedPath);
+                    await TryDeleteStorageFileAsync(persistedFile).ConfigureAwait(false);
                     System.Diagnostics.Debug.WriteLine("[KeyCache] Moved key to volatile storage.");
                     return;
                 }
 
                 if (_hotCache.TryGetValue(trackId, out var rawKey))
                 {
-                    await WriteProtectedKeyAsync(volatilePath, trackId, rawKey).ConfigureAwait(false);
-                    TryDeleteFile(persistedPath);
+                    await WriteProtectedKeyAsync(volatileFolder, fileName, trackId, rawKey).ConfigureAwait(false);
+                    await TryDeleteStorageFileAsync(persistedFolder, fileName).ConfigureAwait(false);
                     System.Diagnostics.Debug.WriteLine("[KeyCache] Rebuilt volatile key from hot cache.");
                     return;
                 }
@@ -346,33 +354,50 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async Task<int> LoadFolderAsync(string folderPath, bool persisted)
+        private async Task<int> LoadFolderAsync(StorageFolder folder, bool persisted)
         {
-            var count = 0;
-            foreach (var filePath in Directory.EnumerateFiles(folderPath, "*" + KeyExtension))
+            if (folder == null)
+                return 0;
+
+            IReadOnlyList<StorageFile> files;
+            try
             {
-                if (await LoadKeyFileAsync(filePath, persisted).ConfigureAwait(false))
+                files = await folder.GetFilesAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[AudioKeyCache.LoadFolderAsync] Failed to enumerate key folder: {ex.Message}");
+                return 0;
+            }
+
+            var count = 0;
+            foreach (var file in files)
+            {
+                if (!file.Name.EndsWith(KeyExtension, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (await LoadKeyFileAsync(file, persisted).ConfigureAwait(false))
                     count++;
             }
 
             return count;
         }
 
-        private async Task<bool> LoadKeyFileAsync(string filePath, bool persisted)
+        private async Task<bool> LoadKeyFileAsync(StorageFile file, bool persisted)
         {
             try
             {
-                var protectedData = await File.ReadAllBytesAsync(filePath).ConfigureAwait(false);
+                var protectedData = await FileIO.ReadBufferAsync(file);
                 var payload = await UnprotectPayloadAsync(protectedData).ConfigureAwait(false);
                 if (payload == null || string.IsNullOrWhiteSpace(payload.TrackId) || payload.RawKey == null || payload.RawKey.Length == 0)
                 {
-                    TryDeleteFile(filePath);
+                    await TryDeleteStorageFileAsync(file).ConfigureAwait(false);
                     return false;
                 }
 
                 if (!persisted && _persistedTrackIndex.ContainsKey(payload.TrackId))
                 {
-                    TryDeleteFile(filePath);
+                    await TryDeleteStorageFileAsync(file).ConfigureAwait(false);
                     return false;
                 }
 
@@ -387,50 +412,44 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
-                TryDeleteFile(filePath);
+                await TryDeleteStorageFileAsync(file).ConfigureAwait(false);
                 LogService.Warn($"[AudioKeyCache.LoadKeyFileAsync] Removed unreadable key file: {ex.Message}");
                 return false;
             }
         }
 
-        private async Task WriteProtectedKeyAsync(string filePath, string trackId, byte[] rawKey)
+        private async Task WriteProtectedKeyAsync(StorageFolder folder, string fileName, string trackId, byte[] rawKey)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+            if (folder == null)
+            {
+                LogService.Warn("[AudioKeyCache.WriteProtectedKeyAsync] Key folder is unavailable; skipping key write.");
+                return;
+            }
 
             var payload = EncodePayload(trackId, rawKey);
             IBuffer protectedBuffer = await _protector.ProtectAsync(payload.AsBuffer());
-            var protectedData = protectedBuffer.ToArray();
 
-            var tempPath = filePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            StorageFile tempFile = null;
+            var committed = false;
             try
             {
-                await File.WriteAllBytesAsync(tempPath, protectedData).ConfigureAwait(false);
-
-                if (File.Exists(filePath))
-                    File.Delete(filePath);
-
-                File.Move(tempPath, filePath);
+                var tempName = fileName + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                tempFile = await folder.CreateFileAsync(tempName, CreationCollisionOption.FailIfExists);
+                await FileIO.WriteBufferAsync(tempFile, protectedBuffer);
+                await tempFile.RenameAsync(fileName, NameCollisionOption.ReplaceExisting);
+                committed = true;
             }
             finally
             {
-                TryDeleteFile(tempPath);
+                if (!committed)
+                    await TryDeleteStorageFileAsync(tempFile).ConfigureAwait(false);
             }
         }
 
-        private async Task<KeyPayload> UnprotectPayloadAsync(byte[] protectedData)
+        private async Task<KeyPayload> UnprotectPayloadAsync(IBuffer protectedData)
         {
-            IBuffer unprotectedBuffer = await _protector.UnprotectAsync(protectedData.AsBuffer());
+            IBuffer unprotectedBuffer = await _protector.UnprotectAsync(protectedData);
             return DecodePayload(unprotectedBuffer.ToArray());
-        }
-
-        private string GetVolatileKeyPath(string trackId)
-        {
-            return Path.Combine(_volatileKeyFolderPath, GetKeyFileName(trackId));
-        }
-
-        private string GetPersistedKeyPath(string trackId)
-        {
-            return Path.Combine(_persistedKeyFolderPath, GetKeyFileName(trackId));
         }
 
         private static string GetKeyFileName(string trackId)
@@ -493,34 +512,102 @@ namespace LibreSpotUWP.Services
             return _trackLocks.GetOrAdd(trackId, _ => new SemaphoreSlim(1, 1));
         }
 
-        private void DeleteLegacyDatabaseFiles()
+        private async Task<StorageFolder> GetVolatileKeyFolderAsync()
         {
-            DeleteLegacyDatabaseFiles(ApplicationData.Current.LocalCacheFolder.Path);
-            DeleteLegacyDatabaseFiles(ApplicationData.Current.LocalFolder.Path);
+            if (_volatileKeyFolder != null)
+                return _volatileKeyFolder;
+
+            _volatileKeyFolder = await GetOrCreateKeyFolderAsync(ApplicationData.Current.LocalCacheFolder, "LocalCacheFolder").ConfigureAwait(false);
+            return _volatileKeyFolder;
         }
 
-        private static void DeleteLegacyDatabaseFiles(string root)
+        private async Task<StorageFolder> GetPersistedKeyFolderAsync()
         {
-            foreach (var name in new[] { "keys.db", "keys.db-shm", "keys.db-wal" })
-                TryDeleteFile(Path.Combine(root, name));
+            if (_persistedKeyFolder != null)
+                return _persistedKeyFolder;
+
+            _persistedKeyFolder = await GetOrCreateKeyFolderAsync(ApplicationData.Current.LocalFolder, "LocalFolder").ConfigureAwait(false);
+            return _persistedKeyFolder;
         }
 
-        private static void CopyFileReplacingDestination(string sourcePath, string destinationPath)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
-            File.Copy(sourcePath, destinationPath, overwrite: true);
-        }
-
-        private static void TryDeleteFile(string filePath)
+        private static async Task<StorageFolder> GetOrCreateKeyFolderAsync(StorageFolder rootFolder, string label)
         {
             try
             {
-                if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
-                    File.Delete(filePath);
+                return await rootFolder.CreateFolderAsync(KeyFolderName, CreationCollisionOption.OpenIfExists);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[AudioKeyCache.GetOrCreateKeyFolderAsync] Unable to open {label}\\{KeyFolderName}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static async Task<bool> StorageFileExistsAsync(StorageFolder folder, string fileName)
+        {
+            var file = await TryGetStorageFileAsync(folder, fileName).ConfigureAwait(false);
+            return file != null;
+        }
+
+        private static async Task<StorageFile> TryGetStorageFileAsync(StorageFolder folder, string fileName)
+        {
+            if (folder == null || string.IsNullOrWhiteSpace(fileName))
+                return null;
+
+            try
+            {
+                return await folder.GetFileAsync(fileName);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static async Task TryDeleteStorageFileAsync(StorageFolder folder, string fileName)
+        {
+            await TryDeleteStorageFileAsync(await TryGetStorageFileAsync(folder, fileName).ConfigureAwait(false)).ConfigureAwait(false);
+        }
+
+        private static async Task TryDeleteStorageFileAsync(StorageFile file)
+        {
+            try
+            {
+                if (file != null)
+                    await file.DeleteAsync(StorageDeleteOption.PermanentDelete);
             }
             catch
             {
             }
+        }
+
+        private static async Task<bool> CopyFileReplacingDestinationAsync(StorageFile sourceFile, StorageFolder destinationFolder)
+        {
+            if (sourceFile == null || destinationFolder == null)
+                return false;
+
+            try
+            {
+                await sourceFile.CopyAsync(destinationFolder, sourceFile.Name, NameCollisionOption.ReplaceExisting);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[AudioKeyCache.CopyFileReplacingDestinationAsync] Failed to copy key file: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task DeleteLegacyDatabaseFilesAsync()
+        {
+            await DeleteLegacyDatabaseFilesAsync(ApplicationData.Current.LocalCacheFolder).ConfigureAwait(false);
+            await DeleteLegacyDatabaseFilesAsync(ApplicationData.Current.LocalFolder).ConfigureAwait(false);
+        }
+
+        private static async Task DeleteLegacyDatabaseFilesAsync(StorageFolder rootFolder)
+        {
+            foreach (var name in new[] { "keys.db", "keys.db-shm", "keys.db-wal" })
+                await TryDeleteStorageFileAsync(rootFolder, name).ConfigureAwait(false);
         }
 
         private static string NormalizeTrackId(string trackId)
