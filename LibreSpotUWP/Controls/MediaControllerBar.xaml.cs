@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,6 +24,7 @@ namespace LibreSpotUWP.Controls
         private bool _loadingSpotifyConnectDevices;
         private bool _spotifyConnectDropdownOpen;
         private bool _spotifyConnectRefreshPending;
+        private EventHandler<MediaState> _mediaStateChangedHandler;
 
         public MediaControllerBar()
         {
@@ -35,14 +37,22 @@ namespace LibreSpotUWP.Controls
         {
             if (_media == null) return;
 
-            _media.MediaStateChanged += (s, state) =>
+            if (_mediaStateChangedHandler == null)
             {
-                var ignored = Dispatcher.RunAsync(
-                    Windows.UI.Core.CoreDispatcherPriority.Normal,
-                    () => UpdateUI(state));
-            };
+                _mediaStateChangedHandler = (s, state) =>
+                {
+                    var ignored = Dispatcher.RunAsync(
+                        Windows.UI.Core.CoreDispatcherPriority.Normal,
+                        () => UpdateUI(state));
+                };
+                _media.MediaStateChanged += _mediaStateChangedHandler;
+            }
+
             if (App.Downloads != null)
+            {
+                App.Downloads.TrackStatusChanged -= Downloads_TrackStatusChanged;
                 App.Downloads.TrackStatusChanged += Downloads_TrackStatusChanged;
+            }
 
             UpdateUI(_media.Current);
             _ = LoadOutputDevicesAsync();
@@ -54,8 +64,8 @@ namespace LibreSpotUWP.Controls
         {
             if (state == null) return;
 
-            string title = state.Track?.Name ?? "Unknown Track";
-            string artist = state.Track?.Artist ?? "Unknown Artist";
+            string title = GetTrackTitle(state);
+            string artist = GetTrackArtist(state);
 
             TrackTitle.Text = title;
             TrackArtist.Text = artist;
@@ -64,10 +74,11 @@ namespace LibreSpotUWP.Controls
             ToolTipService.SetToolTip(TrackArtist, artist);
             UpdateArtistButton(state);
 
-            if (!string.Equals(_currentArtworkUri, state.ArtworkUri, StringComparison.OrdinalIgnoreCase))
+            var artworkUri = GetArtworkUri(state);
+            if (!string.Equals(_currentArtworkUri, artworkUri, StringComparison.OrdinalIgnoreCase))
             {
-                _currentArtworkUri = state.ArtworkUri;
-                AlbumArt.Source = TryCreateBitmap(state.ArtworkUri);
+                _currentArtworkUri = artworkUri;
+                AlbumArt.Source = TryCreateBitmap(artworkUri);
             }
 
             if (!_draggingPosition)
@@ -364,12 +375,19 @@ namespace LibreSpotUWP.Controls
 
         private void MediaControllerBar_Unloaded(object sender, RoutedEventArgs e)
         {
+            if (_media != null && _mediaStateChangedHandler != null)
+            {
+                _media.MediaStateChanged -= _mediaStateChangedHandler;
+                _mediaStateChangedHandler = null;
+            }
+
             if (App.Downloads != null)
                 App.Downloads.TrackStatusChanged -= Downloads_TrackStatusChanged;
         }
 
         private static BitmapImage TryCreateBitmap(string uriString)
         {
+            uriString = ImageUriHelper.NormalizeImageUrl(uriString);
             return Uri.TryCreate(uriString, UriKind.Absolute, out var uri)
                 ? new BitmapImage(uri)
                 : null;
@@ -378,11 +396,52 @@ namespace LibreSpotUWP.Controls
         private void UpdateArtistButton(MediaState state)
         {
             var artists = GetTrackArtists(state);
-            TrackArtistButton.Visibility = artists.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            TrackArtistButton.Visibility = string.IsNullOrWhiteSpace(GetTrackArtist(state))
+                ? Visibility.Collapsed
+                : Visibility.Visible;
             TrackArtistButton.IsEnabled = artists.Count > 0;
             ToolTipService.SetToolTip(
                 TrackArtistButton,
-                artists.Count > 1 ? "Choose an artist" : artists.FirstOrDefault()?.Name);
+                artists.Count > 1 ? "Choose an artist" : artists.FirstOrDefault()?.Name ?? GetTrackArtist(state));
+        }
+
+        private static string GetTrackTitle(MediaState state)
+        {
+            return FirstText(
+                state?.Metadata?.Name,
+                state?.Track?.Name,
+                "Unknown Track");
+        }
+
+        private static string GetTrackArtist(MediaState state)
+        {
+            var metadataArtists = state?.Metadata?.Artists?
+                .Select(artist => artist?.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name));
+
+            return FirstText(
+                metadataArtists == null ? null : string.Join(", ", metadataArtists),
+                state?.Track?.Artist,
+                "Unknown Artist");
+        }
+
+        private static string GetArtworkUri(MediaState state)
+        {
+            return FirstText(
+                state?.ArtworkUri,
+                state?.Metadata?.Album?.Images?.FirstOrDefault()?.Url,
+                state?.Track?.CoverUrl);
+        }
+
+        private static string FirstText(params string[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            return string.Empty;
         }
 
         private static List<AppSimpleArtist> GetTrackArtists(MediaState state)
