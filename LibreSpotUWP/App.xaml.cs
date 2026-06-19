@@ -164,8 +164,9 @@ namespace LibreSpotUWP
                 var token = hasInternet
                     ? await SpotifyAuth.EnsureValidAccessTokenAsync()
                     : await SpotifyAuth.GetAccessToken();
+                var isSignedIn = !string.IsNullOrEmpty(token);
 
-                if (!string.IsNullOrEmpty(token))
+                if (isSignedIn)
                 {
                     await Librespot.ConnectWithAccessTokenAsync(token);
 
@@ -173,7 +174,7 @@ namespace LibreSpotUWP
                         await OfflineCatalog.RemoveExpiredPersistedTracksAsync();
                 }
 
-                if (hasInternet && !string.IsNullOrEmpty(token))
+                if (hasInternet && isSignedIn)
                 {
                     try
                     {
@@ -205,7 +206,7 @@ namespace LibreSpotUWP
                 {
                     if (rootFrame.Content == null)
                     {
-                        rootFrame.Navigate(NavigationHelper.GetPageType("Shell"), e.Arguments);
+                        rootFrame.Navigate(isSignedIn ? NavigationHelper.GetPageType("Shell") : typeof(OobePage), e.Arguments);
                     }
 
                     Window.Current.Activate();
