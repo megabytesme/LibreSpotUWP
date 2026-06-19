@@ -37,6 +37,7 @@ namespace LibreSpotUWP
         public static IOfflineCatalogService OfflineCatalog { get; private set; }
         public static DownloadTrackerService Downloads { get; private set; }
         public static IBackgroundExecutionManager BackgroundExecution { get; private set; }
+        public static LiveTileService LiveTiles { get; private set; }
         private ISecureStorage _secureStorage;
         private IFileSystem _fileSystem;
         private IMetadataCache _metadataCache;
@@ -188,6 +189,8 @@ namespace LibreSpotUWP
                 }
 
                 await Media.InitializeAsync();
+                LiveTiles = new LiveTileService(Media, SpotifyAuth, SpotifyWeb);
+                await LiveTiles.InitializeAsync(isSignedIn);
 
                 Frame rootFrame = Window.Current.Content as Frame;
                 if (rootFrame == null)
@@ -307,10 +310,22 @@ namespace LibreSpotUWP
         /// </summary>
         /// <param name="sender">The source of the suspend request.</param>
         /// <param name="e">Details about the suspend request.</param>
-        private void OnSuspending(object sender, SuspendingEventArgs e)
+        private async void OnSuspending(object sender, SuspendingEventArgs e)
         {
             var deferral = e.SuspendingOperation.GetDeferral();
-            deferral.Complete();
+            try
+            {
+                if (LiveTiles != null)
+                    await LiveTiles.PrepareForSuspendingAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Unable to refresh live tile while suspending: {ex.Message}");
+            }
+            finally
+            {
+                deferral.Complete();
+            }
         }
 
         private async void App_UnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
