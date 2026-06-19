@@ -5,6 +5,7 @@ using LibreSpotUWP.Services;
 using System;
 using System.Threading.Tasks;
 using Windows.System;
+using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
@@ -63,8 +64,7 @@ namespace LibreSpotUWP
 
         private void Next_Click(object sender, RoutedEventArgs e)
         {
-            if (OobeFlipView.SelectedIndex < OobeFlipView.Items.Count - 1)
-                OobeFlipView.SelectedIndex++;
+            _ = MoveToNextOobePageAsync();
         }
 
         private async void BtnOpenHelper_Click(object sender, RoutedEventArgs e)
@@ -74,7 +74,10 @@ namespace LibreSpotUWP
 
         private void BtnScanQr_Click(object sender, RoutedEventArgs e)
         {
-            Frame?.Navigate(typeof(ScannerPage));
+            _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                Frame?.Navigate(typeof(ScannerPage));
+            });
         }
 
         private async void BtnPasteDetails_Click(object sender, RoutedEventArgs e)
@@ -96,8 +99,11 @@ namespace LibreSpotUWP
 
         private void BtnLaunch_Click(object sender, RoutedEventArgs e)
         {
-            Frame?.BackStack.Clear();
-            Frame?.Navigate(NavigationHelper.GetPageType("Shell"));
+            _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                Frame?.BackStack.Clear();
+                Frame?.Navigate(NavigationHelper.GetPageType("Shell"));
+            });
         }
 
         private async Task PasteSignInDetailsAsync()
@@ -164,12 +170,31 @@ namespace LibreSpotUWP
                 await TryLoadCurrentUserAsync();
 
                 if (OobeFlipView.SelectedIndex == 2)
-                    OobeFlipView.SelectedIndex = 3;
+                    await MoveToOobePageAsync(3);
             }
             finally
             {
                 _checkingAuthState = false;
             }
+        }
+
+        private async Task MoveToNextOobePageAsync()
+        {
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                var nextIndex = OobeFlipView.SelectedIndex + 1;
+                if (nextIndex < OobeFlipView.Items.Count)
+                    OobeFlipView.SelectedIndex = nextIndex;
+            });
+        }
+
+        private async Task MoveToOobePageAsync(int pageIndex)
+        {
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                if (pageIndex >= 0 && pageIndex < OobeFlipView.Items.Count)
+                    OobeFlipView.SelectedIndex = pageIndex;
+            });
         }
 
         private async Task TryLoadCurrentUserAsync()
