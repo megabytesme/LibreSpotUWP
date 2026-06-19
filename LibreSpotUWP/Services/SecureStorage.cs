@@ -8,6 +8,10 @@ namespace LibreSpotUWP.Services
     {
         private readonly PasswordVault _vault = new PasswordVault();
         private const string ResourceName = "LibreSpotUWP";
+        private static readonly string[] LegacyResourceNames =
+        {
+            "DriveRPC"
+        };
 
         public async Task SaveAsync(string key, string value)
         {
@@ -17,6 +21,8 @@ namespace LibreSpotUWP.Services
 
         public Task<string> LoadAsync(string key)
         {
+            DeleteLegacyCredentials(key);
+
             try
             {
                 var credential = _vault.Retrieve(ResourceName, key);
@@ -31,14 +37,40 @@ namespace LibreSpotUWP.Services
 
         public Task DeleteAsync(string key)
         {
-            try
-            {
-                var credential = _vault.Retrieve(ResourceName, key);
-                _vault.Remove(credential);
-            }
-            catch { }
+            DeleteCredentials(ResourceName, key);
+            DeleteLegacyCredentials(key);
 
             return Task.CompletedTask;
+        }
+
+        private void DeleteLegacyCredentials(string key)
+        {
+            foreach (var resourceName in LegacyResourceNames)
+                DeleteCredentials(resourceName, key);
+        }
+
+        private void DeleteCredentials(string resourceName, string key)
+        {
+            try
+            {
+                var credentials = _vault.FindAllByResource(resourceName);
+                foreach (var credential in credentials)
+                {
+                    if (credential.UserName == key)
+                        _vault.Remove(credential);
+                }
+            }
+            catch
+            {
+                try
+                {
+                    var credential = _vault.Retrieve(resourceName, key);
+                    _vault.Remove(credential);
+                }
+                catch
+                {
+                }
+            }
         }
     }
 }

@@ -11,6 +11,7 @@ namespace LibreSpotUWP.Models
         public DateTimeOffset? LastTokenRefreshAt { get; set; }
         public DateTimeOffset? RefreshTokenExpiresAt { get; set; }
         public int ScopeVersion { get; set; }
+        public int AuthVersion { get; set; }
         public bool IsExpired => DateTimeOffset.UtcNow >= ExpiresAt;
     }
 }

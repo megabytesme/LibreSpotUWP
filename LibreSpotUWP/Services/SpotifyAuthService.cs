@@ -21,6 +21,7 @@ namespace LibreSpotUWP.Services
 
         private const string StorageKey = "spotify_auth_state";
         private const int RequiredScopeVersion = 4;
+        private const int RequiredAuthVersion = 1;
         private static readonly TimeSpan OfflinePersistenceLeaseDuration = TimeSpan.FromDays(30);
 
         public AuthState Current { get; private set; }
@@ -106,7 +107,8 @@ namespace LibreSpotUWP.Services
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn),
                 LastTokenRefreshAt = DateTimeOffset.UtcNow,
                 RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response),
-                ScopeVersion = RequiredScopeVersion
+                ScopeVersion = RequiredScopeVersion,
+                AuthVersion = RequiredAuthVersion
             };
 
             await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true);
@@ -123,6 +125,12 @@ namespace LibreSpotUWP.Services
             {
                 if (Current == null || string.IsNullOrEmpty(Current.RefreshToken))
                     return;
+
+                if (!HasRequiredAuthSchema(Current))
+                {
+                    await ResetAuthStateAsync().ConfigureAwait(false);
+                    return;
+                }
 
                 if (!NeedsRefresh(Current))
                     return;
@@ -152,6 +160,7 @@ namespace LibreSpotUWP.Services
                 Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
                 Current.RefreshTokenExpiresAt = TryGetRefreshTokenExpiresAt(response);
                 Current.ScopeVersion = RequiredScopeVersion;
+                Current.AuthVersion = RequiredAuthVersion;
 
                 await RenewOfflinePersistenceLeaseAsync().ConfigureAwait(false);
                 await PersistStateAndNotifyAsync(Current, reconnectLibrespot: true).ConfigureAwait(false);
@@ -164,11 +173,7 @@ namespace LibreSpotUWP.Services
 
         public async Task ResetAuthStateAsync()
         {
-            Current = null;
-            await _storage.DeleteAsync(StorageKey);
-
-            App.AuthToken = null;
-
+            await ClearStoredAuthStateAsync().ConfigureAwait(false);
             RaiseAuthStateChanged(null);
         }
 
@@ -224,6 +229,9 @@ namespace LibreSpotUWP.Services
 
         private async Task SaveStateAsync()
         {
+            if (Current != null)
+                StampCurrentAuthSchema(Current);
+
             var json = Newtonsoft.Json.JsonConvert.SerializeObject(Current);
             await _storage.SaveAsync(StorageKey, json);
         }
@@ -238,11 +246,11 @@ namespace LibreSpotUWP.Services
             {
                 Current = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
 
-                if (Current != null && !HasRequiredScopeVersion(Current))
+                if (Current == null ||
+                    string.IsNullOrEmpty(Current.AccessToken) ||
+                    !HasRequiredAuthSchema(Current))
                 {
-                    Current = null;
-                    App.AuthToken = null;
-                    await _storage.DeleteAsync(StorageKey);
+                    await ClearStoredAuthStateAsync().ConfigureAwait(false);
                     return;
                 }
 
@@ -253,20 +261,18 @@ namespace LibreSpotUWP.Services
             }
             catch
             {
-                Current = null;
-                App.AuthToken = null;
-                await _storage.DeleteAsync(StorageKey);
+                await ClearStoredAuthStateAsync().ConfigureAwait(false);
             }
         }
 
         public async Task ImportAuthStateAsync(AuthState state)
         {
-            if (state == null || string.IsNullOrEmpty(state.AccessToken) || !HasRequiredScopeVersion(state))
+            if (state == null || string.IsNullOrEmpty(state.AccessToken) || !HasRequiredAuthSchema(state))
                 throw new ArgumentException("Invalid AuthState imported.");
 
             Current = state;
             Current.ClientId = ResolveStateClientId(Current);
-            Current.ScopeVersion = RequiredScopeVersion;
+            StampCurrentAuthSchema(Current);
             if (!Current.LastTokenRefreshAt.HasValue)
                 Current.LastTokenRefreshAt = DateTimeOffset.UtcNow;
 
@@ -280,11 +286,22 @@ namespace LibreSpotUWP.Services
                 state.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(1);
         }
 
-        private static bool HasRequiredScopeVersion(AuthState state)
+        private static bool HasRequiredAuthSchema(AuthState state)
         {
             return state != null &&
+                state.AuthVersion >= RequiredAuthVersion &&
                 state.ScopeVersion >= RequiredScopeVersion &&
                 !string.IsNullOrWhiteSpace(state.ClientId);
+        }
+
+        private static void StampCurrentAuthSchema(AuthState state)
+        {
+            if (state == null)
+                return;
+
+            state.AuthVersion = RequiredAuthVersion;
+            state.ScopeVersion = RequiredScopeVersion;
+            state.ClientId = ResolveStateClientId(state);
         }
 
         private static string ResolveStateClientId(AuthState state)
@@ -351,11 +368,9 @@ namespace LibreSpotUWP.Services
 
         private async Task<AuthState> GetOrLoadCurrentStateCoreAsync()
         {
-            if (Current != null && !HasRequiredScopeVersion(Current))
+            if (Current != null && !HasRequiredAuthSchema(Current))
             {
-                Current = null;
-                App.AuthToken = null;
-                await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
+                await ClearStoredAuthStateAsync().ConfigureAwait(false);
                 return null;
             }
 
@@ -370,11 +385,14 @@ namespace LibreSpotUWP.Services
             {
                 var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
                 if (loaded == null || string.IsNullOrEmpty(loaded.AccessToken))
-                    return null;
-
-                if (!HasRequiredScopeVersion(loaded))
                 {
-                    await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
+                    await ClearStoredAuthStateAsync().ConfigureAwait(false);
+                    return null;
+                }
+
+                if (!HasRequiredAuthSchema(loaded))
+                {
+                    await ClearStoredAuthStateAsync().ConfigureAwait(false);
                     return null;
                 }
 
@@ -384,9 +402,16 @@ namespace LibreSpotUWP.Services
             }
             catch
             {
-                await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
+                await ClearStoredAuthStateAsync().ConfigureAwait(false);
                 return null;
             }
+        }
+
+        private async Task ClearStoredAuthStateAsync()
+        {
+            Current = null;
+            App.AuthToken = null;
+            await _storage.DeleteAsync(StorageKey).ConfigureAwait(false);
         }
 
         private async Task PersistStateAndNotifyAsync(AuthState state, bool reconnectLibrespot)
