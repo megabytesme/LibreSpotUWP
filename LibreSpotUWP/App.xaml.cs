@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.ApplicationModel;
@@ -41,6 +42,9 @@ namespace LibreSpotUWP
         private ISecureStorage _secureStorage;
         private IFileSystem _fileSystem;
         private IMetadataCache _metadataCache;
+        private readonly SemaphoreSlim _launchGate = new SemaphoreSlim(1, 1);
+        private bool _servicesInitialized;
+        private bool _startupUpdateCheckQueued;
         private static bool _fatalDialogOpen;
         public static AudioKeyCache KeyCache { get; private set; }
 
@@ -103,6 +107,8 @@ namespace LibreSpotUWP
 
                 if (args.Kind == ActivationKind.Protocol)
                 {
+                    await EnsureServicesInitializedForActivationAsync();
+
                     var p = (ProtocolActivatedEventArgs)args;
                     var uri = p.Uri;
                     LogService.Info("PKCE Callback URI: " + uri);
@@ -144,76 +150,49 @@ namespace LibreSpotUWP
             {
                 ApplyThemeResources();
 
-                await LogService.InitializeAsync();
-                _fileSystem = new FileSystem();
-                _metadataCache = new FileMetadataCache(_fileSystem);
-                _secureStorage = new SecureStorage();
-                KeyCache = new AudioKeyCache();
-                await KeyCache.InitializeAsync();
-                Librespot = new LibrespotService(KeyCache);
-                SpotifyAuth = new SpotifyAuthService(_secureStorage);
-                SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache, Librespot);
-                OfflineCatalog = new OfflineCatalogService();
-                Downloads = new DownloadTrackerService();
-                Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
-                BackgroundExecution = new UwpBackgroundExecutionManager();
+                bool isSignedIn;
+                bool shouldCheckForUpdates = false;
 
-                await Librespot.InitializeAsync();
-                await OfflineCatalog.InitializeAsync();
-
-                var hasInternet = ConnectivityHelper.HasInternetAccess();
-                var token = hasInternet
-                    ? await SpotifyAuth.EnsureValidAccessTokenAsync()
-                    : await SpotifyAuth.GetAccessToken();
-                var isSignedIn = !string.IsNullOrEmpty(token);
-
-                if (isSignedIn)
+                await _launchGate.WaitAsync();
+                try
                 {
-                    await Librespot.ConnectWithAccessTokenAsync(token);
+                    isSignedIn = await EnsureServicesInitializedAsync();
 
-                    if (hasInternet)
-                        await OfflineCatalog.RemoveExpiredPersistedTracksAsync();
-                }
-
-                if (hasInternet && isSignedIn)
-                {
-                    try
+                    Frame rootFrame = Window.Current.Content as Frame;
+                    if (rootFrame == null)
                     {
-                        var currentUser = await SpotifyWeb.GetCurrentUserProfileAsync(forceRefresh: false);
-                        SpotifyAccountManager.Instance.SetUser(currentUser?.Value);
+                        rootFrame = new Frame();
+                        rootFrame.NavigationFailed += OnNavigationFailed;
+
+                        if (e.PreviousExecutionState == ApplicationExecutionState.Terminated)
+                        {
+                        }
+
+                        Window.Current.Content = rootFrame;
                     }
-                    catch (Exception ex)
+
+                    if (e.PrelaunchActivated == false)
                     {
-                        LogService.Warn($"Unable to preload current user profile during launch: {ex.Message}");
+                        if (rootFrame.Content == null)
+                        {
+                            rootFrame.Navigate(isSignedIn ? NavigationHelper.GetPageType("Shell") : typeof(OobePage), e.Arguments);
+                        }
+
+                        shouldCheckForUpdates = !_startupUpdateCheckQueued;
+                        _startupUpdateCheckQueued = true;
                     }
                 }
-
-                await Media.InitializeAsync();
-                LiveTiles = new LiveTileService(Media, SpotifyAuth, SpotifyWeb);
-                await LiveTiles.InitializeAsync(isSignedIn);
-
-                Frame rootFrame = Window.Current.Content as Frame;
-                if (rootFrame == null)
+                finally
                 {
-                    rootFrame = new Frame();
-                    rootFrame.NavigationFailed += OnNavigationFailed;
-
-                    if (e.PreviousExecutionState == ApplicationExecutionState.Terminated)
-                    {
-                    }
-
-                    Window.Current.Content = rootFrame;
+                    _launchGate.Release();
                 }
 
                 if (e.PrelaunchActivated == false)
                 {
-                    if (rootFrame.Content == null)
-                    {
-                        rootFrame.Navigate(isSignedIn ? NavigationHelper.GetPageType("Shell") : typeof(OobePage), e.Arguments);
-                    }
-
                     Window.Current.Activate();
-                    _ = CheckForUpdatesAtStartup();
+
+                    if (shouldCheckForUpdates)
+                        _ = CheckForUpdatesAtStartup();
                 }
             }
             catch (Exception ex)
@@ -221,6 +200,87 @@ namespace LibreSpotUWP
                 LogService.Error(ex, "Unhandled exception during launch");
                 await ShowFatalErrorAsync(ex);
             }
+        }
+
+        private async Task EnsureServicesInitializedForActivationAsync()
+        {
+            await _launchGate.WaitAsync();
+            try
+            {
+                await EnsureServicesInitializedAsync();
+            }
+            finally
+            {
+                _launchGate.Release();
+            }
+        }
+
+        private async Task<bool> EnsureServicesInitializedAsync()
+        {
+            if (_servicesInitialized)
+            {
+                LogService.Info("[App.EnsureServicesInitializedAsync] Existing app instance activated; skipping service initialization.");
+                return IsCurrentUserSignedIn();
+            }
+
+            await LogService.InitializeAsync();
+            _fileSystem = new FileSystem();
+            _metadataCache = new FileMetadataCache(_fileSystem);
+            _secureStorage = new SecureStorage();
+            KeyCache = new AudioKeyCache();
+            await KeyCache.InitializeAsync();
+            Librespot = new LibrespotService(KeyCache);
+            SpotifyAuth = new SpotifyAuthService(_secureStorage);
+            SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache, Librespot);
+            OfflineCatalog = new OfflineCatalogService();
+            Downloads = new DownloadTrackerService();
+            Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
+            BackgroundExecution = new UwpBackgroundExecutionManager();
+
+            await Librespot.InitializeAsync();
+            await OfflineCatalog.InitializeAsync();
+
+            var hasInternet = ConnectivityHelper.HasInternetAccess();
+            var token = hasInternet
+                ? await SpotifyAuth.EnsureValidAccessTokenAsync()
+                : await SpotifyAuth.GetAccessToken();
+            var isSignedIn = !string.IsNullOrEmpty(token);
+
+            if (isSignedIn)
+            {
+                await Librespot.ConnectWithAccessTokenAsync(token);
+
+                if (hasInternet)
+                    await OfflineCatalog.RemoveExpiredPersistedTracksAsync();
+            }
+
+            if (hasInternet && isSignedIn)
+            {
+                try
+                {
+                    var currentUser = await SpotifyWeb.GetCurrentUserProfileAsync(forceRefresh: false);
+                    SpotifyAccountManager.Instance.SetUser(currentUser?.Value);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Warn($"Unable to preload current user profile during launch: {ex.Message}");
+                }
+            }
+
+            await Media.InitializeAsync();
+            LiveTiles = new LiveTileService(Media, SpotifyAuth, SpotifyWeb);
+            await LiveTiles.InitializeAsync(isSignedIn);
+
+            _servicesInitialized = true;
+            return isSignedIn;
+        }
+
+        private static bool IsCurrentUserSignedIn()
+        {
+            var auth = SpotifyAuth?.Current;
+            return auth != null &&
+                !string.IsNullOrEmpty(auth.AccessToken) &&
+                !auth.IsExpired;
         }
 
         /// <summary>
