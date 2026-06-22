@@ -39,9 +39,25 @@ namespace LibreSpotUWP.Services
         private int _frameSize;
         private int _firstAudioFrameLogged = 1;
         private string _firstAudioFrameTrackUri = "(unknown)";
+        private Timer _telemetryTimer;
+        private long _lastQuantumTimestamp;
+        private long _telemetryQuantumCount;
+        private long _telemetryRequestedBytes;
+        private long _telemetryCopiedBytes;
+        private long _telemetryAvailableBytes;
+        private long _telemetrySilenceFillQuantumCount;
+        private long _telemetrySilenceFillBytes;
+        private long _telemetryMaxSilenceFillBytes;
+        private long _telemetryZeroAvailableQuantumCount;
+        private long _telemetryLateQuantumCount;
+        private long _telemetryMaxQuantumElapsedTicks;
+        private long _telemetryFramePoolMissCount;
+        private int _telemetryMinAvailableBytes = int.MaxValue;
+        private int _telemetryMaxAvailableBytes;
 
         private readonly ConcurrentQueue<PooledFrame> _framePool = new ConcurrentQueue<PooledFrame>();
         private const int PoolSize = 6;
+        private const int TelemetryIntervalMs = 10000;
         private const int DefaultEqualizerBandCount = 5;
         private const double EqualizerMinLinearGain = 0.126;
         private const double EqualizerMaxLinearGain = 7.94;
@@ -117,6 +133,8 @@ namespace LibreSpotUWP.Services
             _inputNode.AddOutgoingConnection(outResult.DeviceOutputNode);
 
             _graph.Start();
+            _telemetryTimer = new Timer(_ => FlushAudioTelemetry(), null, TelemetryIntervalMs, TelemetryIntervalMs);
+            LogService.Info($"[LibrespotRingBufferPlayer.InitializeAsync] AudioGraph started sampleRate={_props.SampleRate}, channels={_props.ChannelCount}, bits={_props.BitsPerSample}, samplesPerQuantum={_graph.SamplesPerQuantum}, frameBytes={_frameSize}, maxFrameBytes={_maxFrameBytes}, capacityBytes={_capacityBytes}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.");
         }
 
         private unsafe void OnQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
@@ -132,8 +150,11 @@ namespace LibreSpotUWP.Services
             int bytesToCopy = Math.Min(available, bytesRequested);
             bytesToCopy -= bytesToCopy % _frameSize;
 
+            RecordAudioTelemetry(samplesNeeded, bytesRequested, bytesToCopy, available);
+
             if (!_framePool.TryDequeue(out PooledFrame pooled) || pooled.Capacity < bytesRequested)
             {
+                Interlocked.Increment(ref _telemetryFramePoolMissCount);
                 pooled?.Dispose();
                 pooled = new PooledFrame((uint)bytesRequested);
             }
@@ -185,12 +206,24 @@ namespace LibreSpotUWP.Services
 
         public void PrepareForPlaybackStartLog(string trackUri)
         {
+            FlushAudioTelemetry(force: true);
             _firstAudioFrameTrackUri = string.IsNullOrWhiteSpace(trackUri) ? "(unknown)" : trackUri;
             Interlocked.Exchange(ref _firstAudioFrameLogged, 0);
+            Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
         }
 
-        public void Start() => _graph?.Start();
-        public void Stop() => _graph?.Stop();
+        public void Start()
+        {
+            Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
+            _graph?.Start();
+        }
+
+        public void Stop()
+        {
+            _graph?.Stop();
+            Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
+            FlushAudioTelemetry(force: true);
+        }
 
         public void SetOutgoingGain(double gain)
         {
@@ -222,6 +255,9 @@ namespace LibreSpotUWP.Services
 
         public void Dispose()
         {
+            _telemetryTimer?.Dispose();
+            _telemetryTimer = null;
+            FlushAudioTelemetry(force: true);
             _inputNode?.Stop();
             _graph?.Stop();
             _inputNode?.Dispose();
@@ -526,6 +562,127 @@ namespace LibreSpotUWP.Services
                 return 1.0;
 
             return Math.Max(0.0, Math.Min(1.0, value));
+        }
+
+        private void RecordAudioTelemetry(int samplesNeeded, int bytesRequested, int bytesCopied, int availableBytes)
+        {
+            Interlocked.Increment(ref _telemetryQuantumCount);
+            Interlocked.Add(ref _telemetryRequestedBytes, bytesRequested);
+            Interlocked.Add(ref _telemetryCopiedBytes, bytesCopied);
+            Interlocked.Add(ref _telemetryAvailableBytes, availableBytes);
+            UpdateMin(ref _telemetryMinAvailableBytes, availableBytes);
+            UpdateMax(ref _telemetryMaxAvailableBytes, availableBytes);
+
+            if (availableBytes == 0)
+                Interlocked.Increment(ref _telemetryZeroAvailableQuantumCount);
+
+            int silenceBytes = bytesRequested - bytesCopied;
+            if (silenceBytes > 0)
+            {
+                Interlocked.Increment(ref _telemetrySilenceFillQuantumCount);
+                Interlocked.Add(ref _telemetrySilenceFillBytes, silenceBytes);
+                UpdateMax(ref _telemetryMaxSilenceFillBytes, silenceBytes);
+            }
+
+            RecordQuantumTiming(samplesNeeded);
+        }
+
+        private void RecordQuantumTiming(int samplesNeeded)
+        {
+            if (_props.SampleRate == 0)
+                return;
+
+            long now = Stopwatch.GetTimestamp();
+            long previous = Interlocked.Exchange(ref _lastQuantumTimestamp, now);
+            if (previous == 0)
+                return;
+
+            long elapsedTicks = now - previous;
+            long expectedTicks = (long)(samplesNeeded * (double)Stopwatch.Frequency / _props.SampleRate);
+            if (expectedTicks <= 0)
+                return;
+
+            long lateThresholdTicks = expectedTicks + Math.Max(expectedTicks / 2, Stopwatch.Frequency / 200);
+            if (elapsedTicks <= lateThresholdTicks)
+                return;
+
+            Interlocked.Increment(ref _telemetryLateQuantumCount);
+            UpdateMax(ref _telemetryMaxQuantumElapsedTicks, elapsedTicks);
+        }
+
+        private void FlushAudioTelemetry(bool force = false)
+        {
+            long quantumCount = Interlocked.Exchange(ref _telemetryQuantumCount, 0);
+            if (quantumCount == 0)
+                return;
+
+            long requestedBytes = Interlocked.Exchange(ref _telemetryRequestedBytes, 0);
+            long copiedBytes = Interlocked.Exchange(ref _telemetryCopiedBytes, 0);
+            long availableBytes = Interlocked.Exchange(ref _telemetryAvailableBytes, 0);
+            long silenceFillQuantumCount = Interlocked.Exchange(ref _telemetrySilenceFillQuantumCount, 0);
+            long silenceFillBytes = Interlocked.Exchange(ref _telemetrySilenceFillBytes, 0);
+            long maxSilenceFillBytes = Interlocked.Exchange(ref _telemetryMaxSilenceFillBytes, 0);
+            long zeroAvailableQuantumCount = Interlocked.Exchange(ref _telemetryZeroAvailableQuantumCount, 0);
+            long lateQuantumCount = Interlocked.Exchange(ref _telemetryLateQuantumCount, 0);
+            long maxQuantumElapsedTicks = Interlocked.Exchange(ref _telemetryMaxQuantumElapsedTicks, 0);
+            long framePoolMissCount = Interlocked.Exchange(ref _telemetryFramePoolMissCount, 0);
+            int minAvailableBytes = Interlocked.Exchange(ref _telemetryMinAvailableBytes, int.MaxValue);
+            int maxAvailableBytes = Interlocked.Exchange(ref _telemetryMaxAvailableBytes, 0);
+
+            bool hasAudioPressure = silenceFillQuantumCount > 0 || lateQuantumCount > 0 || framePoolMissCount > 0;
+            if (!hasAudioPressure)
+                return;
+
+            if (minAvailableBytes == int.MaxValue)
+                minAvailableBytes = 0;
+
+            double avgAvailableBytes = quantumCount > 0 ? availableBytes / (double)quantumCount : 0;
+            double fillPercent = requestedBytes > 0 ? copiedBytes * 100.0 / requestedBytes : 100.0;
+
+            LogService.Warn($"[LibrespotRingBufferPlayer.AudioHealth] track={_firstAudioFrameTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={TicksToMilliseconds(maxQuantumElapsedTicks):F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.");
+        }
+
+        private double BytesToMilliseconds(long byteCount)
+        {
+            if (_frameSize <= 0 || _props.SampleRate == 0)
+                return 0;
+
+            return byteCount * 1000.0 / _frameSize / _props.SampleRate;
+        }
+
+        private static double TicksToMilliseconds(long ticks)
+        {
+            if (ticks <= 0)
+                return 0;
+
+            return ticks * 1000.0 / Stopwatch.Frequency;
+        }
+
+        private static void UpdateMin(ref int target, int value)
+        {
+            int current;
+            while (value < (current = Volatile.Read(ref target)) &&
+                   Interlocked.CompareExchange(ref target, value, current) != current)
+            {
+            }
+        }
+
+        private static void UpdateMax(ref int target, int value)
+        {
+            int current;
+            while (value > (current = Volatile.Read(ref target)) &&
+                   Interlocked.CompareExchange(ref target, value, current) != current)
+            {
+            }
+        }
+
+        private static void UpdateMax(ref long target, long value)
+        {
+            long current;
+            while (value > (current = Volatile.Read(ref target)) &&
+                   Interlocked.CompareExchange(ref target, value, current) != current)
+            {
+            }
         }
 
         [ComImport]
