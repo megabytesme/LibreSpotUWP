@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.System;
+using Windows.Networking.Connectivity;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -41,10 +42,17 @@ namespace LibreSpotUWP
         private int _suppressedSelectionChanges;
         private string _currentNavTag = "Home";
         private NavigationPaneMode _navigationPaneMode;
+        private EventHandler<MediaState> _mediaStateChangedHandler;
+        private bool _connectivityEventsRegistered;
+        private bool _lastKnownInternetAccess;
+        private int _connectivityUiRefreshVersion;
 
         public MainPage()
         {
             InitializeComponent();
+
+            Loaded += MainPage_Loaded;
+            Unloaded += MainPage_Unloaded;
 
             RootSplitView.RegisterPropertyChangedCallback(SplitView.IsPaneOpenProperty, (s, dp) => {
                 if (RootSplitView.IsPaneOpen)
@@ -77,6 +85,120 @@ namespace LibreSpotUWP
         }
 
         public string CurrentPageTag => _currentNavTag;
+
+        private void MainPage_Loaded(object sender, RoutedEventArgs e)
+        {
+            RegisterConnectivityEvents();
+
+            if (App.Media != null && _mediaStateChangedHandler == null)
+            {
+                _mediaStateChangedHandler = (s, state) =>
+                {
+                    var ignored = Dispatcher.RunAsync(
+                        CoreDispatcherPriority.Normal,
+                        () => UpdatePlaybackRecoveryBanner(state));
+                };
+                App.Media.MediaStateChanged += _mediaStateChangedHandler;
+            }
+
+            UpdatePlaybackRecoveryBanner(App.Media?.Current);
+        }
+
+        private void MainPage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            UnregisterConnectivityEvents();
+
+            if (App.Media != null && _mediaStateChangedHandler != null)
+            {
+                App.Media.MediaStateChanged -= _mediaStateChangedHandler;
+                _mediaStateChangedHandler = null;
+            }
+        }
+
+        private void UpdatePlaybackRecoveryBanner(MediaState state)
+        {
+            var show = state?.IsRecoveringOnlinePlayback == true;
+            PlaybackRecoveryText.Text = string.IsNullOrWhiteSpace(state?.StatusMessage)
+                ? "Reconnecting to Spotify..."
+                : state.StatusMessage;
+            PlaybackRecoveryRing.IsActive = show;
+            PlaybackRecoveryBanner.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void RegisterConnectivityEvents()
+        {
+            _lastKnownInternetAccess = ConnectivityHelper.HasInternetAccess();
+            if (_connectivityEventsRegistered)
+                return;
+
+            ConnectivityHelper.ConnectivityStatusChanged += OnConnectivityStatusChanged;
+            NetworkInformation.NetworkStatusChanged += OnNetworkStatusChanged;
+            _connectivityEventsRegistered = true;
+        }
+
+        private void UnregisterConnectivityEvents()
+        {
+            if (!_connectivityEventsRegistered)
+                return;
+
+            ConnectivityHelper.ConnectivityStatusChanged -= OnConnectivityStatusChanged;
+            NetworkInformation.NetworkStatusChanged -= OnNetworkStatusChanged;
+            _connectivityEventsRegistered = false;
+        }
+
+        private void OnConnectivityStatusChanged(object sender, EventArgs e)
+        {
+            QueueConnectivityUiRefresh();
+        }
+
+        private void OnNetworkStatusChanged(object sender)
+        {
+            QueueConnectivityUiRefresh();
+        }
+
+        private void QueueConnectivityUiRefresh()
+        {
+            var version = Interlocked.Increment(ref _connectivityUiRefreshVersion);
+            var ignored = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
+            {
+                await Task.Delay(300);
+                if (version != _connectivityUiRefreshVersion)
+                    return;
+
+                await RefreshUiAfterConnectivityChangedAsync();
+            });
+        }
+
+        private async Task RefreshUiAfterConnectivityChangedAsync()
+        {
+            var hasInternet = ConnectivityHelper.HasInternetAccess();
+            var wasOnline = _lastKnownInternetAccess;
+            _lastKnownInternetAccess = hasInternet;
+
+            UpdatePlaybackRecoveryBanner(App.Media?.Current);
+            UpdateCacheStatusConnectivity(hasInternet);
+
+            if (!hasInternet || wasOnline || _isPlayerOpen)
+                return;
+
+            try
+            {
+                await HeaderAccountControl.Initialize();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MainPage.RefreshUiAfterConnectivityChangedAsync] Unable to refresh account header: {ex.Message}");
+            }
+        }
+
+        private void UpdateCacheStatusConnectivity(bool hasInternet)
+        {
+            if (string.IsNullOrWhiteSpace(_cacheStatusTooltip) || _cacheRefreshAction == null)
+                return;
+
+            CacheRefreshButton.Visibility = hasInternet ? Visibility.Visible : Visibility.Collapsed;
+            ToolTipService.SetToolTip(CacheRefreshButton, _cacheStatusTooltip);
+        }
 
         private void UpdateMediaBarVisibility()
         {
