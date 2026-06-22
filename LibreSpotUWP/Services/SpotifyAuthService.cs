@@ -1,9 +1,13 @@
 ﻿using LibreSpotUWP.Constants;
+using LibreSpotUWP.Exceptions;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
+using Newtonsoft.Json.Linq;
 using SpotifyAPI.Web;
 using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,7 +26,9 @@ namespace LibreSpotUWP.Services
         private const string StorageKey = "spotify_auth_state";
         private const int RequiredScopeVersion = 4;
         private const int RequiredAuthVersion = 1;
+        private const string SpotifyMeEndpoint = "https://api.spotify.com/v1/me";
         private static readonly TimeSpan OfflinePersistenceLeaseDuration = TimeSpan.FromDays(30);
+        private static readonly HttpClient AccountHttpClient = new HttpClient();
 
         public AuthState Current { get; private set; }
         public event EventHandler<AuthState> AuthStateChanged;
@@ -99,6 +105,8 @@ namespace LibreSpotUWP.Services
             var response = await oauth.RequestToken(request);
             LogService.Info("[SpotifyAuthService.ExchangePkceCodeAsync] Token exchange completed.");
 
+            await EnsurePremiumAccountAsync(response.AccessToken).ConfigureAwait(false);
+
             Current = new AuthState
             {
                 AccessToken = response.AccessToken,
@@ -153,6 +161,16 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
+                try
+                {
+                    await EnsurePremiumAccountAsync(response.AccessToken).ConfigureAwait(false);
+                }
+                catch (SpotifyPremiumRequiredException)
+                {
+                    await ResetAuthStateAsync().ConfigureAwait(false);
+                    throw;
+                }
+
                 Current.AccessToken = response.AccessToken;
                 if (!string.IsNullOrEmpty(response.RefreshToken))
                     Current.RefreshToken = response.RefreshToken;
@@ -175,6 +193,32 @@ namespace LibreSpotUWP.Services
         {
             await ClearStoredAuthStateAsync().ConfigureAwait(false);
             RaiseAuthStateChanged(null);
+        }
+
+        public async Task EnsureCurrentAccountIsPremiumAsync()
+        {
+            await _authGate.WaitAsync().ConfigureAwait(false);
+
+            try
+            {
+                var state = await GetOrLoadCurrentStateCoreAsync().ConfigureAwait(false);
+                if (state == null || string.IsNullOrEmpty(state.AccessToken))
+                    return;
+
+                try
+                {
+                    await EnsurePremiumAccountAsync(state.AccessToken).ConfigureAwait(false);
+                }
+                catch (SpotifyPremiumRequiredException)
+                {
+                    await ResetAuthStateAsync().ConfigureAwait(false);
+                    throw;
+                }
+            }
+            finally
+            {
+                _authGate.Release();
+            }
         }
 
         public async Task<string> GetAccessToken()
@@ -270,6 +314,8 @@ namespace LibreSpotUWP.Services
             if (state == null || string.IsNullOrEmpty(state.AccessToken) || !HasRequiredAuthSchema(state))
                 throw new ArgumentException("Invalid AuthState imported.");
 
+            await EnsurePremiumAccountAsync(state.AccessToken).ConfigureAwait(false);
+
             Current = state;
             Current.ClientId = ResolveStateClientId(Current);
             StampCurrentAuthSchema(Current);
@@ -334,6 +380,31 @@ namespace LibreSpotUWP.Services
                 return DateTimeOffset.UtcNow.AddSeconds(secondsDouble);
 
             return null;
+        }
+
+        private static async Task EnsurePremiumAccountAsync(string accessToken)
+        {
+            if (string.IsNullOrWhiteSpace(accessToken) || !ConnectivityHelper.HasInternetAccess())
+                return;
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, SpotifyMeEndpoint))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                using (var response = await AccountHttpClient.SendAsync(request).ConfigureAwait(false))
+                {
+                    response.EnsureSuccessStatusCode();
+
+                    var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var product = (string)JObject.Parse(json)["product"];
+
+                    if (!string.Equals(product, "premium", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogService.Warn($"[SpotifyAuthService.EnsurePremiumAccountAsync] Rejected Spotify account product={product ?? "(null)"}.");
+                        throw new SpotifyPremiumRequiredException(product);
+                    }
+                }
+            }
         }
 
         private static async Task RenewOfflinePersistenceLeaseAsync()

@@ -1,5 +1,6 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Exceptions;
 using System;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
@@ -78,6 +79,10 @@ namespace LibreSpotUWP.Helpers
                     PrimaryButtonText = "OK"
                 };
                 await successDialog.ShowAsync();
+            }
+            catch (SpotifyPremiumRequiredException ex)
+            {
+                await PremiumRequiredDialog.ShowAsync(ex);
             }
             catch
             {

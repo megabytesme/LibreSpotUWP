@@ -93,6 +93,11 @@
                                 Text="LibreSpotUWP needs a Spotify login session before the main app opens. The easiest path is to use the LibreSpotUWP Login Helper on another Windows device, then scan the QR code or paste the sign-in details here." />
 
                             <TextBlock
+                                FontWeight="SemiBold"
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="A Spotify Premium account is required. Spotify Free accounts are not supported by LibreSpotUWP." />
+
+                            <TextBlock
                                 Style="{StaticResource BodyTextStyle}"
                                 Text="You can also sign in directly with Spotify on supported desktop devices after setting a Spotify client ID. If you are on a phone or do not know what that means, use the Login Helper path." />
 
@@ -131,7 +136,7 @@
                                 <TextBlock
                                     Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                                     Style="{StaticResource BodyTextStyle}"
-                                    Text="Choose one of these sign-in methods. The QR and paste options work well for Windows phones because the Login Helper can prepare the session on another device." />
+                                    Text="Choose one of these sign-in methods. The QR and paste options work well for Windows phones because the Login Helper can prepare the session on another device. LibreSpotUWP will reject Spotify Free accounts." />
 
                                 <Button
                                     x:Name="BtnOpenHelper"
