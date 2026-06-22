@@ -28,6 +28,18 @@ namespace LibreSpotUWP.Helpers
         private const string ResumeLastPlaybackIfWasPlayingKey = "ResumeLastPlaybackIfWasPlaying";
         private const string RememberLastPageKey = "RememberLastPage";
         private const string LyricsUseSpotifyThemeKey = "LyricsUseSpotifyTheme";
+        private const string LiveTilesEnabledKey = "LiveTilesEnabled";
+        private const string LiveTileOpenRandomItemsKey = "LiveTileOpenRandomItems";
+        private const string LiveTileNowPlayingEnabledKey = "LiveTileNowPlayingEnabled";
+        private const string LiveTileRecentSongsEnabledKey = "LiveTileRecentSongsEnabled";
+        private const string LiveTileRecentArtistsEnabledKey = "LiveTileRecentArtistsEnabled";
+        private const string LiveTileRecentPlaylistsEnabledKey = "LiveTileRecentPlaylistsEnabled";
+        private const string LiveTileRecentAlbumsEnabledKey = "LiveTileRecentAlbumsEnabled";
+        private const string LiveTileRandomArtistEnabledKey = "LiveTileRandomArtistEnabled";
+        private const string LiveTileRandomPlaylistEnabledKey = "LiveTileRandomPlaylistEnabled";
+        private const string LiveTileRandomAlbumEnabledKey = "LiveTileRandomAlbumEnabled";
+        private const string LiveTileSpotifyPlaylistEnabledKey = "LiveTileSpotifyPlaylistEnabled";
+        private const string LiveTileProfileEnabledKey = "LiveTileProfileEnabled";
         public const double EqualizerMinGainDb = -18.0;
         public const double EqualizerMaxGainDb = 18.0;
 
@@ -167,6 +179,78 @@ namespace LibreSpotUWP.Helpers
             set => ApplicationData.Current.LocalSettings.Values[LyricsUseSpotifyThemeKey] = value;
         }
 
+        public static bool LiveTilesEnabled
+        {
+            get => GetBoolSetting(LiveTilesEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTilesEnabledKey] = value;
+        }
+
+        public static bool LiveTileOpenRandomItems
+        {
+            get => GetBoolSetting(LiveTileOpenRandomItemsKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileOpenRandomItemsKey] = value;
+        }
+
+        public static bool LiveTileNowPlayingEnabled
+        {
+            get => GetBoolSetting(LiveTileNowPlayingEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileNowPlayingEnabledKey] = value;
+        }
+
+        public static bool LiveTileRecentSongsEnabled
+        {
+            get => GetBoolSetting(LiveTileRecentSongsEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRecentSongsEnabledKey] = value;
+        }
+
+        public static bool LiveTileRecentArtistsEnabled
+        {
+            get => GetBoolSetting(LiveTileRecentArtistsEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRecentArtistsEnabledKey] = value;
+        }
+
+        public static bool LiveTileRecentPlaylistsEnabled
+        {
+            get => GetBoolSetting(LiveTileRecentPlaylistsEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRecentPlaylistsEnabledKey] = value;
+        }
+
+        public static bool LiveTileRecentAlbumsEnabled
+        {
+            get => GetBoolSetting(LiveTileRecentAlbumsEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRecentAlbumsEnabledKey] = value;
+        }
+
+        public static bool LiveTileRandomArtistEnabled
+        {
+            get => GetBoolSetting(LiveTileRandomArtistEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRandomArtistEnabledKey] = value;
+        }
+
+        public static bool LiveTileRandomPlaylistEnabled
+        {
+            get => GetBoolSetting(LiveTileRandomPlaylistEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRandomPlaylistEnabledKey] = value;
+        }
+
+        public static bool LiveTileRandomAlbumEnabled
+        {
+            get => GetBoolSetting(LiveTileRandomAlbumEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileRandomAlbumEnabledKey] = value;
+        }
+
+        public static bool LiveTileSpotifyPlaylistEnabled
+        {
+            get => GetBoolSetting(LiveTileSpotifyPlaylistEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileSpotifyPlaylistEnabledKey] = value;
+        }
+
+        public static bool LiveTileProfileEnabled
+        {
+            get => GetBoolSetting(LiveTileProfileEnabledKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[LiveTileProfileEnabledKey] = value;
+        }
+
         public static double[] GetEqualizerBandGains()
         {
             var settings = ApplicationData.Current.LocalSettings;
@@ -263,6 +347,13 @@ namespace LibreSpotUWP.Helpers
                 return 1.0;
 
             return Math.Max(0.0, Math.Min(1.0, value));
+        }
+
+        private static bool GetBoolSetting(string key, bool defaultValue)
+        {
+            return ApplicationData.Current.LocalSettings.Values.TryGetValue(key, out object value) && value is bool enabled
+                ? enabled
+                : defaultValue;
         }
 
         private static double ClampBandGain(double value)

@@ -45,6 +45,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             SyncAppearanceRadioSelection();
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
             LyricsThemeToggle.IsOn = UserSettings.LyricsUseSpotifyTheme;
+            LoadLiveTileSettings();
             RememberLastPlaybackToggle.IsOn = UserSettings.RememberLastPlaybackState;
             ResumeLastPlaybackToggle.IsOn = UserSettings.ResumeLastPlaybackIfWasPlaying;
             var resumeVisible = RememberLastPlaybackToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
@@ -161,6 +162,43 @@ namespace LibreSpotUWP.Views.Win10_1507
                 return;
 
             UserSettings.LyricsUseSpotifyTheme = LyricsThemeToggle.IsOn;
+        }
+
+        private void LoadLiveTileSettings()
+        {
+            LiveTilesToggle.IsOn = UserSettings.LiveTilesEnabled;
+            LiveTileOpenRandomToggle.IsOn = UserSettings.LiveTileOpenRandomItems;
+            LiveTileNowPlayingToggle.IsOn = UserSettings.LiveTileNowPlayingEnabled;
+            LiveTileRecentSongsToggle.IsOn = UserSettings.LiveTileRecentSongsEnabled;
+            LiveTileRecentArtistsToggle.IsOn = UserSettings.LiveTileRecentArtistsEnabled;
+            LiveTileRecentPlaylistsToggle.IsOn = UserSettings.LiveTileRecentPlaylistsEnabled;
+            LiveTileRecentAlbumsToggle.IsOn = UserSettings.LiveTileRecentAlbumsEnabled;
+            LiveTileRandomArtistToggle.IsOn = UserSettings.LiveTileRandomArtistEnabled;
+            LiveTileRandomPlaylistToggle.IsOn = UserSettings.LiveTileRandomPlaylistEnabled;
+            LiveTileRandomAlbumToggle.IsOn = UserSettings.LiveTileRandomAlbumEnabled;
+            LiveTileSpotifyPlaylistToggle.IsOn = UserSettings.LiveTileSpotifyPlaylistEnabled;
+            LiveTileProfileToggle.IsOn = UserSettings.LiveTileProfileEnabled;
+        }
+
+        private void LiveTileToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.LiveTilesEnabled = LiveTilesToggle.IsOn;
+            UserSettings.LiveTileOpenRandomItems = LiveTileOpenRandomToggle.IsOn;
+            UserSettings.LiveTileNowPlayingEnabled = LiveTileNowPlayingToggle.IsOn;
+            UserSettings.LiveTileRecentSongsEnabled = LiveTileRecentSongsToggle.IsOn;
+            UserSettings.LiveTileRecentArtistsEnabled = LiveTileRecentArtistsToggle.IsOn;
+            UserSettings.LiveTileRecentPlaylistsEnabled = LiveTileRecentPlaylistsToggle.IsOn;
+            UserSettings.LiveTileRecentAlbumsEnabled = LiveTileRecentAlbumsToggle.IsOn;
+            UserSettings.LiveTileRandomArtistEnabled = LiveTileRandomArtistToggle.IsOn;
+            UserSettings.LiveTileRandomPlaylistEnabled = LiveTileRandomPlaylistToggle.IsOn;
+            UserSettings.LiveTileRandomAlbumEnabled = LiveTileRandomAlbumToggle.IsOn;
+            UserSettings.LiveTileSpotifyPlaylistEnabled = LiveTileSpotifyPlaylistToggle.IsOn;
+            UserSettings.LiveTileProfileEnabled = LiveTileProfileToggle.IsOn;
+
+            App.LiveTiles?.RefreshForSettingsChanged();
         }
 
         private void SpotifyCustomClientIdTextBox_TextChanged(object sender, TextChangedEventArgs e)

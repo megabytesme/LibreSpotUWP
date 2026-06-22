@@ -63,7 +63,7 @@ namespace LibreSpotUWP.Views.Win11
 
                 if (ContentFrame.Content == null)
                 {
-                    var startupTag = GetStartupPageTag();
+                    var startupTag = GetStartupPageTag(e.Parameter as string);
                     NavigateTo(startupTag, true);
                     SelectNavigationItem(startupTag);
                 }
@@ -74,10 +74,13 @@ namespace LibreSpotUWP.Views.Win11
             }
         }
 
-        private string GetStartupPageTag()
+        private string GetStartupPageTag(string requestedPageTag)
         {
             if (App.SpotifyAuth?.Current == null || App.SpotifyAuth.Current.IsExpired)
                 return "Settings";
+
+            if (IsLiveTileNavigationTag(requestedPageTag))
+                return requestedPageTag;
 
             if (UserSettings.RememberLastPage)
             {
@@ -91,6 +94,14 @@ namespace LibreSpotUWP.Views.Win11
             }
 
             return "Home";
+        }
+
+        private static bool IsLiveTileNavigationTag(string pageTag)
+        {
+            return !string.IsNullOrWhiteSpace(pageTag) &&
+                (pageTag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
+                 pageTag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
+                 pageTag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase));
         }
 
         private void UpdateMediaBarVisibility()

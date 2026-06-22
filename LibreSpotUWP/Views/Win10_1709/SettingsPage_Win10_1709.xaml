@@ -82,6 +82,71 @@
                     <TextBlock
                         Margin="0,0,0,8"
                         Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Live Tiles" />
+
+                    <ToggleSwitch
+                        x:Name="LiveTilesToggle"
+                        Header="Live tiles"
+                        Toggled="LiveTileToggle_Toggled" />
+
+                    <ToggleSwitch
+                        x:Name="LiveTileOpenRandomToggle"
+                        Margin="0,12,0,0"
+                        Header="Open random tiles to their page"
+                        Toggled="LiveTileToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,16,0,0"
+                        Style="{StaticResource BodyTextBlockStyle}"
+                        Text="Tiles" />
+
+                    <ToggleSwitch
+                        x:Name="LiveTileNowPlayingToggle"
+                        Margin="0,8,0,0"
+                        Header="Currently playing"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRecentSongsToggle"
+                        Header="Recent songs"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRecentArtistsToggle"
+                        Header="Recent artists"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRecentPlaylistsToggle"
+                        Header="Recent playlists"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRecentAlbumsToggle"
+                        Header="Recent albums"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRandomArtistToggle"
+                        Header="Random artist"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRandomPlaylistToggle"
+                        Header="Random playlist"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileRandomAlbumToggle"
+                        Header="Random album"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileSpotifyPlaylistToggle"
+                        Header="Spotify playlist"
+                        Toggled="LiveTileToggle_Toggled" />
+                    <ToggleSwitch
+                        x:Name="LiveTileProfileToggle"
+                        Header="Account profile"
+                        Toggled="LiveTileToggle_Toggled" />
+                </StackPanel>
+
+                <StackPanel Style="{StaticResource GroupPanelStyle}">
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
                         Text="Home Order" />
 
                     <TextBlock
