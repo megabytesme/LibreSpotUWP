@@ -81,12 +81,6 @@ namespace LibreSpotUWP.Services
             librespot_audio_set_read_cursor((UIntPtr)_readPos);
             _frameSize = (int)(_props.ChannelCount * (_props.BitsPerSample / 8));
 
-            uint samplesPerQuantum = 441;
-            _maxFrameBytes = samplesPerQuantum * (uint)_frameSize;
-
-            for (int i = 0; i < PoolSize; i++)
-                _framePool.Enqueue(new PooledFrame(_maxFrameBytes));
-
             var settings = new AudioGraphSettings(AudioRenderCategory.Media)
             {
                 EncodingProperties = _props,
@@ -108,6 +102,12 @@ namespace LibreSpotUWP.Services
                 throw new InvalidOperationException($"AudioGraph creation failed: {result.Status}");
 
             _graph = result.Graph;
+            uint samplesPerQuantum = (uint)Math.Max(1, _graph.SamplesPerQuantum);
+            _maxFrameBytes = samplesPerQuantum * (uint)_frameSize;
+
+            for (int i = 0; i < PoolSize; i++)
+                _framePool.Enqueue(new PooledFrame(_maxFrameBytes));
+
             var outResult = await _graph.CreateDeviceOutputNodeAsync();
             _inputNode = _graph.CreateFrameInputNode(_props);
             _inputNode.OutgoingGain = _outgoingGain;
@@ -132,12 +132,10 @@ namespace LibreSpotUWP.Services
             int bytesToCopy = Math.Min(available, bytesRequested);
             bytesToCopy -= bytesToCopy % _frameSize;
 
-            if (bytesToCopy <= 0) return;
-
-            if (!_framePool.TryDequeue(out PooledFrame pooled) || pooled.Capacity < bytesToCopy)
+            if (!_framePool.TryDequeue(out PooledFrame pooled) || pooled.Capacity < bytesRequested)
             {
                 pooled?.Dispose();
-                pooled = new PooledFrame((uint)bytesToCopy);
+                pooled = new PooledFrame((uint)bytesRequested);
             }
 
             using (AudioBuffer buffer = pooled.Frame.LockBuffer(AudioBufferAccessMode.Write))
@@ -149,22 +147,28 @@ namespace LibreSpotUWP.Services
                     byte* dest = (byte*)dataInPtr;
                     byte* srcBase = (byte*)_bufferPtr;
 
-                    int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - _readPos);
-                    Buffer.MemoryCopy(srcBase + _readPos, dest, capacity, firstChunkSize);
-
-                    if (bytesToCopy > firstChunkSize)
+                    if (bytesToCopy > 0)
                     {
-                        Buffer.MemoryCopy(srcBase, dest + firstChunkSize, capacity - (uint)firstChunkSize, bytesToCopy - firstChunkSize);
+                        int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - _readPos);
+                        Buffer.MemoryCopy(srcBase + _readPos, dest, capacity, firstChunkSize);
+
+                        if (bytesToCopy > firstChunkSize)
+                        {
+                            Buffer.MemoryCopy(srcBase, dest + firstChunkSize, capacity - (uint)firstChunkSize, bytesToCopy - firstChunkSize);
+                        }
                     }
 
-                    buffer.Length = (uint)bytesToCopy;
+                    for (int i = bytesToCopy; i < bytesRequested; i++)
+                        dest[i] = 0;
+
+                    buffer.Length = (uint)bytesRequested;
                 }
             }
 
             sender.AddFrame(pooled.Frame);
             if (Interlocked.CompareExchange(ref _firstAudioFrameLogged, 1, 0) == 0)
             {
-                LogService.Info($"[LibrespotRingBufferPlayer.OnQuantumStarted] First audio frame submitted to AudioGraph track={_firstAudioFrameTrackUri}, bytes={bytesToCopy}, available={available}, requested={bytesRequested}, writePos={writePos}, readPos={_readPos}.");
+                LogService.Info($"[LibrespotRingBufferPlayer.OnQuantumStarted] First audio frame submitted to AudioGraph track={_firstAudioFrameTrackUri}, bytes={bytesToCopy}, submitted={bytesRequested}, available={available}, requested={bytesRequested}, writePos={writePos}, readPos={_readPos}.");
             }
 
             if (pooled.Capacity <= _maxFrameBytes)
@@ -172,8 +176,11 @@ namespace LibreSpotUWP.Services
             else
                 pooled.Dispose();
 
-            _readPos = (_readPos + bytesToCopy) % _capacityBytes;
-            librespot_audio_set_read_cursor((UIntPtr)_readPos);
+            if (bytesToCopy > 0)
+            {
+                _readPos = (_readPos + bytesToCopy) % _capacityBytes;
+                librespot_audio_set_read_cursor((UIntPtr)_readPos);
+            }
         }
 
         public void PrepareForPlaybackStartLog(string trackUri)
