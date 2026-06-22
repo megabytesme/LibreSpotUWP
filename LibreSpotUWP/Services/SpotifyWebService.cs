@@ -92,7 +92,7 @@ namespace LibreSpotUWP.Services
                 }
                 catch (HttpRequestException httpEx)
                 {
-                    ConnectivityHelper.ReportInternetAccessFailure();
+                    ReportInternetAccessFailureIfNetworkLooksOffline();
 
                     var method = action.Method.Name;
                     System.Diagnostics.Debug.WriteLine(
@@ -102,7 +102,7 @@ namespace LibreSpotUWP.Services
                 }
                 catch (TaskCanceledException canceledEx) when (!ct.IsCancellationRequested)
                 {
-                    ConnectivityHelper.ReportInternetAccessFailure();
+                    ReportInternetAccessFailureIfNetworkLooksOffline();
 
                     var method = action.Method.Name;
                     System.Diagnostics.Debug.WriteLine(
@@ -228,7 +228,7 @@ namespace LibreSpotUWP.Services
             catch (Exception ex) when (IsRecoverable(ex))
             {
                 if (LooksLikeConnectivityFailure(ex))
-                    ConnectivityHelper.ReportInternetAccessFailure();
+                    ReportInternetAccessFailureIfNetworkLooksOffline();
 
                 var cached = await _cache.TryGetAsync<T>(key);
                 if (cached != null)
@@ -262,6 +262,12 @@ namespace LibreSpotUWP.Services
                 text.IndexOf("server name or address could not be resolved", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 text.IndexOf("Service unavailable", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 text.IndexOf("Tried to acquire token without stored credentials", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void ReportInternetAccessFailureIfNetworkLooksOffline()
+        {
+            if (!ConnectivityHelper.HasNetworkReportedInternetAccess())
+                ConnectivityHelper.ReportInternetAccessFailure();
         }
 
         private static bool IsRateLimited(APIException apiEx)

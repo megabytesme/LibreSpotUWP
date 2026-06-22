@@ -150,5 +150,36 @@
             Grid.RowSpan="3"
             Background="Transparent"
             Visibility="Collapsed" />
+
+        <Border
+            x:Name="PlaybackRecoveryBanner"
+            Grid.RowSpan="3"
+            MaxWidth="420"
+            Margin="12"
+            Padding="14,10"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+            BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}"
+            BorderThickness="1"
+            CornerRadius="4"
+            IsHitTestVisible="False"
+            Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+                <muxc:ProgressRing
+                    x:Name="PlaybackRecoveryRing"
+                    Width="18"
+                    Height="18"
+                    Margin="0,0,10,0"
+                    VerticalAlignment="Center"
+                    IsActive="False" />
+                <TextBlock
+                    x:Name="PlaybackRecoveryText"
+                    VerticalAlignment="Center"
+                    FontWeight="SemiBold"
+                    Text="Reconnecting to Spotify..."
+                    TextWrapping="WrapWholeWords" />
+            </StackPanel>
+        </Border>
     </Grid>
 </Page>

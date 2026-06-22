@@ -14,6 +14,7 @@ namespace LibreSpotUWP.Models
         public bool IsOffline { get; set; }
         public bool IsTrackMetadataFromCache { get; set; }
         public bool IsCurrentTrackPersisted { get; set; }
+        public bool IsRecoveringOnlinePlayback { get; set; }
         public string StatusMessage { get; set; }
         public string ArtworkUri { get; set; }
         public string ContextUri { get; set; }
@@ -41,6 +42,7 @@ namespace LibreSpotUWP.Models
                 IsOffline = this.IsOffline,
                 IsTrackMetadataFromCache = this.IsTrackMetadataFromCache,
                 IsCurrentTrackPersisted = this.IsCurrentTrackPersisted,
+                IsRecoveringOnlinePlayback = this.IsRecoveringOnlinePlayback,
                 StatusMessage = this.StatusMessage,
                 ArtworkUri = this.ArtworkUri,
                 ContextUri = this.ContextUri,
