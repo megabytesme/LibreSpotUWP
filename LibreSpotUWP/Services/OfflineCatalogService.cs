@@ -529,6 +529,32 @@ namespace LibreSpotUWP.Services
             return Array.Empty<string>();
         }
 
+        public async Task<IReadOnlyList<string>> GetKnownTrackUrisForContextAsync(string contextUri)
+        {
+            await InitializeAsync().ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(contextUri))
+                return Array.Empty<string>();
+
+            if (contextUri.StartsWith("spotify:album:", StringComparison.OrdinalIgnoreCase))
+            {
+                var albumId = contextUri.Substring("spotify:album:".Length);
+                return FilterKnownTrackUris(
+                    _catalog.Albums.FirstOrDefault(a => string.Equals(a.AlbumId, albumId, StringComparison.OrdinalIgnoreCase))?.TrackUris);
+            }
+
+            if (contextUri.StartsWith("spotify:playlist:", StringComparison.OrdinalIgnoreCase))
+            {
+                var playlistId = contextUri.Substring("spotify:playlist:".Length);
+                return FilterKnownTrackUris(
+                    _catalog.Playlists.FirstOrDefault(p => string.Equals(p.PlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))?.TrackUris);
+            }
+
+            if (contextUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
+                return new List<string> { contextUri };
+
+            return Array.Empty<string>();
+        }
+
         public async Task<OfflineTrackEntry> GetDownloadedTrackAsync(string trackUri)
         {
             await InitializeAsync().ConfigureAwait(false);
@@ -799,6 +825,14 @@ namespace LibreSpotUWP.Services
             return trackUris
                 .Where(uri => !string.IsNullOrWhiteSpace(uri) && downloaded.Contains(uri))
                 .ToList();
+        }
+
+        private static IReadOnlyList<string> FilterKnownTrackUris(IEnumerable<string> trackUris)
+        {
+            return trackUris?
+                .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                .ToList()
+                ?? new List<string>();
         }
 
         private bool CanAddPersistedTracks(IEnumerable<string> trackUris, out int activeTracks, out int newTracks)

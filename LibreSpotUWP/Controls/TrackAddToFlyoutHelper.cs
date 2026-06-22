@@ -62,6 +62,12 @@ namespace LibreSpotUWP.Controls
             }
             catch (Exception ex)
             {
+                if (!ConnectivityHelper.HasInternetAccess())
+                {
+                    LogService.Warn($"[TrackAddToFlyoutHelper.LoadLikedStatesAsync] Skipped liked state refresh while offline: {ex.Message}");
+                    return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                }
+
                 LogService.Error(ex, "[TrackAddToFlyoutHelper.LoadLikedStatesAsync] Failed to load liked states.");
                 return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             }
@@ -95,6 +101,9 @@ namespace LibreSpotUWP.Controls
                 return;
             }
 
+            if (!ConnectivityHelper.HasInternetAccess())
+                return;
+
             try
             {
                 var states = await App.SpotifyWeb.CheckTracksSavedAsync(new[] { trackId });
@@ -111,6 +120,12 @@ namespace LibreSpotUWP.Controls
             }
             catch (Exception ex)
             {
+                if (!ConnectivityHelper.HasInternetAccess())
+                {
+                    LogService.Warn($"[TrackAddToFlyoutHelper.UpdateTrackLikeVisualAsync] Skipped liked state refresh while offline: {ex.Message}");
+                    return;
+                }
+
                 LogService.Error(ex, "[TrackAddToFlyoutHelper.UpdateTrackLikeVisualAsync] Failed to update track like visual.");
             }
         }
@@ -151,6 +166,12 @@ namespace LibreSpotUWP.Controls
             }
             catch (Exception ex)
             {
+                if (!ConnectivityHelper.HasInternetAccess())
+                {
+                    LogService.Warn($"[TrackAddToFlyoutHelper.HandleTrackAddToAsync] Skipped add-to action while offline: {ex.Message}");
+                    return;
+                }
+
                 LogService.Error(ex, "[TrackAddToFlyoutHelper.HandleTrackAddToAsync] Failed to update track add-to state.");
             }
         }

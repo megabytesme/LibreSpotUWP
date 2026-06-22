@@ -5,6 +5,7 @@ using LibreSpotUWP.Exceptions;
 using SpotifyAPI.Web;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -32,6 +33,27 @@ namespace LibreSpotUWP.Services
 
         private readonly object _lock = new object();
         private readonly SemaphoreSlim _playbackGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _networkStatusGate = new SemaphoreSlim(1, 1);
+        private readonly Random _random = new Random();
+        private readonly HashSet<string> _offlinePlaybackFailedTrackUris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private enum PlaybackTransportMode
+        {
+            None,
+            OnlineContext,
+            OfflineContextSubstitute,
+            OfflineRandomSubstitute,
+            WaitingForOnline
+        }
+
+        private sealed class PlaybackIntent
+        {
+            public string ContextUri { get; set; }
+            public string StartUri { get; set; }
+            public string PlaybackContextUri { get; set; }
+            public string ResumeContextUri { get; set; }
+            public string ResumeStartUri { get; set; }
+        }
 
         private MediaState _state = new MediaState();
         private MediaPlayer _mediaPlayer;
@@ -49,9 +71,28 @@ namespace LibreSpotUWP.Services
         private DateTimeOffset _remotePositionUpdatedAt = DateTimeOffset.MinValue;
         private string[] _offlineQueue = Array.Empty<string>();
         private int _offlineQueueIndex = -1;
+        private string _offlineQueueContextUri;
+        private string _onlineQueueResumeContextUri;
+        private string _onlineQueueResumeStartUri;
+        private bool _currentOfflineFallbackIsRandom;
         private int _contextResolutionVersion;
+        private int _trackChangeVersion;
         private int _playbackContinuationVersion;
+        private int _offlineStopRecoveryVersion;
+        private int _connectivityRecheckVersion;
         private int _pendingEndOfTrackContinuationVersion;
+        private bool _waitingForOnlineQueueContinuation;
+        private bool _onlineQueueRecoveryPending;
+        private bool _onlineQueueRecoveryActive;
+        private bool _onlineQueueRecoveryRetryScheduled;
+        private int _onlineQueueRecoveryAttempt;
+        private int _onlineQueueRecoveryVersion;
+        private string _onlineQueueRecoveryContextUri;
+        private string _onlineQueueRecoveryStartUri;
+        private bool _librespotTransportUnhealthy;
+        private string _pendingOfflineLoadTrackUri;
+        private PlaybackTransportMode _transportMode = PlaybackTransportMode.None;
+        private PlaybackIntent _playbackIntent;
         private PlaybackSnapshot _lastPlaybackSnapshot;
         private uint _lastPersistedSnapshotPositionMs = uint.MaxValue;
         private uint _pendingRestoreSeekMs = uint.MaxValue;
@@ -64,6 +105,9 @@ namespace LibreSpotUWP.Services
         private const string PlaybackSnapshotKey = "LastPlaybackSnapshot";
         private const int PositionTimerIntervalMs = 500;
         private const int SnapshotWriteIntervalMs = 5000;
+        private const int MaxOnlineQueueRecoveryAttempts = 1;
+        private static readonly TimeSpan OnlineQueueRecoveryWatchdogDelay = TimeSpan.FromSeconds(12);
+        private static readonly TimeSpan MediaFailureInternetBackoff = TimeSpan.FromSeconds(60);
         private const string AppDataLocalUriPrefix = "ms-appdata:///local/";
 
         public string CurrentAudioOutputDeviceId => UserSettings.AudioOutputDeviceId;
@@ -142,6 +186,7 @@ namespace LibreSpotUWP.Services
             _librespot.ShuffleChanged += OnShuffleChanged;
             _librespot.RepeatChanged += OnRepeatChanged;
             _librespot.EndOfTrack += OnEndOfTrack;
+            _librespot.LogMessage += OnLibrespotLogMessage;
 
             _auth.AuthStateChanged += OnAuthChanged;
 
@@ -168,6 +213,8 @@ namespace LibreSpotUWP.Services
             _spotifyConnectTimer.Start();
 
             NetworkInformation.NetworkStatusChanged += OnNetworkStatusChanged;
+            ConnectivityHelper.InternetAccessFailureReported += OnInternetAccessFailureReported;
+            ConnectivityHelper.ConnectivityStatusChanged += OnConnectivityStatusChanged;
             UpdateConnectivityState();
             UpdateSelectedSpotifyConnectDeviceState(null);
             _ = RefreshSpotifyConnectPlaybackAsync();
@@ -460,8 +507,55 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async Task PlayCoreAsync(string contextUri, string startUri = null)
+        private async Task PlayOnlineQueueRecoveryAsync(string contextUri, string startUri)
         {
+            CancelPlaybackContinuationWatchdog();
+            await _playbackGate.WaitAsync();
+            try
+            {
+                await PlayCoreAsync(contextUri, startUri, isOnlineQueueRecovery: true);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.PlayOnlineQueueRecoveryAsync] Online queue recovery failed: {ex.Message}");
+                ReportMediaConnectivityFailure("online queue recovery load failed");
+                ScheduleOnlineQueueRecoveryRetry("online queue recovery load failed");
+            }
+            finally
+            {
+                _playbackGate.Release();
+            }
+        }
+
+        private void SetPlaybackIntent(string contextUri, string startUri, string playbackContextUri, string reason)
+        {
+            _playbackIntent = new PlaybackIntent
+            {
+                ContextUri = contextUri,
+                StartUri = startUri,
+                PlaybackContextUri = playbackContextUri,
+                ResumeContextUri = playbackContextUri,
+                ResumeStartUri = IsSpotifyTrackUri(startUri)
+                    ? startUri
+                    : IsSpotifyTrackUri(contextUri) ? contextUri : null
+            };
+
+            LogService.Info($"[MediaService.SetPlaybackIntent] context={contextUri ?? "(null)"}, start={startUri ?? "(null)"}, playbackContext={playbackContextUri ?? "(null)"}, reason={reason}.");
+        }
+
+        private void SetTransportMode(PlaybackTransportMode mode, string reason)
+        {
+            if (_transportMode == mode)
+                return;
+
+            LogService.Info($"[MediaService.SetTransportMode] {_transportMode} -> {mode}. reason={reason}");
+            _transportMode = mode;
+        }
+
+        private async Task PlayCoreAsync(string contextUri, string startUri = null, bool isOnlineQueueRecovery = false)
+        {
+            _waitingForOnlineQueueContinuation = false;
+
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
                 await PlayRemoteAsync(contextUri, startUri).ConfigureAwait(false);
@@ -471,16 +565,39 @@ namespace LibreSpotUWP.Services
             var isOffline = !ConnectivityHelper.HasInternetAccess();
             var wasOffline = Current.IsOffline;
             var originalContextUri = contextUri;
+            var originalStartUri = startUri;
             var playbackContextUri = GetPlaybackContextUri(originalContextUri, startUri);
             var directTrackUri = !string.IsNullOrWhiteSpace(startUri) ? startUri : contextUri;
             var isDirectTrack = !string.IsNullOrWhiteSpace(directTrackUri) &&
                 directTrackUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase);
 
+            if (!isOnlineQueueRecovery)
+                SetPlaybackIntent(originalContextUri, originalStartUri, playbackContextUri, "play request");
+
+            if (isOnlineQueueRecovery && isOffline)
+            {
+                _onlineQueueRecoveryPending = HasOnlineQueueResumePoint();
+                SetTransportMode(PlaybackTransportMode.WaitingForOnline, "online recovery requested while connectivity is unhealthy");
+                ScheduleConnectivityRecheckAfterBackoff("online recovery requested while connectivity is unhealthy");
+                UpdateState(s =>
+                {
+                    s.IsOffline = true;
+                    s.StatusMessage = "Internet is not stable enough to resume the queue yet.";
+                });
+                return;
+            }
+
             if (isOffline && string.IsNullOrWhiteSpace(startUri) && !isDirectTrack)
             {
-                var offlineQueue = await App.OfflineCatalog.GetTrackUrisForContextAsync(contextUri);
-                if (offlineQueue.Count == 0)
+                var offlineQueue = await GetKnownTrackUrisForPlaybackContextAsync(contextUri).ConfigureAwait(false);
+                var firstPlayableIndex = FindPlayableOfflineQueueIndex(offlineQueue, -1, 1);
+                if (firstPlayableIndex < 0)
                 {
+                    SetOnlineQueueResumePoint(playbackContextUri, offlineQueue, 0);
+                    if (await TryLoadRandomOfflineFallbackCoreAsync("selected context is unavailable offline").ConfigureAwait(false))
+                        return;
+
+                    SetTransportMode(PlaybackTransportMode.WaitingForOnline, "selected context unavailable offline");
                     UpdateState(s =>
                     {
                         s.IsOffline = true;
@@ -490,15 +607,34 @@ namespace LibreSpotUWP.Services
                 }
 
                 _offlineQueue = offlineQueue.ToArray();
-                _offlineQueueIndex = 0;
-                contextUri = _offlineQueue[0];
+                _offlineQueueIndex = firstPlayableIndex;
+                _offlineQueueContextUri = playbackContextUri;
+                _currentOfflineFallbackIsRandom = false;
+                SetTransportMode(PlaybackTransportMode.OfflineContextSubstitute, "offline context playback");
+                SetOnlineQueueResumePoint(_offlineQueueContextUri, _offlineQueue, _offlineQueueIndex + 1);
+                contextUri = _offlineQueue[_offlineQueueIndex];
                 startUri = null;
-                LogService.Info($"[MediaService.PlayAsync] Offline context playback for {originalContextUri} starting at {_offlineQueue[0]}.");
+                LogService.Info($"[MediaService.PlayAsync] Offline context playback for {originalContextUri} starting at {_offlineQueue[_offlineQueueIndex]}. Queue size={_offlineQueue.Length}, index={_offlineQueueIndex}.");
             }
             else if (isOffline)
             {
-                if (isDirectTrack && !App.OfflineCatalog.IsTrackPersisted(directTrackUri))
+                var queueSeed = await GetKnownTrackUrisForPlaybackContextAsync(originalContextUri).ConfigureAwait(false);
+                if (queueSeed.Count == 0 && isDirectTrack)
+                    queueSeed = new[] { directTrackUri };
+                _offlineQueue = queueSeed.ToArray();
+                _offlineQueueIndex = IndexOfTrackUri(_offlineQueue, directTrackUri);
+
+                if (isDirectTrack && !IsDownloadedTrackPlayableOffline(directTrackUri))
                 {
+                    if (_offlineQueueIndex >= 0)
+                        SetOnlineQueueResumePoint(playbackContextUri, _offlineQueue, _offlineQueueIndex);
+                    else
+                        SetOnlineQueueResumeTrack(playbackContextUri, directTrackUri);
+
+                    if (await TryLoadRandomOfflineFallbackCoreAsync("selected track is unavailable offline").ConfigureAwait(false))
+                        return;
+
+                    SetTransportMode(PlaybackTransportMode.WaitingForOnline, "selected track unavailable offline");
                     UpdateState(s =>
                     {
                         s.IsOffline = true;
@@ -507,20 +643,34 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                var queueSeed = await App.OfflineCatalog.GetTrackUrisForContextAsync(originalContextUri);
-                _offlineQueue = queueSeed.ToArray();
-                _offlineQueueIndex = Array.IndexOf(_offlineQueue, directTrackUri);
+                if (_offlineQueueIndex < 0 && isDirectTrack)
+                {
+                    _offlineQueue = new[] { directTrackUri };
+                    _offlineQueueIndex = 0;
+                    LogService.Warn($"[MediaService.PlayAsync] Offline direct track {directTrackUri} was not present in context {originalContextUri ?? "(null)"}; using a single-track offline queue.");
+                }
+                _offlineQueueContextUri = playbackContextUri;
+                _currentOfflineFallbackIsRandom = false;
+                SetTransportMode(PlaybackTransportMode.OfflineContextSubstitute, "offline direct playback");
+                if (_offlineQueueIndex >= 0)
+                    SetOnlineQueueResumePoint(_offlineQueueContextUri, _offlineQueue, _offlineQueueIndex + 1);
                 LogService.Info($"[MediaService.PlayAsync] Offline direct playback for {directTrackUri}. Queue size={_offlineQueue.Length}, index={_offlineQueueIndex}.");
             }
             else
             {
                 _offlineQueue = Array.Empty<string>();
                 _offlineQueueIndex = -1;
+                _offlineQueueContextUri = null;
+                _currentOfflineFallbackIsRandom = false;
+                SetTransportMode(PlaybackTransportMode.OnlineContext, isOnlineQueueRecovery ? "online queue recovery" : "online play request");
+                if (!isOnlineQueueRecovery)
+                    ClearOnlineQueueRecoveryState(clearResumePoint: true);
                 _lastPersistedSnapshotPositionMs = uint.MaxValue;
             }
 
             if (isOffline && string.IsNullOrWhiteSpace(contextUri))
             {
+                SetTransportMode(PlaybackTransportMode.WaitingForOnline, "offline playback has no playable context");
                 UpdateState(s =>
                 {
                     s.IsOffline = true;
@@ -529,11 +679,16 @@ namespace LibreSpotUWP.Services
                 return;
             }
 
-            if (!isOffline && wasOffline)
-                await StopOfflinePlaybackForOnlineTransitionAsync();
+            if (!isOffline && wasOffline && !isOnlineQueueRecovery)
+                await StopOfflinePlaybackForOnlineTransitionAsync(clearRecoveryState: true);
 
-            if (!await EnsureLocalLibrespotConnectedAsync(interactive: true, allowOfflineToken: isOffline).ConfigureAwait(false))
+            if (!await EnsureLocalLibrespotConnectedAsync(
+                interactive: true,
+                allowOfflineToken: isOffline,
+                forceFreshOnlineSession: isOnlineQueueRecovery).ConfigureAwait(false))
+            {
                 return;
+            }
 
             if (isOffline && !string.IsNullOrWhiteSpace(startUri))
             {
@@ -566,12 +721,15 @@ namespace LibreSpotUWP.Services
             _ringPlayer.Start();
         }
 
-        private async Task<bool> EnsureLocalLibrespotConnectedAsync(bool interactive, bool allowOfflineToken = false)
+        private async Task<bool> EnsureLocalLibrespotConnectedAsync(
+            bool interactive,
+            bool allowOfflineToken = false,
+            bool forceFreshOnlineSession = false)
         {
             var isOffline = !ConnectivityHelper.HasInternetAccess();
             var librespotReady = (_librespot as LibrespotService)?.HasInstance == true;
             var requiresOnlineReconnect = !isOffline && !_librespot.Session.IsConnected;
-            if (librespotReady && !requiresOnlineReconnect)
+            if (librespotReady && !requiresOnlineReconnect && !forceFreshOnlineSession)
                 return true;
 
             var accessToken = allowOfflineToken || isOffline
@@ -591,7 +749,16 @@ namespace LibreSpotUWP.Services
                 return false;
             }
 
-            await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+            if ((forceFreshOnlineSession || _librespotTransportUnhealthy) && !isOffline)
+            {
+                await _librespot.ReconnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                _librespotTransportUnhealthy = false;
+            }
+            else
+            {
+                await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+            }
+
             return true;
         }
 
@@ -636,12 +803,16 @@ namespace LibreSpotUWP.Services
             await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
         }
 
-        private async Task StopOfflinePlaybackForOnlineTransitionAsync()
+        private async Task StopOfflinePlaybackForOnlineTransitionAsync(bool clearRecoveryState)
         {
             LogService.Info("[MediaService.StopOfflinePlaybackForOnlineTransitionAsync] Stopping offline playback before switching back online.");
 
             _offlineQueue = Array.Empty<string>();
             _offlineQueueIndex = -1;
+            _offlineQueueContextUri = null;
+            _currentOfflineFallbackIsRandom = false;
+            if (clearRecoveryState)
+                ClearOnlineQueueRecoveryState(clearResumePoint: true);
 
             _ringPlayer?.Stop();
             _mediaPlayer?.Pause();
@@ -658,6 +829,7 @@ namespace LibreSpotUWP.Services
         public async Task PauseAsync()
         {
             CancelPlaybackContinuationWatchdog();
+            ClearOnlineQueueRecoveryState(clearResumePoint: true);
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
                 try
@@ -723,6 +895,7 @@ namespace LibreSpotUWP.Services
         public async Task StopAsync()
         {
             CancelPlaybackContinuationWatchdog();
+            ClearOnlineQueueRecoveryState(clearResumePoint: true);
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
                 try
@@ -1338,6 +1511,7 @@ namespace LibreSpotUWP.Services
                 if (!IsSelectedSpotifyConnectDeviceLocal)
                     return;
 
+                var changeVersion = Interlocked.Increment(ref _trackChangeVersion);
                 if (track == null)
                 {
                     UpdateState(state =>
@@ -1356,44 +1530,23 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                FullTrack metadata = null;
-                CacheResponse<FullTrack> trackResponse = null;
-                OfflineTrackEntry offlineTrack = null;
-
-                if (!string.IsNullOrWhiteSpace(track.Uri))
-                {
-                    offlineTrack = await App.OfflineCatalog.GetDownloadedTrackAsync(track.Uri);
-                    var id = track.Uri.Replace("spotify:track:", "");
-                    try
-                    {
-                        trackResponse = await _web.GetTrackAsync(id, false);
-                        metadata = trackResponse.Value;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogService.Warn($"[MediaService.OnTrackChanged] Unable to load track metadata for {track.Uri}: {ex.Message}");
-                    }
-                }
-
                 UpdateState(state =>
                 {
                     state.Track = track;
-                    state.Metadata = metadata;
+                    state.Metadata = null;
                     state.DurationMs = (uint)track.Duration.TotalMilliseconds;
-                    state.IsTrackMetadataFromCache = trackResponse?.IsFromCache == true;
+                    state.IsTrackMetadataFromCache = false;
                     state.IsCurrentTrackPersisted = App.OfflineCatalog.IsTrackPersisted(track.Uri);
                     state.IsOffline = !ConnectivityHelper.HasInternetAccess();
-                    state.StatusMessage = BuildPlaybackStatusMessage(trackResponse);
-                    state.ArtworkUri = ResolveArtworkUri(metadata, track, offlineTrack);
+                    if (!state.IsOffline)
+                        state.StatusMessage = null;
+                    state.ArtworkUri = ResolveArtworkUri(null, track, null);
 
-                    if (string.IsNullOrWhiteSpace(state.ContextUri) ||
-                        state.ContextUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        state.ContextUri = metadata?.Album?.Uri ?? state.ContextUri;
-                    }
+                    if (string.IsNullOrWhiteSpace(state.ContextUri))
+                        state.ContextUri = track.Uri;
 
                     if (string.IsNullOrWhiteSpace(state.ContextName))
-                        state.ContextName = ResolveImmediateContextName(state.ContextUri, metadata);
+                        state.ContextName = ResolveImmediateContextName(state.ContextUri, null);
 
                     if (_pendingRestoreSeekMs != uint.MaxValue &&
                         _lastPlaybackSnapshot != null &&
@@ -1437,6 +1590,52 @@ namespace LibreSpotUWP.Services
                     _mediaPlayer.Play();
                     _ringPlayer.Start();
                 }
+
+                TryCompleteOnlineQueueRecovery(track.Uri);
+
+                FullTrack metadata = null;
+                CacheResponse<FullTrack> trackResponse = null;
+                OfflineTrackEntry offlineTrack = null;
+
+                if (!string.IsNullOrWhiteSpace(track.Uri))
+                {
+                    offlineTrack = await App.OfflineCatalog.GetDownloadedTrackAsync(track.Uri);
+                    var id = track.Uri.Replace("spotify:track:", "");
+                    try
+                    {
+                        trackResponse = await _web.GetTrackAsync(id, false);
+                        metadata = trackResponse.Value;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Warn($"[MediaService.OnTrackChanged] Unable to load track metadata for {track.Uri}: {ex.Message}");
+                    }
+                }
+
+                if (changeVersion != _trackChangeVersion ||
+                    !string.Equals(Current.Track?.Uri, track.Uri, StringComparison.OrdinalIgnoreCase))
+                {
+                    LogService.Info($"[MediaService.OnTrackChanged] Ignoring stale metadata update for {track.Uri}.");
+                    return;
+                }
+
+                UpdateState(state =>
+                {
+                    state.Metadata = metadata;
+                    state.IsTrackMetadataFromCache = trackResponse?.IsFromCache == true;
+                    state.IsCurrentTrackPersisted = App.OfflineCatalog.IsTrackPersisted(track.Uri);
+                    state.StatusMessage = BuildPlaybackStatusMessage(trackResponse) ?? state.StatusMessage;
+                    state.ArtworkUri = ResolveArtworkUri(metadata, track, offlineTrack);
+
+                    if (string.IsNullOrWhiteSpace(state.ContextUri))
+                        state.ContextUri = track.Uri;
+
+                    if (string.IsNullOrWhiteSpace(state.ContextName))
+                        state.ContextName = ResolveImmediateContextName(state.ContextUri, null);
+                });
+
+                UpdateSmtcDisplay();
+                PersistPlaybackSnapshot(forceWrite: true);
             }
             catch (Exception ex)
             {
@@ -1460,6 +1659,8 @@ namespace LibreSpotUWP.Services
                 switch (state)
                 {
                     case LibrespotPlaybackState.Playing:
+                        _librespotTransportUnhealthy = false;
+                        _pendingOfflineLoadTrackUri = null;
                         if (_pendingRestoreSeekMs != uint.MaxValue)
                         {
                             var seekPosition = _pendingRestoreSeekMs;
@@ -1484,6 +1685,7 @@ namespace LibreSpotUWP.Services
                         _ringPlayer.Start();
                         LogService.Info($"[MediaService.OnPlaybackChanged] MediaPlayer and AudioGraph started for {_state.Track?.Uri ?? "(unknown)"}.");
                         _smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
+                        TryCompleteOnlineQueueRecovery(_state.Track?.Uri);
                         break;
 
                     case LibrespotPlaybackState.Paused:
@@ -1501,6 +1703,31 @@ namespace LibreSpotUWP.Services
                         _mediaPlayer.Pause();
                         _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
                         PersistPlaybackSnapshot(forceWrite: true);
+
+                        if (!string.IsNullOrWhiteSpace(_pendingOfflineLoadTrackUri) &&
+                            (_transportMode == PlaybackTransportMode.OfflineContextSubstitute ||
+                             _transportMode == PlaybackTransportMode.OfflineRandomSubstitute))
+                        {
+                            LogService.Warn($"[MediaService.OnPlaybackChanged] Offline load stopped before playback; excluding {_pendingOfflineLoadTrackUri} for this session.");
+                            _offlinePlaybackFailedTrackUris.Add(_pendingOfflineLoadTrackUri);
+                            _pendingOfflineLoadTrackUri = null;
+                        }
+
+                        if (_onlineQueueRecoveryActive)
+                        {
+                            if (ConnectivityHelper.HasInternetAccess())
+                                ScheduleOnlineQueueRecoveryRetry("playback stopped during online queue recovery");
+                            else
+                            {
+                                _onlineQueueRecoveryPending = true;
+                                _ = ContinueDownloadedPlaybackAfterOnlineFailureAsync("online queue recovery lost connectivity");
+                            }
+                        }
+                        else if (previousState == LibrespotPlaybackState.Playing ||
+                            previousState == LibrespotPlaybackState.Loading)
+                        {
+                            ScheduleOfflineStopRecovery("playback stopped while offline or unstable");
+                        }
                         break;
                 }
             }
@@ -1529,6 +1756,9 @@ namespace LibreSpotUWP.Services
         {
             try
             {
+                if (ev != null && !ev.IsConnected)
+                    _librespotTransportUnhealthy = true;
+
                 UpdateState(s =>
                 {
                     s.IsSessionConnected = ev.IsConnected;
@@ -1600,6 +1830,66 @@ namespace LibreSpotUWP.Services
             _ = ConnectAfterAuthChangedAsync(auth.AccessToken);
         }
 
+        private void OnLibrespotLogMessage(object sender, string message)
+        {
+            if (!IsMediaConnectivityFailure(message))
+                return;
+
+            LogService.Warn($"[MediaService.OnLibrespotLogMessage] Treating librespot media failure as temporary offline mode: {message}");
+            ReportMediaConnectivityFailure("librespot media connectivity failure");
+            MarkFailedDownloadedTrackFromLibrespotLog(message);
+
+            if (_onlineQueueRecoveryActive)
+                ScheduleOnlineQueueRecoveryRetry("librespot media connectivity failure");
+            else
+                ScheduleOfflineStopRecovery("librespot media connectivity failure");
+        }
+
+        private void ReportMediaConnectivityFailure(string reason)
+        {
+            _librespotTransportUnhealthy = true;
+            ConnectivityHelper.ReportInternetAccessFailure(MediaFailureInternetBackoff);
+            ScheduleConnectivityRecheckAfterBackoff(reason);
+        }
+
+        private static bool IsMediaConnectivityFailure(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            return message.IndexOf("Audio key response timeout", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("Unable to load audio item", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("Streamer error requesting range", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("Connection to server closed", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void MarkFailedDownloadedTrackFromLibrespotLog(string message)
+        {
+            const string prefix = "Audio key response timeout for track ";
+            var index = message?.IndexOf(prefix, StringComparison.OrdinalIgnoreCase) ?? -1;
+            if (index < 0 || App.OfflineCatalog == null)
+                return;
+
+            var start = index + prefix.Length;
+            var end = message.IndexOfAny(new[] { ' ', '.', ',', ';' }, start);
+            if (end < 0)
+                end = message.Length;
+
+            var spotifyId = message.Substring(start, end - start).Trim();
+            if (string.IsNullOrWhiteSpace(spotifyId))
+                return;
+
+            var trackUri = spotifyId.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase)
+                ? spotifyId
+                : $"spotify:track:{spotifyId}";
+
+            if (!App.OfflineCatalog.IsTrackPersisted(trackUri))
+                return;
+
+            _offlinePlaybackFailedTrackUris.Add(trackUri);
+            LogService.Warn($"[MediaService.MarkFailedDownloadedTrackFromLibrespotLog] Excluding failed downloaded track for this session: {trackUri}");
+        }
+
         private async Task ConnectAfterAuthChangedAsync(string accessToken)
         {
             try
@@ -1614,12 +1904,60 @@ namespace LibreSpotUWP.Services
 
         private void OnNetworkStatusChanged(object sender)
         {
+            LogService.Info("[MediaService.OnNetworkStatusChanged] Windows reported a network status change.");
+            if (ConnectivityHelper.HasNetworkReportedInternetAccess() &&
+                ConnectivityHelper.ClearInternetAccessFailure())
+            {
+                return;
+            }
+
+            if (ConnectivityHelper.HasNetworkReportedInternetAccess())
+                ScheduleConnectivityRecheckAfterBackoff("Windows reported internet access");
+
             _ = HandleNetworkStatusChangedAsync();
         }
 
-        private void OnEndOfTrack(object sender, string trackUri)
+        private void OnInternetAccessFailureReported(object sender, EventArgs e)
+        {
+            ScheduleConnectivityRecheckAfterBackoff("internet access failure reported");
+        }
+
+        private void OnConnectivityStatusChanged(object sender, EventArgs e)
+        {
+            _ = HandleNetworkStatusChangedAsync();
+        }
+
+        private void ScheduleConnectivityRecheckAfterBackoff(string reason)
+        {
+            var remaining = ConnectivityHelper.GetInternetAccessFailureBackoffRemaining();
+            if (remaining <= TimeSpan.Zero)
+                return;
+
+            var delay = remaining.Add(TimeSpan.FromSeconds(1));
+            var version = Interlocked.Increment(ref _connectivityRecheckVersion);
+            LogService.Info($"[MediaService.ScheduleConnectivityRecheckAfterBackoff] Rechecking connectivity in {delay.TotalMilliseconds:0}ms. reason={reason}");
+            _ = RecheckConnectivityAfterBackoffAsync(version, delay, reason);
+        }
+
+        private async Task RecheckConnectivityAfterBackoffAsync(int version, TimeSpan delay, string reason)
+        {
+            await Task.Delay(delay).ConfigureAwait(false);
+            if (version != _connectivityRecheckVersion)
+                return;
+
+            if (ConnectivityHelper.HasNetworkReportedInternetAccess())
+            {
+                LogService.Info($"[MediaService.RecheckConnectivityAfterBackoffAsync] Backoff expired and Windows reports internet access. reason={reason}");
+                ConnectivityHelper.ClearInternetAccessFailure();
+            }
+
+            await HandleNetworkStatusChangedAsync().ConfigureAwait(false);
+        }
+
+        private async void OnEndOfTrack(object sender, string trackUri)
         {
             LogService.Info($"[MediaService.OnEndOfTrack] Received end-of-track for {trackUri ?? "(unknown)"}.");
+            UpdateConnectivityState();
             var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
                 || Current.PlaybackState == LibrespotPlaybackState.Loading;
 
@@ -1629,8 +1967,32 @@ namespace LibreSpotUWP.Services
                 return;
             }
 
+            if (!Current.IsOffline && TryResumeOnlineQueueFromOfflineBoundary(shouldContinuePlaying))
+                return;
+
             if (Current.IsOffline && _offlineQueue.Length > 0)
             {
+                if (await TryPlayRandomOfflineFallbackAsync("no downloaded continuation is available in the current queue"))
+                    return;
+
+                var hasKnownNextTrack = _offlineQueueIndex + 1 >= 0 && _offlineQueueIndex + 1 < _offlineQueue.Length;
+                if (shouldContinuePlaying &&
+                    hasKnownNextTrack &&
+                    !string.IsNullOrWhiteSpace(_offlineQueueContextUri))
+                {
+                    _waitingForOnlineQueueContinuation = true;
+                    var statusMessage = UserSettings.PlayDownloadedSongsDuringConnectionLoss
+                        ? "Offline. The next song is not downloaded, waiting for internet."
+                        : "Offline. Waiting for internet before continuing the queue.";
+                    LogService.Info($"[MediaService.OnEndOfTrack] No downloaded continuation is available from index {_offlineQueueIndex}; waiting for connectivity to return.");
+                    UpdateState(s =>
+                    {
+                        s.PlaybackState = LibrespotPlaybackState.Paused;
+                        s.StatusMessage = statusMessage;
+                    });
+                    return;
+                }
+
                 LogService.Info("[MediaService.OnEndOfTrack] Offline queue reached the end.");
                 UpdateState(s =>
                 {
@@ -1643,9 +2005,9 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private void UpdateConnectivityState()
+        private void UpdateConnectivityState(bool? isOfflineOverride = null)
         {
-            var isOffline = !ConnectivityHelper.HasInternetAccess();
+            var isOffline = isOfflineOverride ?? !ConnectivityHelper.HasInternetAccess();
             UpdateState(s => s.IsOffline = isOffline);
         }
 
@@ -1668,14 +2030,493 @@ namespace LibreSpotUWP.Services
             if (!Current.IsOffline || _offlineQueue.Length == 0)
                 return false;
 
-            var nextIndex = _offlineQueueIndex + delta;
-            if (nextIndex < 0 || nextIndex >= _offlineQueue.Length)
+            if (_currentOfflineFallbackIsRandom)
+            {
+                LogService.Info("[MediaService.TryPlayOfflineRelativeTrack] Current offline fallback is random; not advancing the original context queue.");
                 return false;
+            }
+
+            if (!UserSettings.PlayDownloadedSongsDuringConnectionLoss)
+            {
+                LogService.Info("[MediaService.TryPlayOfflineRelativeTrack] Offline queue continuation is disabled; waiting for connectivity to return.");
+                UpdateState(s =>
+                {
+                    s.StatusMessage = "Offline. Waiting for internet before continuing the queue.";
+                });
+                return false;
+            }
+
+            var nextIndex = FindPlayableOfflineQueueIndex(_offlineQueue, _offlineQueueIndex, delta);
+            if (nextIndex < 0)
+            {
+                LogService.Info($"[MediaService.TryPlayOfflineRelativeTrack] No downloaded track available from index {_offlineQueueIndex} with delta {delta}. Queue size={_offlineQueue.Length}.");
+                return false;
+            }
 
             _offlineQueueIndex = nextIndex;
+            SetOnlineQueueResumePoint(_offlineQueueContextUri, _offlineQueue, _offlineQueueIndex + 1);
             LogService.Info($"[MediaService.TryPlayOfflineRelativeTrack] Advancing offline queue to index {_offlineQueueIndex} ({_offlineQueue[_offlineQueueIndex]}).");
-            _ = PlayAsync(_offlineQueue[_offlineQueueIndex], null);
+            var contextUri = string.IsNullOrWhiteSpace(_offlineQueueContextUri)
+                ? _offlineQueue[_offlineQueueIndex]
+                : _offlineQueueContextUri;
+            _ = PlayAsync(contextUri, _offlineQueue[_offlineQueueIndex]);
             return true;
+        }
+
+        private bool TryResumeOnlineQueueFromOfflineBoundary(bool shouldContinuePlaying)
+        {
+            if (!_onlineQueueRecoveryPending && !_waitingForOnlineQueueContinuation)
+                return false;
+
+            var contextUri = FirstNonBlank(
+                _onlineQueueResumeContextUri,
+                _playbackIntent?.ResumeContextUri,
+                _offlineQueueContextUri,
+                _playbackIntent?.PlaybackContextUri);
+            if (string.IsNullOrWhiteSpace(contextUri))
+                return false;
+
+            var startUri = FirstNonBlank(_onlineQueueResumeStartUri, _playbackIntent?.ResumeStartUri);
+            if (string.IsNullOrWhiteSpace(startUri))
+            {
+                LogService.Info("[MediaService.TryResumeOnlineQueueFromOfflineBoundary] No known next track is available, avoiding a context restart.");
+                return false;
+            }
+
+            _ = BeginOnlineQueueRecoveryAsync(contextUri, startUri, shouldContinuePlaying, "track boundary");
+            return true;
+        }
+
+        private void SetOnlineQueueResumePoint(string contextUri, IReadOnlyList<string> queue, int resumeIndex)
+        {
+            if (string.IsNullOrWhiteSpace(contextUri) || queue == null)
+                return;
+
+            _onlineQueueResumeContextUri = contextUri;
+            _onlineQueueResumeStartUri = resumeIndex >= 0 && resumeIndex < queue.Count
+                ? queue[resumeIndex]
+                : null;
+
+            if (_playbackIntent != null)
+            {
+                _playbackIntent.ResumeContextUri = _onlineQueueResumeContextUri;
+                _playbackIntent.ResumeStartUri = _onlineQueueResumeStartUri;
+            }
+
+            LogService.Info($"[MediaService.SetOnlineQueueResumePoint] Online resume context={_onlineQueueResumeContextUri}, start={_onlineQueueResumeStartUri ?? "(none)"}, resumeIndex={resumeIndex}, queueSize={queue.Count}.");
+        }
+
+        private void SetOnlineQueueResumeTrack(string contextUri, string startUri)
+        {
+            _onlineQueueResumeContextUri = contextUri;
+            _onlineQueueResumeStartUri = startUri;
+
+            if (_playbackIntent != null)
+            {
+                _playbackIntent.ResumeContextUri = contextUri;
+                _playbackIntent.ResumeStartUri = startUri;
+            }
+
+            LogService.Info($"[MediaService.SetOnlineQueueResumeTrack] Online resume context={contextUri ?? "(null)"}, start={startUri ?? "(null)"}.");
+        }
+
+        private bool HasOnlineQueueResumePoint()
+        {
+            return !string.IsNullOrWhiteSpace(_onlineQueueResumeContextUri) &&
+                !string.IsNullOrWhiteSpace(_onlineQueueResumeStartUri);
+        }
+
+        private async Task BeginOnlineQueueRecoveryAsync(string contextUri, string startUri, bool shouldContinuePlaying, string reason)
+        {
+            _onlineQueueRecoveryPending = false;
+            _waitingForOnlineQueueContinuation = false;
+            _onlineQueueRecoveryActive = true;
+            _onlineQueueRecoveryRetryScheduled = false;
+            _onlineQueueRecoveryAttempt = 1;
+            _onlineQueueRecoveryContextUri = contextUri;
+            _onlineQueueRecoveryStartUri = startUri;
+
+            var version = Interlocked.Increment(ref _onlineQueueRecoveryVersion);
+            LogService.Info($"[MediaService.BeginOnlineQueueRecovery] Returning to online context={contextUri}, start={startUri}, reason={reason}, attempt={_onlineQueueRecoveryAttempt}.");
+            SetTransportMode(PlaybackTransportMode.OnlineContext, $"online queue recovery: {reason}");
+
+            if (!await EnsureOnlineRecoveryHealthAsync(reason).ConfigureAwait(false))
+            {
+                LogService.Info($"[MediaService.BeginOnlineQueueRecovery] Online recovery deferred because connectivity is not healthy. reason={reason}");
+                ClearOnlineQueueRecoveryState(clearResumePoint: false);
+                _onlineQueueRecoveryPending = HasOnlineQueueResumePoint();
+                SetTransportMode(PlaybackTransportMode.WaitingForOnline, "online recovery health check failed");
+                await ContinueDownloadedPlaybackAfterOnlineFailureAsync(reason).ConfigureAwait(false);
+                return;
+            }
+
+            _ = PlayOnlineQueueRecoveryAsync(contextUri, startUri);
+            ScheduleOnlineQueueRecoveryWatchdog(version, shouldContinuePlaying, reason);
+        }
+
+        private async Task<bool> EnsureOnlineRecoveryHealthAsync(string reason)
+        {
+            if (!ConnectivityHelper.HasInternetAccess())
+            {
+                ScheduleConnectivityRecheckAfterBackoff($"online recovery health check while offline: {reason}");
+                return false;
+            }
+
+            try
+            {
+                var token = await _auth.EnsureValidAccessTokenAsync(interactive: false).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(token))
+                    return false;
+
+                await _auth.EnsureCurrentAccountIsPremiumAsync().ConfigureAwait(false);
+                ConnectivityHelper.ClearInternetAccessFailure();
+                return true;
+            }
+            catch (SpotifyPremiumRequiredException ex)
+            {
+                LogService.Warn($"[MediaService.EnsureOnlineRecoveryHealthAsync] Spotify Premium is required: {ex.Message}");
+                UpdateState(s =>
+                {
+                    s.StatusMessage = "Spotify Premium is required for playback.";
+                });
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.EnsureOnlineRecoveryHealthAsync] Connectivity probe failed while resuming queue: {ex.Message}");
+                ReportMediaConnectivityFailure("online recovery health check failed");
+                return false;
+            }
+        }
+
+        private void ScheduleOnlineQueueRecoveryWatchdog(int version, bool shouldContinuePlaying, string reason)
+        {
+            if (shouldContinuePlaying)
+                _ = WatchOnlineQueueRecoveryAsync(version, reason);
+        }
+
+        private async Task WatchOnlineQueueRecoveryAsync(int version, string reason)
+        {
+            await Task.Delay(OnlineQueueRecoveryWatchdogDelay).ConfigureAwait(false);
+            if (version != _onlineQueueRecoveryVersion || !_onlineQueueRecoveryActive)
+                return;
+
+            if (Current.PlaybackState == LibrespotPlaybackState.Playing &&
+                string.Equals(Current.Track?.Uri, _onlineQueueRecoveryStartUri, StringComparison.OrdinalIgnoreCase))
+            {
+                TryCompleteOnlineQueueRecovery(Current.Track?.Uri);
+                return;
+            }
+
+            ScheduleOnlineQueueRecoveryRetry($"watchdog after {reason}");
+        }
+
+        private void ScheduleOnlineQueueRecoveryRetry(string reason)
+        {
+            if (!_onlineQueueRecoveryActive || _onlineQueueRecoveryRetryScheduled)
+                return;
+
+            _onlineQueueRecoveryRetryScheduled = true;
+            var version = _onlineQueueRecoveryVersion;
+            _ = RetryOnlineQueueRecoveryAsync(version, reason);
+        }
+
+        private async Task RetryOnlineQueueRecoveryAsync(int version, string reason)
+        {
+            await Task.Delay(1500).ConfigureAwait(false);
+            _onlineQueueRecoveryRetryScheduled = false;
+
+            if (version != _onlineQueueRecoveryVersion || !_onlineQueueRecoveryActive)
+                return;
+
+            if (!ConnectivityHelper.HasInternetAccess())
+            {
+                LogService.Info("[MediaService.RetryOnlineQueueRecoveryAsync] Internet was lost again before retrying online queue recovery.");
+                ClearOnlineQueueRecoveryState(clearResumePoint: false);
+                _onlineQueueRecoveryPending = HasOnlineQueueResumePoint();
+                await ContinueDownloadedPlaybackAfterOnlineFailureAsync(reason).ConfigureAwait(false);
+                return;
+            }
+
+            if (Current.PlaybackState == LibrespotPlaybackState.Playing &&
+                string.Equals(Current.Track?.Uri, _onlineQueueRecoveryStartUri, StringComparison.OrdinalIgnoreCase))
+            {
+                TryCompleteOnlineQueueRecovery(Current.Track?.Uri);
+                return;
+            }
+
+            if (_onlineQueueRecoveryAttempt >= MaxOnlineQueueRecoveryAttempts)
+            {
+                LogService.Warn($"[MediaService.RetryOnlineQueueRecoveryAsync] Online queue recovery failed after {_onlineQueueRecoveryAttempt} attempts. context={_onlineQueueRecoveryContextUri}, start={_onlineQueueRecoveryStartUri}, reason={reason}.");
+                ReportMediaConnectivityFailure("online queue recovery retry failed");
+                UpdateState(s =>
+                {
+                    s.IsOffline = true;
+                    s.StatusMessage = "Internet is not stable enough to resume the queue. Continuing offline playback.";
+                });
+                ClearOnlineQueueRecoveryState(clearResumePoint: false);
+                _onlineQueueRecoveryPending = HasOnlineQueueResumePoint();
+                await ContinueDownloadedPlaybackAfterOnlineFailureAsync(reason).ConfigureAwait(false);
+                return;
+            }
+
+            _onlineQueueRecoveryAttempt++;
+            LogService.Info($"[MediaService.RetryOnlineQueueRecoveryAsync] Retrying online queue recovery attempt {_onlineQueueRecoveryAttempt}/{MaxOnlineQueueRecoveryAttempts}. reason={reason}, context={_onlineQueueRecoveryContextUri}, start={_onlineQueueRecoveryStartUri}.");
+            await PlayOnlineQueueRecoveryAsync(_onlineQueueRecoveryContextUri, _onlineQueueRecoveryStartUri).ConfigureAwait(false);
+            ScheduleOnlineQueueRecoveryWatchdog(_onlineQueueRecoveryVersion, shouldContinuePlaying: true, reason: "retry");
+        }
+
+        private void TryCompleteOnlineQueueRecovery(string trackUri)
+        {
+            if (!_onlineQueueRecoveryActive ||
+                string.IsNullOrWhiteSpace(trackUri) ||
+                !string.Equals(trackUri, _onlineQueueRecoveryStartUri, StringComparison.OrdinalIgnoreCase) ||
+                Current.PlaybackState != LibrespotPlaybackState.Playing)
+            {
+                return;
+            }
+
+            LogService.Info($"[MediaService.TryCompleteOnlineQueueRecovery] Online queue recovery reached {trackUri}.");
+            _offlineQueue = Array.Empty<string>();
+            _offlineQueueIndex = -1;
+            _offlineQueueContextUri = null;
+            _currentOfflineFallbackIsRandom = false;
+            ClearOnlineQueueRecoveryState(clearResumePoint: true);
+        }
+
+        private void ClearOnlineQueueRecoveryState(bool clearResumePoint)
+        {
+            _onlineQueueRecoveryPending = false;
+            _waitingForOnlineQueueContinuation = false;
+            _onlineQueueRecoveryActive = false;
+            _onlineQueueRecoveryRetryScheduled = false;
+            _onlineQueueRecoveryAttempt = 0;
+            _onlineQueueRecoveryContextUri = null;
+            _onlineQueueRecoveryStartUri = null;
+
+            if (clearResumePoint)
+            {
+                _onlineQueueResumeContextUri = null;
+                _onlineQueueResumeStartUri = null;
+                if (_playbackIntent != null)
+                {
+                    _playbackIntent.ResumeContextUri = null;
+                    _playbackIntent.ResumeStartUri = null;
+                }
+            }
+        }
+
+        private async Task<bool> TryPlayRandomOfflineFallbackAsync(string reason)
+        {
+            if (!ShouldUseRandomOfflineFallback())
+                return false;
+
+            CancelPlaybackContinuationWatchdog();
+            await _playbackGate.WaitAsync();
+            try
+            {
+                return await TryLoadRandomOfflineFallbackCoreAsync(reason).ConfigureAwait(false);
+            }
+            finally
+            {
+                _playbackGate.Release();
+            }
+        }
+
+        private async Task<bool> TryLoadRandomOfflineFallbackCoreAsync(string reason)
+        {
+            if (!ShouldUseRandomOfflineFallback() || ConnectivityHelper.HasInternetAccess() || App.OfflineCatalog == null)
+                return false;
+
+            var trackUri = await ChooseRandomDownloadedTrackUriAsync(Current.Track?.Uri).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(trackUri))
+            {
+                LogService.Info($"[MediaService.TryLoadRandomOfflineFallbackCoreAsync] Random offline fallback requested but no downloaded tracks were available. reason={reason}.");
+                return false;
+            }
+
+            try
+            {
+                _currentOfflineFallbackIsRandom = true;
+                LogService.Info($"[MediaService.TryLoadRandomOfflineFallbackCoreAsync] Playing random downloaded fallback {trackUri}. reason={reason}.");
+                return await LoadOfflineFallbackTrackCoreAsync(
+                    trackUri,
+                    "Offline. Playing a random downloaded song until internet returns.",
+                    FirstNonBlank(_onlineQueueResumeContextUri, _playbackIntent?.PlaybackContextUri)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _currentOfflineFallbackIsRandom = false;
+                _offlinePlaybackFailedTrackUris.Add(trackUri);
+                LogService.Warn($"[MediaService.TryLoadRandomOfflineFallbackCoreAsync] Unable to play random offline fallback {trackUri}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<bool> LoadOfflineFallbackTrackCoreAsync(string trackUri, string statusMessage, string stateContextUri = null)
+        {
+            if (string.IsNullOrWhiteSpace(trackUri))
+                return false;
+
+            if (!await EnsureLocalLibrespotConnectedAsync(interactive: true, allowOfflineToken: true).ConfigureAwait(false))
+                return false;
+
+            var contextUri = FirstNonBlank(
+                stateContextUri,
+                _offlineQueueContextUri,
+                _onlineQueueResumeContextUri,
+                _playbackIntent?.PlaybackContextUri,
+                trackUri);
+
+            SetTransportMode(
+                _currentOfflineFallbackIsRandom
+                    ? PlaybackTransportMode.OfflineRandomSubstitute
+                    : PlaybackTransportMode.OfflineContextSubstitute,
+                "loading offline fallback track");
+
+            UpdateState(s =>
+            {
+                s.IsOffline = true;
+                s.PlaybackState = LibrespotPlaybackState.Loading;
+                s.ContextUri = contextUri;
+                s.ContextName = null;
+                s.StatusMessage = statusMessage;
+            });
+
+            _ringPlayer?.Stop();
+            if (_mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+                _mediaPlayer.Pause();
+            ApplyPlaybackPosition(0, persistSnapshot: false);
+
+            _pendingOfflineLoadTrackUri = trackUri;
+            await _librespot.LoadAndPlayAsync(trackUri, null).ConfigureAwait(false);
+            await EnsureRingPlayerAsync().ConfigureAwait(false);
+            _ringPlayer.Start();
+            return true;
+        }
+
+        private async Task<string> ChooseRandomDownloadedTrackUriAsync(string excludedTrackUri)
+        {
+            var downloadedTracks = await App.OfflineCatalog.GetDownloadedTracksAsync().ConfigureAwait(false);
+            var candidates = downloadedTracks
+                .Select(track => track.TrackUri)
+                .Where(IsDownloadedTrackPlayableOffline)
+                .Where(uri => !string.Equals(uri, excludedTrackUri, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                candidates = downloadedTracks
+                    .Select(track => track.TrackUri)
+                    .Where(IsDownloadedTrackPlayableOffline)
+                    .ToList();
+            }
+
+            if (candidates.Count == 0)
+                return null;
+
+            lock (_random)
+                return candidates[_random.Next(candidates.Count)];
+        }
+
+        private static bool ShouldUseRandomOfflineFallback()
+        {
+            return UserSettings.PlayDownloadedSongsDuringConnectionLoss &&
+                UserSettings.PlayRandomOfflineSongWhenUnavailable;
+        }
+
+        private void ScheduleOfflineStopRecovery(string reason)
+        {
+            if (ConnectivityHelper.HasInternetAccess())
+                return;
+
+            var version = Interlocked.Increment(ref _offlineStopRecoveryVersion);
+            _ = RecoverDownloadedPlaybackAfterUnexpectedStopAsync(version, reason);
+        }
+
+        private async Task RecoverDownloadedPlaybackAfterUnexpectedStopAsync(int version, string reason)
+        {
+            await Task.Delay(750).ConfigureAwait(false);
+            if (version != _offlineStopRecoveryVersion)
+                return;
+
+            if (ConnectivityHelper.HasInternetAccess() ||
+                Current.PlaybackState == LibrespotPlaybackState.Playing ||
+                Current.PlaybackState == LibrespotPlaybackState.Loading)
+            {
+                return;
+            }
+
+            LogService.Warn($"[MediaService.RecoverDownloadedPlaybackAfterUnexpectedStopAsync] Playback stopped while offline; trying downloaded fallback. reason={reason}");
+            await ContinueDownloadedPlaybackAfterOnlineFailureAsync(reason).ConfigureAwait(false);
+        }
+
+        private async Task<bool> ContinueDownloadedPlaybackAfterOnlineFailureAsync(string reason)
+        {
+            if (!UserSettings.PlayDownloadedSongsDuringConnectionLoss)
+            {
+                UpdateState(s =>
+                {
+                    s.IsOffline = true;
+                    s.PlaybackState = LibrespotPlaybackState.Paused;
+                    s.StatusMessage = "Offline. Waiting for internet before continuing the queue.";
+                });
+                return false;
+            }
+
+            CancelPlaybackContinuationWatchdog();
+            await _playbackGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                UpdateConnectivityState(isOfflineOverride: true);
+
+                if (!_currentOfflineFallbackIsRandom && _offlineQueue.Length > 0)
+                {
+                    var searchIndex = _offlineQueueIndex;
+                    while (true)
+                    {
+                        var nextIndex = FindPlayableOfflineQueueIndex(_offlineQueue, searchIndex, 1);
+                        if (nextIndex < 0)
+                            break;
+
+                        _offlineQueueIndex = nextIndex;
+                        SetOnlineQueueResumePoint(_offlineQueueContextUri, _offlineQueue, _offlineQueueIndex + 1);
+                        _currentOfflineFallbackIsRandom = false;
+                        LogService.Info($"[MediaService.ContinueDownloadedPlaybackAfterOnlineFailureAsync] Continuing downloaded queue at index {_offlineQueueIndex} ({_offlineQueue[_offlineQueueIndex]}). reason={reason}");
+
+                        try
+                        {
+                            return await LoadOfflineFallbackTrackCoreAsync(
+                                _offlineQueue[_offlineQueueIndex],
+                                "Internet is unstable. Continuing with downloaded playback.",
+                                _offlineQueueContextUri).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Warn($"[MediaService.ContinueDownloadedPlaybackAfterOnlineFailureAsync] Unable to load downloaded track {_offlineQueue[_offlineQueueIndex]}: {ex.Message}");
+                            _offlinePlaybackFailedTrackUris.Add(_offlineQueue[_offlineQueueIndex]);
+                            searchIndex = _offlineQueueIndex;
+                        }
+                    }
+                }
+
+                if (await TryLoadRandomOfflineFallbackCoreAsync(reason).ConfigureAwait(false))
+                    return true;
+
+                UpdateState(s =>
+                {
+                    s.IsOffline = true;
+                    s.PlaybackState = LibrespotPlaybackState.Paused;
+                    s.StatusMessage = HasOnlineQueueResumePoint()
+                        ? "Offline. Waiting for internet before continuing the queue."
+                        : "Offline. No downloaded continuation is available.";
+                });
+                return false;
+            }
+            finally
+            {
+                _playbackGate.Release();
+            }
         }
 
         private void UpdateState(Action<MediaState> mutator)
@@ -1893,37 +2734,298 @@ namespace LibreSpotUWP.Services
 
         private async Task HandleNetworkStatusChangedAsync()
         {
-            var wasOffline = _state.IsOffline;
-            UpdateConnectivityState();
-
-            if (!ConnectivityHelper.HasInternetAccess())
+            await _networkStatusGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                if (_librespot.Session.IsConnected)
-                {
-                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity lost or offline mode enabled, disconnecting librespot.");
-                    await _librespot.DisconnectAsync();
-                }
+                await HandleNetworkStatusChangedCoreAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _networkStatusGate.Release();
+            }
+        }
+
+        private async Task HandleNetworkStatusChangedCoreAsync()
+        {
+            var wasOffline = _state.IsOffline;
+            var isOffline = !ConnectivityHelper.HasInternetAccess();
+            if (wasOffline != isOffline)
+            {
+                LogService.Info(
+                    $"[MediaService.HandleNetworkStatusChangedAsync] Connectivity changed {(isOffline ? "offline" : "online")}; playback={_state.PlaybackState}, sessionConnected={_librespot.Session.IsConnected}, offlineQueue={_offlineQueue.Length}, offlineQueueIndex={_offlineQueueIndex}.");
+            }
+
+            UpdateConnectivityState(isOffline);
+
+            if (isOffline)
+            {
+                if (ConnectivityHelper.HasNetworkReportedInternetAccess())
+                    ScheduleConnectivityRecheckAfterBackoff("network reports internet while media backoff is active");
+
+                await PrepareOfflineQueueForCurrentTrackAsync().ConfigureAwait(false);
+
+                if (_librespot.Session.IsConnected || (_librespot as LibrespotService)?.HasInstance == true)
+                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity lost or offline mode enabled, keeping librespot alive for local playback.");
+
                 return;
             }
 
             try
             {
-                if (wasOffline && _state.PlaybackState == LibrespotPlaybackState.Playing && _offlineQueue.Length > 0)
+                if (IsSelectedSpotifyConnectDeviceLocal &&
+                    _state.PlaybackState == LibrespotPlaybackState.Playing &&
+                    !_waitingForOnlineQueueContinuation)
+                {
+                    if (HasOnlineQueueResumePoint())
+                    {
+                        _onlineQueueRecoveryPending = true;
+                        LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored; keeping current local song running and deferring queue recovery until a track boundary.");
+                    }
+                    else
+                    {
+                        LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored while local playback is active; leaving playback uninterrupted.");
+                    }
+
                     return;
+                }
+
+                if (IsSelectedSpotifyConnectDeviceLocal &&
+                    _onlineQueueRecoveryActive &&
+                    _state.PlaybackState != LibrespotPlaybackState.Stopped)
+                {
+                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored while online queue recovery is active.");
+                    return;
+                }
 
                 var accessToken = await _auth.EnsureValidAccessTokenAsync(interactive: false);
-                if (!string.IsNullOrWhiteSpace(accessToken) && !_librespot.Session.IsConnected)
+                if (!string.IsNullOrWhiteSpace(accessToken) &&
+                    (!_librespot.Session.IsConnected || _librespotTransportUnhealthy))
                 {
-                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored, reconnecting librespot.");
-                    await _librespot.ConnectWithAccessTokenAsync(accessToken);
+                    if (_librespotTransportUnhealthy)
+                    {
+                        LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored, recreating unhealthy librespot transport.");
+                        await _librespot.ReconnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                        _librespotTransportUnhealthy = false;
+                    }
+                    else
+                    {
+                        LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored, reconnecting librespot.");
+                        await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                    }
+
                     if (App.OfflineCatalog != null)
                         await App.OfflineCatalog.RemoveExpiredPersistedTracksAsync();
+                }
+
+                if (IsSelectedSpotifyConnectDeviceLocal &&
+                    _waitingForOnlineQueueContinuation)
+                {
+                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored; resuming queue that was waiting for internet.");
+                    if (!TryResumeOnlineQueueFromOfflineBoundary(shouldContinuePlaying: true))
+                    {
+                        _waitingForOnlineQueueContinuation = false;
+                        SchedulePlaybackContinuationWatchdog(shouldContinuePlaying: true, reason: "connectivity restored", allowStopped: true);
+                    }
+                }
+
+                if (IsSelectedSpotifyConnectDeviceLocal &&
+                    _onlineQueueRecoveryPending &&
+                    _state.PlaybackState != LibrespotPlaybackState.Playing)
+                {
+                    LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored; starting pending online queue recovery.");
+                    TryResumeOnlineQueueFromOfflineBoundary(shouldContinuePlaying: true);
                 }
             }
             catch (Exception ex)
             {
                 LogService.Warn($"[MediaService.HandleNetworkStatusChangedAsync] Unable to reconnect after connectivity restored: {ex.Message}");
+                ReportMediaConnectivityFailure("connectivity restored reconnect failed");
             }
+        }
+
+        private async Task PrepareOfflineQueueForCurrentTrackAsync()
+        {
+            var trackUri = _state.Track?.Uri;
+            if (string.IsNullOrWhiteSpace(trackUri) || App.OfflineCatalog == null)
+                return;
+
+            var currentTrackPersisted = App.OfflineCatalog.IsTrackPersisted(trackUri);
+
+            var contextUri = FirstNonBlank(
+                _onlineQueueResumeContextUri,
+                _playbackIntent?.ResumeContextUri,
+                _playbackIntent?.PlaybackContextUri,
+                _state.ContextUri,
+                trackUri);
+            var queue = await GetKnownTrackUrisForPlaybackContextAsync(contextUri).ConfigureAwait(false);
+            if (queue.Count == 0)
+            {
+                if (!currentTrackPersisted)
+                {
+                    LogService.Info($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Current track {trackUri} is not fully downloaded and no cached context queue was available.");
+                    return;
+                }
+
+                queue = new[] { trackUri };
+            }
+
+            _offlineQueue = queue.ToArray();
+            _offlineQueueIndex = IndexOfTrackUri(_offlineQueue, trackUri);
+            if (_offlineQueueIndex >= 0)
+            {
+                _currentOfflineFallbackIsRandom = false;
+                SetOnlineQueueResumePoint(contextUri, _offlineQueue, _offlineQueueIndex + 1);
+            }
+            else
+            {
+                if (!currentTrackPersisted)
+                {
+                    LogService.Info($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Current track {trackUri} is not in known context {contextUri} and is not fully downloaded.");
+                    _offlineQueue = Array.Empty<string>();
+                    _offlineQueueIndex = -1;
+                    _offlineQueueContextUri = null;
+                    return;
+                }
+
+                _offlineQueue = new[] { trackUri };
+                _offlineQueueIndex = 0;
+                LogService.Warn($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Current downloaded track {trackUri} was not found in known context {contextUri}; using a single-track queue.");
+            }
+            _offlineQueueContextUri = contextUri;
+
+            UpdateState(s =>
+            {
+                s.IsOffline = true;
+                s.StatusMessage = currentTrackPersisted
+                    ? "Offline. Continuing with downloaded playback."
+                    : "Offline. Will continue with downloaded songs when available.";
+            });
+
+            LogService.Info($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Prepared offline queue for {trackUri}. Queue size={_offlineQueue.Length}, index={_offlineQueueIndex}, currentPersisted={currentTrackPersisted}.");
+        }
+
+        private async Task<IReadOnlyList<string>> GetKnownTrackUrisForPlaybackContextAsync(string contextUri)
+        {
+            if (string.IsNullOrWhiteSpace(contextUri))
+                return Array.Empty<string>();
+
+            if (App.OfflineCatalog != null)
+            {
+                var catalogQueue = await App.OfflineCatalog.GetKnownTrackUrisForContextAsync(contextUri).ConfigureAwait(false);
+                if (catalogQueue.Count > 0)
+                {
+                    LogService.Info($"[MediaService.GetKnownTrackUrisForPlaybackContextAsync] Loaded {catalogQueue.Count} known tracks for {contextUri} from offline catalog.");
+                    return catalogQueue;
+                }
+            }
+
+            try
+            {
+                if (TryGetSpotifyUriId(contextUri, "spotify:album:", out var albumId))
+                {
+                    var albumTracks = await _web.GetAlbumTracksAsync(albumId, false).ConfigureAwait(false);
+                    var trackUris = albumTracks?.Value?.Items?
+                        .Select(track => track?.Uri)
+                        .Where(IsSpotifyTrackUri)
+                        .ToList();
+
+                    if (trackUris?.Count > 0)
+                    {
+                        LogService.Info($"[MediaService.GetKnownTrackUrisForPlaybackContextAsync] Loaded {trackUris.Count} known tracks for {contextUri} from {(albumTracks.IsOfflineFallback || albumTracks.IsFromCache ? "cached" : "live")} album metadata.");
+                        return trackUris;
+                    }
+                }
+                else if (TryGetSpotifyUriId(contextUri, "spotify:playlist:", out var playlistId))
+                {
+                    var playlistItems = await _web.GetPlaylistItemsAsync(playlistId, false).ConfigureAwait(false);
+                    var trackUris = playlistItems?.Value?.Items?
+                        .Select(item => (item?.Track as FullTrack)?.Uri)
+                        .Where(IsSpotifyTrackUri)
+                        .ToList();
+
+                    if (trackUris?.Count > 0)
+                    {
+                        LogService.Info($"[MediaService.GetKnownTrackUrisForPlaybackContextAsync] Loaded {trackUris.Count} known tracks for {contextUri} from {(playlistItems.IsOfflineFallback || playlistItems.IsFromCache ? "cached" : "live")} playlist metadata.");
+                        return trackUris;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.GetKnownTrackUrisForPlaybackContextAsync] Unable to resolve known track order for {contextUri}: {ex.Message}");
+            }
+
+            if (IsSpotifyTrackUri(contextUri))
+                return new[] { contextUri };
+
+            return Array.Empty<string>();
+        }
+
+        private int FindPlayableOfflineQueueIndex(IReadOnlyList<string> queue, int currentIndex, int delta)
+        {
+            if (queue == null || queue.Count == 0 || delta == 0 || App.OfflineCatalog == null)
+                return -1;
+
+            for (var index = currentIndex + delta; index >= 0 && index < queue.Count; index += delta)
+            {
+                if (IsDownloadedTrackPlayableOffline(queue[index]))
+                    return index;
+            }
+
+            return -1;
+        }
+
+        private bool IsDownloadedTrackPlayableOffline(string trackUri)
+        {
+            if (!IsSpotifyTrackUri(trackUri) ||
+                _offlinePlaybackFailedTrackUris.Contains(trackUri) ||
+                App.OfflineCatalog == null ||
+                !App.OfflineCatalog.IsTrackPersisted(trackUri))
+            {
+                return false;
+            }
+
+            var trackIdHex = SpotifyIdHelper.TrackUriToHexId(trackUri);
+            var hasKey = !string.IsNullOrWhiteSpace(trackIdHex) &&
+                App.KeyCache?.GetKeySync(trackIdHex) != null;
+
+            if (!hasKey)
+                LogService.Warn($"[MediaService.IsDownloadedTrackPlayableOffline] Skipping persisted track without a cached audio key: {trackUri}");
+
+            return hasKey;
+        }
+
+        private static int IndexOfTrackUri(IReadOnlyList<string> queue, string trackUri)
+        {
+            if (queue == null || string.IsNullOrWhiteSpace(trackUri))
+                return -1;
+
+            for (var index = 0; index < queue.Count; index++)
+            {
+                if (string.Equals(queue[index], trackUri, StringComparison.OrdinalIgnoreCase))
+                    return index;
+            }
+
+            return -1;
+        }
+
+        private static bool TryGetSpotifyUriId(string uri, string prefix, out string id)
+        {
+            id = null;
+            if (string.IsNullOrWhiteSpace(uri) ||
+                !uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            id = uri.Substring(prefix.Length);
+            return !string.IsNullOrWhiteSpace(id);
+        }
+
+        private static bool IsSpotifyTrackUri(string uri)
+        {
+            return !string.IsNullOrWhiteSpace(uri) &&
+                uri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ResolveArtworkUri(FullTrack metadata, LibrespotTrackInfo track, OfflineTrackEntry offlineTrack)

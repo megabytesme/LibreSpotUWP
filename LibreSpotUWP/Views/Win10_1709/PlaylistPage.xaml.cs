@@ -144,8 +144,11 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         private async Task UpdatePlaylistFollowedStateAsync()
         {
-            if (ViewModel.Playlist == null)
+            if (ViewModel.Playlist == null || !Helpers.ConnectivityHelper.HasInternetAccess())
+            {
+                PlayActions.SetAdded(false, "Remove playlist from library", "Add playlist to library");
                 return;
+            }
 
             try
             {

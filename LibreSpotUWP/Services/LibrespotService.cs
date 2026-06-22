@@ -185,6 +185,36 @@ namespace LibreSpotUWP.Services
             }
         }
 
+        public async Task ReconnectWithAccessTokenAsync(string accessToken)
+        {
+            ThrowIfDisposed();
+            if (!_initialized)
+                throw new InvalidOperationException("LibrespotService not initialized.");
+
+            if (string.IsNullOrWhiteSpace(accessToken))
+                throw new ArgumentException("Access token must not be null or empty.", nameof(accessToken));
+
+            await _connectGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                LogService.Info("[LibrespotService.ReconnectWithAccessTokenAsync] Recreating librespot instance.");
+                try
+                {
+                    await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                    _activeAccessToken = accessToken;
+                }
+                catch
+                {
+                    _activeAccessToken = null;
+                    throw;
+                }
+            }
+            finally
+            {
+                _connectGate.Release();
+            }
+        }
+
         public async Task DisconnectAsync()
         {
             ThrowIfDisposed();

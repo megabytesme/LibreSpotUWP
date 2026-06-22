@@ -375,6 +375,13 @@ namespace LibreSpotUWP.Services
                 UserSettings.LiveTileRandomPlaylistEnabled ||
                 UserSettings.LiveTileSpotifyPlaylistEnabled;
 
+            if (!ConnectivityHelper.HasInternetAccess())
+            {
+                ReloadRecentItemsFromSettings();
+                _userPlaylists = LoadItemsFromSettings(UserTilePlaylistsKey);
+                return;
+            }
+
             if (wantsRecentData &&
                 (force || _recentSongs.Count == 0 || now - _lastRecentRefreshAt >= RecentRefreshInterval))
             {
