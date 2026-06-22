@@ -18,10 +18,19 @@ namespace LibreSpotUWP.Services
 {
     public sealed class LiveTileService
     {
-        private const string RecentTileTracksKey = "LiveTileRecentTracks";
+        private const string RecentTileSongsKey = "LiveTileRecentSongs";
+        private const string RecentTileArtistsKey = "LiveTileRecentArtists";
+        private const string RecentTileAlbumsKey = "LiveTileRecentAlbums";
+        private const string RecentTilePlaylistsKey = "LiveTileRecentPlaylists";
+        private const string UserTilePlaylistsKey = "LiveTileUserPlaylists";
         private const string FallbackLogoSource = "ms-appx:///Assets/Square150x150Logo.png";
-        private const int MaxRecentTracks = 3;
+        private const string LiveTileLaunchPrefix = "livetile:";
+        private const int MaxVisibleItems = 3;
+        private const int MaxCachedItems = 12;
+        private const int MaxTileNotifications = 5;
+        private const int RecentSourceLimit = 20;
         private static readonly TimeSpan RecentRefreshInterval = TimeSpan.FromMinutes(20);
+        private static readonly TimeSpan PlaylistRefreshInterval = TimeSpan.FromMinutes(30);
 
         private readonly IMediaService _media;
         private readonly ISpotifyAuthService _auth;
@@ -36,7 +45,12 @@ namespace LibreSpotUWP.Services
         private MediaState _lastMediaState;
         private AppUserProfile _currentUser;
         private DateTimeOffset _lastRecentRefreshAt = DateTimeOffset.MinValue;
-        private List<LiveTileTrackSnapshot> _recentTracks;
+        private DateTimeOffset _lastPlaylistRefreshAt = DateTimeOffset.MinValue;
+        private List<LiveTileItemSnapshot> _recentSongs;
+        private List<LiveTileItemSnapshot> _recentArtists;
+        private List<LiveTileItemSnapshot> _recentAlbums;
+        private List<LiveTileItemSnapshot> _recentPlaylists;
+        private List<LiveTileItemSnapshot> _userPlaylists;
         private int _updateVersion;
         private CancellationTokenSource _refreshDebounceCts;
         private bool _queuedForceRecentRefresh;
@@ -50,7 +64,11 @@ namespace LibreSpotUWP.Services
             _media = media ?? throw new ArgumentNullException(nameof(media));
             _auth = auth ?? throw new ArgumentNullException(nameof(auth));
             _web = web ?? throw new ArgumentNullException(nameof(web));
-            _recentTracks = LoadRecentTracksFromSettings();
+            _recentSongs = LoadItemsFromSettings(RecentTileSongsKey);
+            _recentArtists = LoadItemsFromSettings(RecentTileArtistsKey);
+            _recentAlbums = LoadItemsFromSettings(RecentTileAlbumsKey);
+            _recentPlaylists = LoadItemsFromSettings(RecentTilePlaylistsKey);
+            _userPlaylists = LoadItemsFromSettings(UserTilePlaylistsKey);
         }
 
         public async Task InitializeAsync(bool isSignedIn)
@@ -76,12 +94,39 @@ namespace LibreSpotUWP.Services
             await Task.CompletedTask;
         }
 
+        public void RefreshForSettingsChanged()
+        {
+            QueueRefresh(
+                forceRecentRefresh: true,
+                reason: "settings",
+                delay: TimeSpan.FromMilliseconds(250));
+        }
+
         public async Task PrepareForSuspendingAsync()
         {
             CancelQueuedRefresh();
             await RefreshTileAsync(
                 forceRecentRefresh: _isSignedIn && !ShouldShowNowPlaying(_lastMediaState),
                 reason: "suspending").ConfigureAwait(false);
+        }
+
+        public static string TryGetNavigationTagFromLaunchArguments(string arguments)
+        {
+            if (!UserSettings.LiveTileOpenRandomItems || string.IsNullOrWhiteSpace(arguments))
+                return null;
+
+            if (!arguments.StartsWith(LiveTileLaunchPrefix, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var tag = arguments.Substring(LiveTileLaunchPrefix.Length);
+            if (tag.StartsWith("Artist:", StringComparison.OrdinalIgnoreCase) ||
+                tag.StartsWith("Album:", StringComparison.OrdinalIgnoreCase) ||
+                tag.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase))
+            {
+                return tag;
+            }
+
+            return null;
         }
 
         private async void OnMediaStateChanged(object sender, MediaState state)
@@ -195,6 +240,9 @@ namespace LibreSpotUWP.Services
                 catch (TaskCanceledException)
                 {
                 }
+                catch (ObjectDisposedException)
+                {
+                }
                 catch (Exception ex)
                 {
                     LogService.Warn($"[LiveTileService.QueueRefresh] Unable to refresh queued tile for {reason}: {ex.Message}");
@@ -228,7 +276,7 @@ namespace LibreSpotUWP.Services
                 if (version != _updateVersion)
                     return;
 
-                if (!_isSignedIn)
+                if (!UserSettings.LiveTilesEnabled || !_isSignedIn)
                 {
                     ApplyLoggedOutTile();
                     return;
@@ -237,24 +285,19 @@ namespace LibreSpotUWP.Services
                 var state = _lastMediaState ?? _media.Current;
                 var nowPlaying = ShouldShowNowPlaying(state);
 
-                CacheRecentTrackFromState(state);
-
+                CacheRecentSongFromState(state);
                 if (!nowPlaying)
-                    await EnsureRecentlyPlayedAsync(forceRecentRefresh).ConfigureAwait(false);
+                    await EnsureTileDataAsync(forceRecentRefresh).ConfigureAwait(false);
 
-                var notifications = new List<TileNotification>();
-                notifications.Add(nowPlaying
-                    ? CreateNowPlayingNotification(state)
-                    : CreateRecentlyPlayedNotification(state));
+                var notifications = BuildNotifications(state, nowPlaying)
+                    .Where(notification => notification != null)
+                    .Take(MaxTileNotifications)
+                    .ToList();
 
-                if (_currentUser != null)
-                    notifications.Add(CreateProfileNotification(_currentUser));
-
-                if (notifications.Count > 1 && _random.Next(0, 2) == 0)
+                if (notifications.Count == 0)
                 {
-                    var first = notifications[0];
-                    notifications[0] = notifications[1];
-                    notifications[1] = first;
+                    ApplyLoggedOutTile();
+                    return;
                 }
 
                 ApplyNotifications(notifications);
@@ -270,56 +313,198 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async Task EnsureRecentlyPlayedAsync(bool force)
+        private List<TileNotification> BuildNotifications(MediaState state, bool nowPlaying)
         {
-            var now = DateTimeOffset.UtcNow;
-            if (!force &&
-                _recentTracks.Count > 0 &&
-                now - _lastRecentRefreshAt < RecentRefreshInterval)
+            var notifications = new List<TileNotification>();
+            var alternates = new List<TileNotification>();
+
+            if (nowPlaying && UserSettings.LiveTileNowPlayingEnabled)
             {
-                return;
+                notifications.Add(CreateNowPlayingNotification(state));
+                return notifications;
             }
 
+            if (nowPlaying)
+                return notifications;
+
+            if (!nowPlaying && UserSettings.LiveTileRecentSongsEnabled)
+                notifications.Add(CreateRecentSongsNotification(state));
+
+            if (UserSettings.LiveTileRecentArtistsEnabled)
+                alternates.Add(CreateRecentEntityNotification("Recent artists", "Artist", _recentArtists, "rartists"));
+
+            if (UserSettings.LiveTileRecentPlaylistsEnabled)
+                alternates.Add(CreateRecentEntityNotification("Recent playlists", "Playlist", _recentPlaylists, "rplaylists"));
+
+            if (UserSettings.LiveTileRecentAlbumsEnabled)
+                alternates.Add(CreateRecentEntityNotification("Recent albums", "Album", _recentAlbums, "ralbums"));
+
+            if (UserSettings.LiveTileSpotifyPlaylistEnabled)
+                alternates.Add(CreateSpotifyPlaylistNotification());
+
+            if (UserSettings.LiveTileRandomArtistEnabled)
+                alternates.Add(CreateRandomEntityNotification("Random artist", RandomItem(_recentArtists), "rndartist"));
+
+            if (UserSettings.LiveTileRandomPlaylistEnabled)
+                alternates.Add(CreateRandomEntityNotification("Random playlist", RandomItem(_userPlaylists), "rndplaylist"));
+
+            if (UserSettings.LiveTileRandomAlbumEnabled)
+                alternates.Add(CreateRandomEntityNotification("Random album", RandomItem(_recentAlbums), "rndalbum"));
+
+            if (_currentUser != null && UserSettings.LiveTileProfileEnabled)
+                alternates.Add(CreateProfileNotification(_currentUser));
+
+            Shuffle(alternates);
+            notifications.AddRange(alternates);
+
+            return notifications;
+        }
+
+        private async Task EnsureTileDataAsync(bool force)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var wantsRecentData =
+                UserSettings.LiveTileRecentSongsEnabled ||
+                UserSettings.LiveTileRecentArtistsEnabled ||
+                UserSettings.LiveTileRecentAlbumsEnabled ||
+                UserSettings.LiveTileRecentPlaylistsEnabled ||
+                UserSettings.LiveTileRandomArtistEnabled ||
+                UserSettings.LiveTileRandomAlbumEnabled;
+            var wantsPlaylistData =
+                UserSettings.LiveTileRecentPlaylistsEnabled ||
+                UserSettings.LiveTileRandomPlaylistEnabled ||
+                UserSettings.LiveTileSpotifyPlaylistEnabled;
+
+            if (wantsRecentData &&
+                (force || _recentSongs.Count == 0 || now - _lastRecentRefreshAt >= RecentRefreshInterval))
+            {
+                await EnsureRecentlyPlayedAsync(force).ConfigureAwait(false);
+            }
+
+            if (wantsPlaylistData &&
+                (force || _userPlaylists.Count == 0 || now - _lastPlaylistRefreshAt >= PlaylistRefreshInterval))
+            {
+                await EnsureUserPlaylistsAsync(force).ConfigureAwait(false);
+            }
+        }
+
+        private async Task EnsureRecentlyPlayedAsync(bool force)
+        {
             try
             {
-                var response = await _web.GetRecentlyPlayedAsync(MaxRecentTracks, forceRefresh: false)
+                var response = await _web.GetRecentlyPlayedAsync(RecentSourceLimit, forceRefresh: force)
                     .ConfigureAwait(false);
-                var tracks = response?.Value?.Items?
-                    .Select(item => FromFullTrack(item.Track))
-                    .Where(track => track != null && !string.IsNullOrWhiteSpace(track.Title))
-                    .Take(MaxRecentTracks)
-                    .ToList();
+                var items = response?.Value?.Items ?? new List<PlayHistoryItem>();
 
-                if (tracks != null && tracks.Count > 0)
+                var songs = new List<LiveTileItemSnapshot>();
+                var artists = new List<LiveTileItemSnapshot>();
+                var albums = new List<LiveTileItemSnapshot>();
+                var playlistIds = new List<string>();
+
+                foreach (var item in items)
                 {
-                    _recentTracks = tracks;
-                    _lastRecentRefreshAt = now;
-                    SaveRecentTracksToSettings();
+                    var track = item.Track;
+                    if (track == null)
+                        continue;
+
+                    AddUnique(songs, FromFullTrack(track), MaxCachedItems);
+                    AddUnique(albums, FromSimpleAlbum(track.Album), MaxCachedItems);
+
+                    foreach (var artist in track.Artists ?? Enumerable.Empty<SimpleArtist>())
+                    {
+                        AddUnique(
+                            artists,
+                            FromSimpleArtist(artist, track.Album?.Images?.FirstOrDefault()?.Url),
+                            MaxCachedItems);
+                    }
+
+                    var contextUri = item.Context?.Uri;
+                    if (!string.IsNullOrWhiteSpace(contextUri) &&
+                        contextUri.StartsWith("spotify:playlist:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var playlistId = contextUri.Substring("spotify:playlist:".Length);
+                        if (!playlistIds.Any(id => string.Equals(id, playlistId, StringComparison.OrdinalIgnoreCase)))
+                            playlistIds.Add(playlistId);
+                    }
+                }
+
+                var playlists = await LoadRecentPlaylistsAsync(playlistIds, force).ConfigureAwait(false);
+
+                if (songs.Count > 0)
+                    _recentSongs = songs;
+                if (artists.Count > 0)
+                    _recentArtists = artists;
+                if (albums.Count > 0)
+                    _recentAlbums = albums;
+                if (playlists.Count > 0)
+                    _recentPlaylists = playlists;
+
+                _lastRecentRefreshAt = DateTimeOffset.UtcNow;
+                SaveRecentItemsToSettings();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[LiveTileService.EnsureRecentlyPlayedAsync] Unable to load recent tile data: {ex.Message}");
+                ReloadRecentItemsFromSettings();
+            }
+        }
+
+        private async Task<List<LiveTileItemSnapshot>> LoadRecentPlaylistsAsync(
+            IEnumerable<string> playlistIds,
+            bool force)
+        {
+            var playlists = new List<LiveTileItemSnapshot>();
+
+            foreach (var playlistId in playlistIds.Take(MaxCachedItems))
+            {
+                try
+                {
+                    var response = await _web.GetPlaylistAsync(playlistId, forceRefresh: force)
+                        .ConfigureAwait(false);
+                    AddUnique(playlists, FromFullPlaylist(response?.Value), MaxCachedItems);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Warn($"[LiveTileService.LoadRecentPlaylistsAsync] Unable to load playlist {playlistId}: {ex.Message}");
+                }
+            }
+
+            return playlists;
+        }
+
+        private async Task EnsureUserPlaylistsAsync(bool force)
+        {
+            try
+            {
+                var response = await _web.GetCurrentUserPlaylistsAsync(forceRefresh: force)
+                    .ConfigureAwait(false);
+                var playlists = response?.Value?.Items?
+                    .Select(FromFullPlaylist)
+                    .Where(item => item != null)
+                    .ToList() ?? new List<LiveTileItemSnapshot>();
+
+                if (playlists.Count > 0)
+                {
+                    _userPlaylists = playlists.Take(MaxCachedItems).ToList();
+                    _lastPlaylistRefreshAt = DateTimeOffset.UtcNow;
+                    SaveItemsToSettings(UserTilePlaylistsKey, _userPlaylists);
                 }
             }
             catch (Exception ex)
             {
-                LogService.Warn($"[LiveTileService.EnsureRecentlyPlayedAsync] Unable to load recently played tracks: {ex.Message}");
-                if (_recentTracks.Count == 0)
-                    _recentTracks = LoadRecentTracksFromSettings();
+                LogService.Warn($"[LiveTileService.EnsureUserPlaylistsAsync] Unable to load user playlists: {ex.Message}");
+                _userPlaylists = LoadItemsFromSettings(UserTilePlaylistsKey);
             }
         }
 
-        private void CacheRecentTrackFromState(MediaState state)
+        private void CacheRecentSongFromState(MediaState state)
         {
-            var track = FromMediaState(state);
-            if (track == null || string.IsNullOrWhiteSpace(track.Title))
+            var song = FromMediaState(state);
+            if (song == null || string.IsNullOrWhiteSpace(song.Title))
                 return;
 
-            _recentTracks.RemoveAll(existing =>
-                !string.IsNullOrWhiteSpace(existing.Uri) &&
-                string.Equals(existing.Uri, track.Uri, StringComparison.OrdinalIgnoreCase));
-            _recentTracks.Insert(0, track);
-
-            if (_recentTracks.Count > MaxRecentTracks)
-                _recentTracks = _recentTracks.Take(MaxRecentTracks).ToList();
-
-            SaveRecentTracksToSettings();
+            AddUniqueToFront(_recentSongs, song, MaxCachedItems);
+            SaveItemsToSettings(RecentTileSongsKey, _recentSongs);
         }
 
         private void ApplyLoggedOutTile()
@@ -344,10 +529,11 @@ namespace LibreSpotUWP.Services
 
         private static TileNotification CreateNowPlayingNotification(MediaState state)
         {
-            var track = FromMediaState(state) ?? new LiveTileTrackSnapshot
+            var track = FromMediaState(state) ?? new LiveTileItemSnapshot
             {
+                Kind = LiveTileItemKind.Track,
                 Title = "Now playing",
-                Artist = "LibreSpotUWP"
+                Subtitle = "LibreSpotUWP"
             };
             var imageSource = ResolveTileImageSource(track.ImageUrl, useFallback: true);
             var sourceName = state?.IsSpotifyConnectRemote == true
@@ -366,37 +552,107 @@ namespace LibreSpotUWP.Services
                 expirationTime: expiresAt);
         }
 
-        private TileNotification CreateRecentlyPlayedNotification(MediaState state)
+        private TileNotification CreateRecentSongsNotification(MediaState state)
         {
-            var tracks = _recentTracks.Count > 0
-                ? _recentTracks
-                : new List<LiveTileTrackSnapshot>();
+            var songs = _recentSongs.Count > 0
+                ? _recentSongs
+                : new List<LiveTileItemSnapshot>();
 
-            if (tracks.Count == 0)
+            if (songs.Count == 0)
             {
                 var fallback = FromMediaState(state);
                 if (fallback != null)
-                    tracks.Add(fallback);
+                    songs.Add(fallback);
             }
 
-            if (tracks.Count == 0)
+            if (songs.Count == 0)
             {
-                tracks.Add(new LiveTileTrackSnapshot
+                songs.Add(new LiveTileItemSnapshot
                 {
+                    Kind = LiveTileItemKind.Track,
                     Title = "Ready to play",
-                    Artist = "Open LibreSpotUWP"
+                    Subtitle = "Open LibreSpotUWP"
                 });
             }
 
-            var imageSource = ResolveTileImageSource(tracks[0].ImageUrl, useFallback: true);
+            var imageSource = ResolveTileImageSource(songs[0].ImageUrl, useFallback: true);
             return CreateNotification(
                 BuildTileDocument(
                     BuildVisual(
-                        BuildSmallBinding("Recent", tracks[0].Title),
-                        BuildRecentlyPlayedMediumBinding(tracks, imageSource),
-                        BuildRecentlyPlayedWideBinding(tracks, imageSource),
-                        BuildRecentlyPlayedLargeBinding(tracks, imageSource))),
-                tag: "recent",
+                        BuildSmallBinding("Songs", songs[0].Title),
+                        BuildRecentSongsMediumBinding(songs, imageSource),
+                        BuildRecentCollectionWideBinding("Recent songs", songs, imageSource),
+                        BuildRecentCollectionLargeBinding("Recent songs", songs, imageSource))),
+                tag: "rsongs",
+                expirationTime: DateTimeOffset.UtcNow.AddDays(3));
+        }
+
+        private static TileNotification CreateRecentEntityNotification(
+            string header,
+            string smallLabel,
+            IReadOnlyList<LiveTileItemSnapshot> items,
+            string tag)
+        {
+            if (items == null || items.Count == 0)
+                return null;
+
+            var imageSource = ResolveTileImageSource(items[0].ImageUrl, useFallback: true);
+            return CreateNotification(
+                BuildTileDocument(
+                    BuildVisual(
+                        BuildSmallBinding(smallLabel, items[0].Title),
+                        BuildRecentEntityMediumBinding(header, items, imageSource),
+                        BuildRecentCollectionWideBinding(header, items, imageSource),
+                        BuildRecentCollectionLargeBinding(header, items, imageSource))),
+                tag: tag,
+                expirationTime: DateTimeOffset.UtcNow.AddDays(3));
+        }
+
+        private TileNotification CreateRandomEntityNotification(
+            string header,
+            LiveTileItemSnapshot item,
+            string tag)
+        {
+            if (item == null)
+                return null;
+
+            return CreateSingleEntityNotification(header, item, tag);
+        }
+
+        private TileNotification CreateSpotifyPlaylistNotification()
+        {
+            var spotifyOwned = _userPlaylists
+                .Where(IsSpotifyOwnedPlaylist)
+                .ToList();
+            var item = spotifyOwned.Count > 0
+                ? RandomItem(spotifyOwned)
+                : RandomItem(_userPlaylists);
+
+            if (item == null)
+                return null;
+
+            return CreateSingleEntityNotification("Spotify playlist", item, "spplaylist");
+        }
+
+        private TileNotification CreateSingleEntityNotification(
+            string header,
+            LiveTileItemSnapshot item,
+            string tag)
+        {
+            var imageSource = ResolveTileImageSource(item.ImageUrl, useFallback: true);
+            var launchArguments = UserSettings.LiveTileOpenRandomItems && !string.IsNullOrWhiteSpace(item.LaunchTag)
+                ? LiveTileLaunchPrefix + item.LaunchTag
+                : null;
+
+            return CreateNotification(
+                BuildTileDocument(
+                    BuildVisual(
+                        BuildSmallBinding(header, item.Title),
+                        BuildSingleEntityMediumBinding(header, item, imageSource),
+                        BuildSingleEntityWideBinding(header, item, imageSource),
+                        BuildSingleEntityLargeBinding(header, item, imageSource),
+                        launchArguments)),
+                tag: tag,
                 expirationTime: DateTimeOffset.UtcNow.AddDays(3));
         }
 
@@ -426,9 +682,10 @@ namespace LibreSpotUWP.Services
             XElement small,
             XElement medium,
             XElement wide,
-            XElement large)
+            XElement large,
+            string arguments = null)
         {
-            return new XElement(
+            var visual = new XElement(
                 "visual",
                 new XAttribute("branding", "nameAndLogo"),
                 new XAttribute("displayName", "LibreSpotUWP"),
@@ -436,6 +693,11 @@ namespace LibreSpotUWP.Services
                 medium,
                 wide,
                 large);
+
+            if (!string.IsNullOrWhiteSpace(arguments))
+                visual.SetAttributeValue("arguments", arguments);
+
+            return visual;
         }
 
         private static XElement BuildSmallBinding(string label, string value)
@@ -449,7 +711,7 @@ namespace LibreSpotUWP.Services
         }
 
         private static XElement BuildNowPlayingMediumBinding(
-            LiveTileTrackSnapshot track,
+            LiveTileItemSnapshot track,
             string imageSource,
             string sourceName)
         {
@@ -460,11 +722,11 @@ namespace LibreSpotUWP.Services
                 Image(imageSource, placement: "peek", overlay: 15),
                 Text(sourceName, "captionSubtle"),
                 Text(track.Title, "base", wrap: true, maxLines: 2),
-                Text(track.Artist, "captionSubtle", wrap: true, maxLines: 1));
+                Text(track.Subtitle, "captionSubtle", wrap: true, maxLines: 1));
         }
 
         private static XElement BuildNowPlayingWideBinding(
-            LiveTileTrackSnapshot track,
+            LiveTileItemSnapshot track,
             string imageSource,
             string sourceName)
         {
@@ -474,12 +736,12 @@ namespace LibreSpotUWP.Services
                 Image(imageSource, placement: "background", overlay: 65),
                 Text(sourceName, "captionSubtle"),
                 Text(track.Title, "subtitle", wrap: true, maxLines: 2),
-                Text(track.Artist, "bodySubtle", wrap: true, maxLines: 1),
-                Text(track.Album, "captionSubtle", wrap: true, maxLines: 1));
+                Text(track.Subtitle, "bodySubtle", wrap: true, maxLines: 1),
+                Text(track.Detail, "captionSubtle", wrap: true, maxLines: 1));
         }
 
         private static XElement BuildNowPlayingLargeBinding(
-            LiveTileTrackSnapshot track,
+            LiveTileItemSnapshot track,
             string imageSource,
             string sourceName)
         {
@@ -489,66 +751,129 @@ namespace LibreSpotUWP.Services
                 Image(imageSource, placement: "background", overlay: 70),
                 Text(sourceName, "captionSubtle"),
                 Text(track.Title, "title", wrap: true, maxLines: 2),
-                Text(track.Artist, "subtitleSubtle", wrap: true, maxLines: 2),
-                Text(track.Album, "bodySubtle", wrap: true, maxLines: 2));
+                Text(track.Subtitle, "subtitleSubtle", wrap: true, maxLines: 2),
+                Text(track.Detail, "bodySubtle", wrap: true, maxLines: 2));
         }
 
-        private static XElement BuildRecentlyPlayedMediumBinding(
-            IReadOnlyList<LiveTileTrackSnapshot> tracks,
+        private static XElement BuildRecentSongsMediumBinding(
+            IReadOnlyList<LiveTileItemSnapshot> songs,
             string imageSource)
         {
-            var first = tracks[0];
+            var first = songs[0];
             return new XElement(
                 "binding",
                 new XAttribute("template", "TileMedium"),
                 new XAttribute("branding", "name"),
                 Image(imageSource, placement: "peek", overlay: 20),
-                Text("Recently played", "captionSubtle"),
+                Text("Recent songs", "captionSubtle"),
                 Text(first.Title, "base", wrap: true, maxLines: 2),
-                Text(first.Artist, "captionSubtle", wrap: true, maxLines: 1));
+                Text(first.Subtitle, "captionSubtle", wrap: true, maxLines: 1));
         }
 
-        private static XElement BuildRecentlyPlayedWideBinding(
-            IReadOnlyList<LiveTileTrackSnapshot> tracks,
+        private static XElement BuildRecentEntityMediumBinding(
+            string header,
+            IReadOnlyList<LiveTileItemSnapshot> items,
+            string imageSource)
+        {
+            var first = items[0];
+            return new XElement(
+                "binding",
+                new XAttribute("template", "TileMedium"),
+                new XAttribute("branding", "name"),
+                Image(imageSource, placement: "peek", overlay: 20),
+                Text(header, "captionSubtle"),
+                Text(first.Title, "base", wrap: true, maxLines: 2),
+                Text(first.Subtitle, "captionSubtle", wrap: true, maxLines: 1));
+        }
+
+        private static XElement BuildRecentCollectionWideBinding(
+            string header,
+            IReadOnlyList<LiveTileItemSnapshot> items,
             string imageSource)
         {
             var binding = new XElement(
                 "binding",
                 new XAttribute("template", "TileWide"),
                 Image(imageSource, placement: "background", overlay: 70),
-                Text("Recently played", "captionSubtle"));
+                Text(header, "captionSubtle"));
 
-            foreach (var track in tracks.Take(3))
+            foreach (var item in items.Take(MaxVisibleItems))
             {
-                binding.Add(Text(track.Title, "base", wrap: true, maxLines: 1));
-                binding.Add(Text(track.Artist, "captionSubtle", wrap: true, maxLines: 1));
+                binding.Add(Text(item.Title, "base", wrap: true, maxLines: 1));
+                binding.Add(Text(item.Subtitle, "captionSubtle", wrap: true, maxLines: 1));
             }
 
             return binding;
         }
 
-        private static XElement BuildRecentlyPlayedLargeBinding(
-            IReadOnlyList<LiveTileTrackSnapshot> tracks,
+        private static XElement BuildRecentCollectionLargeBinding(
+            string header,
+            IReadOnlyList<LiveTileItemSnapshot> items,
             string imageSource)
         {
             var binding = new XElement(
                 "binding",
                 new XAttribute("template", "TileLarge"),
                 Image(imageSource, placement: "background", overlay: 75),
-                Text("Recently played", "captionSubtle"));
+                Text(header, "captionSubtle"));
 
-            foreach (var track in tracks.Take(3))
+            foreach (var item in items.Take(MaxVisibleItems))
             {
                 binding.Add(
                     new XElement(
                         "group",
                         new XElement(
                             "subgroup",
-                            Text(track.Title, "base", wrap: true, maxLines: 1),
-                            Text(track.Artist, "captionSubtle", wrap: true, maxLines: 1))));
+                            Text(item.Title, "base", wrap: true, maxLines: 1),
+                            Text(item.Subtitle, "captionSubtle", wrap: true, maxLines: 1))));
             }
 
             return binding;
+        }
+
+        private static XElement BuildSingleEntityMediumBinding(
+            string header,
+            LiveTileItemSnapshot item,
+            string imageSource)
+        {
+            return new XElement(
+                "binding",
+                new XAttribute("template", "TileMedium"),
+                new XAttribute("branding", "name"),
+                Image(imageSource, placement: "peek", overlay: 20),
+                Text(header, "captionSubtle"),
+                Text(item.Title, "base", wrap: true, maxLines: 2),
+                Text(item.Subtitle, "captionSubtle", wrap: true, maxLines: 1));
+        }
+
+        private static XElement BuildSingleEntityWideBinding(
+            string header,
+            LiveTileItemSnapshot item,
+            string imageSource)
+        {
+            return new XElement(
+                "binding",
+                new XAttribute("template", "TileWide"),
+                Image(imageSource, placement: "background", overlay: 65),
+                Text(header, "captionSubtle"),
+                Text(item.Title, "subtitle", wrap: true, maxLines: 2),
+                Text(item.Subtitle, "bodySubtle", wrap: true, maxLines: 1),
+                Text(item.Detail, "captionSubtle", wrap: true, maxLines: 1));
+        }
+
+        private static XElement BuildSingleEntityLargeBinding(
+            string header,
+            LiveTileItemSnapshot item,
+            string imageSource)
+        {
+            return new XElement(
+                "binding",
+                new XAttribute("template", "TileLarge"),
+                Image(imageSource, placement: "background", overlay: 70),
+                Text(header, "captionSubtle"),
+                Text(item.Title, "title", wrap: true, maxLines: 2),
+                Text(item.Subtitle, "subtitleSubtle", wrap: true, maxLines: 2),
+                Text(item.Detail, "bodySubtle", wrap: true, maxLines: 2));
         }
 
         private static XElement BuildProfileMediumBinding(string displayName, string imageSource)
@@ -707,20 +1032,23 @@ namespace LibreSpotUWP.Services
             });
         }
 
-        private static LiveTileTrackSnapshot FromMediaState(MediaState state)
+        private static LiveTileItemSnapshot FromMediaState(MediaState state)
         {
             if (state?.Track == null && state?.Metadata == null)
                 return null;
 
             var metadata = state.Metadata;
             var track = state.Track;
+            var id = ExtractSpotifyId(metadata?.Uri ?? track?.Uri, "track");
 
-            return new LiveTileTrackSnapshot
+            return new LiveTileItemSnapshot
             {
+                Kind = LiveTileItemKind.Track,
+                Id = id,
                 Uri = metadata?.Uri ?? track?.Uri,
                 Title = SafeText(metadata?.Name, track?.Name),
-                Artist = SafeText(GetArtistLine(metadata), track?.Artist),
-                Album = SafeText(metadata?.Album?.Name, track?.Album, state.ContextName),
+                Subtitle = SafeText(GetArtistLine(metadata), track?.Artist),
+                Detail = SafeText(metadata?.Album?.Name, track?.Album, state.ContextName),
                 ImageUrl = SafeText(
                     state.ArtworkUri,
                     metadata?.Album?.Images?.FirstOrDefault()?.Url,
@@ -728,24 +1056,89 @@ namespace LibreSpotUWP.Services
             };
         }
 
-        private static LiveTileTrackSnapshot FromFullTrack(FullTrack track)
+        private static LiveTileItemSnapshot FromFullTrack(FullTrack track)
         {
             if (track == null)
                 return null;
 
-            return new LiveTileTrackSnapshot
+            return new LiveTileItemSnapshot
             {
+                Kind = LiveTileItemKind.Track,
+                Id = track.Id,
                 Uri = track.Uri,
                 Title = track.Name,
-                Artist = GetArtistLine(track),
-                Album = track.Album?.Name,
+                Subtitle = GetArtistLine(track),
+                Detail = track.Album?.Name,
                 ImageUrl = track.Album?.Images?.FirstOrDefault()?.Url
+            };
+        }
+
+        private static LiveTileItemSnapshot FromSimpleArtist(SimpleArtist artist, string fallbackImageUrl)
+        {
+            if (artist == null)
+                return null;
+
+            return new LiveTileItemSnapshot
+            {
+                Kind = LiveTileItemKind.Artist,
+                Id = artist.Id,
+                Uri = artist.Uri,
+                Title = artist.Name,
+                Subtitle = "Artist",
+                ImageUrl = fallbackImageUrl,
+                LaunchTag = string.IsNullOrWhiteSpace(artist.Id) ? null : "Artist:" + artist.Id
+            };
+        }
+
+        private static LiveTileItemSnapshot FromSimpleAlbum(SimpleAlbum album)
+        {
+            if (album == null)
+                return null;
+
+            return new LiveTileItemSnapshot
+            {
+                Kind = LiveTileItemKind.Album,
+                Id = album.Id,
+                Uri = album.Uri,
+                Title = album.Name,
+                Subtitle = GetArtistLine(album),
+                Detail = album.ReleaseDate,
+                ImageUrl = album.Images?.FirstOrDefault()?.Url,
+                LaunchTag = string.IsNullOrWhiteSpace(album.Id) ? null : "Album:" + album.Id
+            };
+        }
+
+        private static LiveTileItemSnapshot FromFullPlaylist(FullPlaylist playlist)
+        {
+            if (playlist == null)
+                return null;
+
+            return new LiveTileItemSnapshot
+            {
+                Kind = LiveTileItemKind.Playlist,
+                Id = playlist.Id,
+                Uri = playlist.Uri,
+                Title = playlist.Name,
+                Subtitle = SafeText(playlist.Owner?.DisplayName, playlist.Owner?.Id, "Playlist"),
+                ImageUrl = playlist.Images?.FirstOrDefault()?.Url,
+                LaunchTag = string.IsNullOrWhiteSpace(playlist.Id) ? null : "Playlist:" + playlist.Id,
+                OwnerId = playlist.Owner?.Id,
+                OwnerName = playlist.Owner?.DisplayName
             };
         }
 
         private static string GetArtistLine(FullTrack track)
         {
             var artists = track?.Artists?
+                .Select(artist => artist?.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name));
+
+            return artists == null ? null : string.Join(", ", artists);
+        }
+
+        private static string GetArtistLine(SimpleAlbum album)
+        {
+            var artists = album?.Artists?
                 .Select(artist => artist?.Name)
                 .Where(name => !string.IsNullOrWhiteSpace(name));
 
@@ -762,6 +1155,100 @@ namespace LibreSpotUWP.Services
             }
 
             return useFallback ? FallbackLogoSource : null;
+        }
+
+        private LiveTileItemSnapshot RandomItem(IReadOnlyList<LiveTileItemSnapshot> items)
+        {
+            if (items == null || items.Count == 0)
+                return null;
+
+            return items[_random.Next(items.Count)];
+        }
+
+        private void Shuffle<T>(IList<T> items)
+        {
+            if (items == null || items.Count < 2)
+                return;
+
+            for (var i = items.Count - 1; i > 0; i--)
+            {
+                var j = _random.Next(i + 1);
+                var temp = items[i];
+                items[i] = items[j];
+                items[j] = temp;
+            }
+        }
+
+        private static void AddUnique(
+            List<LiveTileItemSnapshot> items,
+            LiveTileItemSnapshot item,
+            int maxItems)
+        {
+            if (items == null || item == null || string.IsNullOrWhiteSpace(item.Title))
+                return;
+
+            if (items.Any(existing => IsSameItem(existing, item)))
+                return;
+
+            items.Add(item);
+
+            if (items.Count > maxItems)
+                items.RemoveRange(maxItems, items.Count - maxItems);
+        }
+
+        private static void AddUniqueToFront(
+            List<LiveTileItemSnapshot> items,
+            LiveTileItemSnapshot item,
+            int maxItems)
+        {
+            if (items == null || item == null || string.IsNullOrWhiteSpace(item.Title))
+                return;
+
+            items.RemoveAll(existing => IsSameItem(existing, item));
+            items.Insert(0, item);
+
+            if (items.Count > maxItems)
+                items.RemoveRange(maxItems, items.Count - maxItems);
+        }
+
+        private static bool IsSameItem(LiveTileItemSnapshot left, LiveTileItemSnapshot right)
+        {
+            if (left == null || right == null || left.Kind != right.Kind)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(left.Id) &&
+                !string.IsNullOrWhiteSpace(right.Id))
+            {
+                return string.Equals(left.Id, right.Id, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!string.IsNullOrWhiteSpace(left.Uri) &&
+                !string.IsNullOrWhiteSpace(right.Uri))
+            {
+                return string.Equals(left.Uri, right.Uri, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return string.Equals(left.Title, right.Title, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsSpotifyOwnedPlaylist(LiveTileItemSnapshot item)
+        {
+            if (item == null || item.Kind != LiveTileItemKind.Playlist)
+                return false;
+
+            return string.Equals(item.OwnerId, "spotify", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.OwnerName, "Spotify", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ExtractSpotifyId(string uri, string type)
+        {
+            if (string.IsNullOrWhiteSpace(uri))
+                return null;
+
+            var prefix = "spotify:" + type + ":";
+            return uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? uri.Substring(prefix.Length)
+                : null;
         }
 
         private static string SafeText(params string[] values)
@@ -781,47 +1268,80 @@ namespace LibreSpotUWP.Services
             return value.Length <= 96 ? value : value.Substring(0, 93) + "...";
         }
 
-        private static List<LiveTileTrackSnapshot> LoadRecentTracksFromSettings()
+        private static List<LiveTileItemSnapshot> LoadItemsFromSettings(string key)
         {
             try
             {
                 var settings = ApplicationData.Current.LocalSettings;
-                if (!settings.Values.TryGetValue(RecentTileTracksKey, out object raw) ||
+                if (!settings.Values.TryGetValue(key, out object raw) ||
                     !(raw is string json) ||
                     string.IsNullOrWhiteSpace(json))
                 {
-                    return new List<LiveTileTrackSnapshot>();
+                    return new List<LiveTileItemSnapshot>();
                 }
 
-                return JsonConvert.DeserializeObject<List<LiveTileTrackSnapshot>>(json) ??
-                    new List<LiveTileTrackSnapshot>();
+                return JsonConvert.DeserializeObject<List<LiveTileItemSnapshot>>(json) ??
+                    new List<LiveTileItemSnapshot>();
             }
             catch
             {
-                return new List<LiveTileTrackSnapshot>();
+                return new List<LiveTileItemSnapshot>();
             }
         }
 
-        private void SaveRecentTracksToSettings()
+        private void ReloadRecentItemsFromSettings()
+        {
+            if (_recentSongs.Count == 0)
+                _recentSongs = LoadItemsFromSettings(RecentTileSongsKey);
+            if (_recentArtists.Count == 0)
+                _recentArtists = LoadItemsFromSettings(RecentTileArtistsKey);
+            if (_recentAlbums.Count == 0)
+                _recentAlbums = LoadItemsFromSettings(RecentTileAlbumsKey);
+            if (_recentPlaylists.Count == 0)
+                _recentPlaylists = LoadItemsFromSettings(RecentTilePlaylistsKey);
+        }
+
+        private void SaveRecentItemsToSettings()
+        {
+            SaveItemsToSettings(RecentTileSongsKey, _recentSongs);
+            SaveItemsToSettings(RecentTileArtistsKey, _recentArtists);
+            SaveItemsToSettings(RecentTileAlbumsKey, _recentAlbums);
+            SaveItemsToSettings(RecentTilePlaylistsKey, _recentPlaylists);
+        }
+
+        private static void SaveItemsToSettings(string key, IReadOnlyList<LiveTileItemSnapshot> items)
         {
             try
             {
-                ApplicationData.Current.LocalSettings.Values[RecentTileTracksKey] =
-                    JsonConvert.SerializeObject(_recentTracks.Take(MaxRecentTracks).ToList());
+                ApplicationData.Current.LocalSettings.Values[key] =
+                    JsonConvert.SerializeObject((items ?? new List<LiveTileItemSnapshot>()).Take(MaxCachedItems).ToList());
             }
             catch (Exception ex)
             {
-                LogService.Warn($"[LiveTileService.SaveRecentTracksToSettings] Unable to save recent tracks: {ex.Message}");
+                LogService.Warn($"[LiveTileService.SaveItemsToSettings] Unable to save {key}: {ex.Message}");
             }
         }
 
-        private sealed class LiveTileTrackSnapshot
+        private enum LiveTileItemKind
         {
+            Track,
+            Artist,
+            Album,
+            Playlist
+        }
+
+        private sealed class LiveTileItemSnapshot
+        {
+            public LiveTileItemKind Kind { get; set; }
+            public string Id { get; set; }
             public string Uri { get; set; }
             public string Title { get; set; }
-            public string Artist { get; set; }
-            public string Album { get; set; }
+            public string Subtitle { get; set; }
+            public string Detail { get; set; }
             public string ImageUrl { get; set; }
+            public string LaunchTag { get; set; }
+            public string OwnerId { get; set; }
+            public string OwnerName { get; set; }
         }
     }
 }

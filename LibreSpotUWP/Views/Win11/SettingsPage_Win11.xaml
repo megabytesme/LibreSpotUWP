@@ -79,6 +79,69 @@
                 <muxc:Expander HorizontalAlignment="Stretch">
                     <muxc:Expander.Header>
                         <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xECA5;" />
+                            <TextBlock VerticalAlignment="Center" Text="Live Tiles" />
+                        </StackPanel>
+                    </muxc:Expander.Header>
+                    <StackPanel Spacing="12">
+                        <ToggleSwitch
+                            x:Name="LiveTilesToggle"
+                            Header="Live tiles"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileOpenRandomToggle"
+                            Header="Open random tiles to their page"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <TextBlock
+                            Margin="0,6,0,0"
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Text="Tiles" />
+                        <ToggleSwitch
+                            x:Name="LiveTileNowPlayingToggle"
+                            Header="Currently playing"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRecentSongsToggle"
+                            Header="Recent songs"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRecentArtistsToggle"
+                            Header="Recent artists"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRecentPlaylistsToggle"
+                            Header="Recent playlists"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRecentAlbumsToggle"
+                            Header="Recent albums"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRandomArtistToggle"
+                            Header="Random artist"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRandomPlaylistToggle"
+                            Header="Random playlist"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileRandomAlbumToggle"
+                            Header="Random album"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileSpotifyPlaylistToggle"
+                            Header="Spotify playlist"
+                            Toggled="LiveTileToggle_Toggled" />
+                        <ToggleSwitch
+                            x:Name="LiveTileProfileToggle"
+                            Header="Account profile"
+                            Toggled="LiveTileToggle_Toggled" />
+                    </StackPanel>
+                </muxc:Expander>
+
+                <muxc:Expander HorizontalAlignment="Stretch">
+                    <muxc:Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
                             <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE14C;" />
                             <TextBlock VerticalAlignment="Center" Text="Home" />
                         </StackPanel>

@@ -152,6 +152,8 @@ namespace LibreSpotUWP
 
                 bool isSignedIn;
                 bool shouldCheckForUpdates = false;
+                bool shouldNavigateToLaunchTarget = false;
+                var launchNavigationTag = GetLiveTileNavigationTag(e);
 
                 await _launchGate.WaitAsync();
                 try
@@ -175,7 +177,13 @@ namespace LibreSpotUWP
                     {
                         if (rootFrame.Content == null)
                         {
-                            rootFrame.Navigate(isSignedIn ? NavigationHelper.GetPageType("Shell") : typeof(OobePage), e.Arguments);
+                            rootFrame.Navigate(
+                                isSignedIn ? NavigationHelper.GetPageType("Shell") : typeof(OobePage),
+                                launchNavigationTag ?? e.Arguments);
+                        }
+                        else
+                        {
+                            shouldNavigateToLaunchTarget = !string.IsNullOrWhiteSpace(launchNavigationTag);
                         }
 
                         shouldCheckForUpdates = !_startupUpdateCheckQueued;
@@ -193,6 +201,9 @@ namespace LibreSpotUWP
 
                     if (shouldCheckForUpdates)
                         _ = CheckForUpdatesAtStartup();
+
+                    if (shouldNavigateToLaunchTarget)
+                        await NavigateToLiveTileTargetAsync(launchNavigationTag);
                 }
             }
             catch (Exception ex)
@@ -281,6 +292,29 @@ namespace LibreSpotUWP
             return auth != null &&
                 !string.IsNullOrEmpty(auth.AccessToken) &&
                 !auth.IsExpired;
+        }
+
+        private static string GetLiveTileNavigationTag(LaunchActivatedEventArgs args)
+        {
+            var tileArguments = args?.TileActivatedInfo?.RecentlyShownNotifications?.FirstOrDefault()?.Arguments;
+            var navigationTag = LiveTileService.TryGetNavigationTagFromLaunchArguments(tileArguments);
+            if (!string.IsNullOrWhiteSpace(navigationTag))
+                return navigationTag;
+
+            return LiveTileService.TryGetNavigationTagFromLaunchArguments(args?.Arguments);
+        }
+
+        private static async Task NavigateToLiveTileTargetAsync(string navigationTag)
+        {
+            if (string.IsNullOrWhiteSpace(navigationTag))
+                return;
+
+            await RunOnUiAsync(() =>
+            {
+                var shell = (Window.Current.Content as Frame)?.Content as IAppShell;
+                shell?.NavigateTo(navigationTag, forceReload: true);
+                return Task.CompletedTask;
+            });
         }
 
         /// <summary>
