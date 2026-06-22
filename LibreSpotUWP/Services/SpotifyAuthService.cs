@@ -502,9 +502,7 @@ namespace LibreSpotUWP.Services
 
             if (reconnectLibrespot && !string.IsNullOrEmpty(state.AccessToken))
             {
-                LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Reconnecting librespot with access token.");
-                await App.Librespot.ConnectWithAccessTokenAsync(state.AccessToken).ConfigureAwait(false);
-                LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Librespot reconnect requested.");
+                LogService.Info("[SpotifyAuthService.PersistStateAndNotifyAsync] Auth token updated; media service will connect librespot if needed.");
             }
 
             RaiseAuthStateChanged(state);

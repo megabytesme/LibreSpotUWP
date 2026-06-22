@@ -44,6 +44,9 @@ namespace LibreSpotUWP.Services
 
         private async Task<T> ExecuteAsync<T>(Func<SpotifyClient, Task<T>> action, CancellationToken ct)
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify request skipped while offline.");
+
             await EnsureClientReadyAsync(ct).ConfigureAwait(false);
 
             await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -89,6 +92,8 @@ namespace LibreSpotUWP.Services
                 }
                 catch (HttpRequestException httpEx)
                 {
+                    ConnectivityHelper.ReportInternetAccessFailure();
+
                     var method = action.Method.Name;
                     System.Diagnostics.Debug.WriteLine(
                         $"Spotify HTTP Error in {method}: {httpEx.Message}");
@@ -97,6 +102,8 @@ namespace LibreSpotUWP.Services
                 }
                 catch (TaskCanceledException canceledEx) when (!ct.IsCancellationRequested)
                 {
+                    ConnectivityHelper.ReportInternetAccessFailure();
+
                     var method = action.Method.Name;
                     System.Diagnostics.Debug.WriteLine(
                         $"Spotify request timeout in {method}: {canceledEx.Message}");
@@ -171,6 +178,9 @@ namespace LibreSpotUWP.Services
                     return;
             }
 
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify user context is unavailable while offline.");
+
             var me = await ExecuteAsync(c => c.UserProfile.Current(ct), ct);
 
             _userId = me.Id;
@@ -195,7 +205,7 @@ namespace LibreSpotUWP.Services
             TimeSpan ttl,
             bool forceRefresh = false)
         {
-            if (!forceRefresh && !ConnectivityHelper.HasInternetAccess())
+            if (!ConnectivityHelper.HasInternetAccess())
             {
                 var cached = await _cache.TryGetAsync<T>(key);
                 if (cached != null)
@@ -207,6 +217,8 @@ namespace LibreSpotUWP.Services
                         cached.IsStale || ttl != TimeSpan.MaxValue,
                         true);
                 }
+
+                throw new SpotifyWebException("Cached Spotify response is unavailable while offline.");
             }
 
             try
@@ -215,6 +227,9 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex) when (IsRecoverable(ex))
             {
+                if (LooksLikeConnectivityFailure(ex))
+                    ConnectivityHelper.ReportInternetAccessFailure();
+
                 var cached = await _cache.TryGetAsync<T>(key);
                 if (cached != null)
                 {
@@ -238,6 +253,15 @@ namespace LibreSpotUWP.Services
                 ex is HttpRequestException ||
                 ex is TaskCanceledException ||
                 ex is InvalidOperationException;
+        }
+
+        private static bool LooksLikeConnectivityFailure(Exception ex)
+        {
+            var text = ex?.ToString() ?? string.Empty;
+            return text.IndexOf("No such host", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("server name or address could not be resolved", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("Service unavailable", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("Tried to acquire token without stored credentials", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool IsRateLimited(APIException apiEx)
@@ -934,6 +958,9 @@ namespace LibreSpotUWP.Services
                 .ToList();
 
             var result = ids.ToDictionary(id => id, id => false, StringComparer.OrdinalIgnoreCase);
+            if (result.Count == 0 || !ConnectivityHelper.HasInternetAccess())
+                return result;
+
             foreach (var batch in Batch(ids, 50))
             {
                 var checks = await ExecuteAsync(
@@ -952,6 +979,9 @@ namespace LibreSpotUWP.Services
             bool saved,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify library changes are unavailable while offline.");
+
             var ids = (trackIds ?? Enumerable.Empty<string>())
                 .Select(ExtractSpotifyId)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -984,6 +1014,9 @@ namespace LibreSpotUWP.Services
             string albumId,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                return false;
+
             albumId = ExtractSpotifyId(albumId);
             if (string.IsNullOrWhiteSpace(albumId))
                 return false;
@@ -1000,6 +1033,9 @@ namespace LibreSpotUWP.Services
             bool saved,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify library changes are unavailable while offline.");
+
             await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
             albumId = ExtractSpotifyId(albumId);
@@ -1026,6 +1062,9 @@ namespace LibreSpotUWP.Services
             string playlistId,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                return false;
+
             await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
             playlistId = ExtractSpotifyId(playlistId);
@@ -1047,6 +1086,9 @@ namespace LibreSpotUWP.Services
             bool followed,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify playlist changes are unavailable while offline.");
+
             playlistId = ExtractSpotifyId(playlistId);
             if (string.IsNullOrWhiteSpace(playlistId))
                 return;
@@ -1064,6 +1106,9 @@ namespace LibreSpotUWP.Services
             string trackUri,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                return false;
+
             await EnsureUserContextAsync(ct).ConfigureAwait(false);
 
             playlistId = ExtractSpotifyId(playlistId);
@@ -1113,6 +1158,9 @@ namespace LibreSpotUWP.Services
             string trackUri,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify playlist changes are unavailable while offline.");
+
             playlistId = ExtractSpotifyId(playlistId);
             if (string.IsNullOrWhiteSpace(playlistId) || string.IsNullOrWhiteSpace(trackUri))
                 return;
@@ -1132,6 +1180,9 @@ namespace LibreSpotUWP.Services
             string trackUri,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify playlist changes are unavailable while offline.");
+
             playlistId = ExtractSpotifyId(playlistId);
             if (string.IsNullOrWhiteSpace(playlistId) || string.IsNullOrWhiteSpace(trackUri))
                 return;
@@ -1158,6 +1209,9 @@ namespace LibreSpotUWP.Services
             int rangeLength = 1,
             CancellationToken ct = new CancellationToken())
         {
+            if (!ConnectivityHelper.HasInternetAccess())
+                throw new SpotifyWebException("Spotify playlist changes are unavailable while offline.");
+
             playlistId = ExtractSpotifyId(playlistId);
             if (string.IsNullOrWhiteSpace(playlistId))
                 return;

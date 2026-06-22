@@ -18,6 +18,7 @@ namespace LibreSpotUWP.Interfaces
         Task<IReadOnlyList<OfflineTrackEntry>> GetDownloadedTracksAsync();
         Task<IReadOnlyList<OfflineAlbumEntry>> GetDownloadedAlbumsAsync();
         Task<IReadOnlyList<OfflinePlaylistEntry>> GetDownloadedPlaylistsAsync();
+        Task<IReadOnlyList<string>> GetKnownTrackUrisForContextAsync(string contextUri);
         Task<IReadOnlyList<string>> GetTrackUrisForContextAsync(string contextUri);
         Task<OfflineTrackEntry> GetDownloadedTrackAsync(string trackUri);
         Task RenewPersistedTrackLeasesAsync(DateTimeOffset expiresAtUtc);

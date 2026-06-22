@@ -45,6 +45,7 @@ namespace LibreSpotUWP.Interfaces
         string DeviceName { get; }
 
         Task ConnectWithAccessTokenAsync(string accessToken);
+        Task ReconnectWithAccessTokenAsync(string accessToken);
         Task DisconnectAsync();
         Task<LibrespotTrackData> GetTrackAsync(string trackUri);
         Task<LibrespotAlbumData> GetAlbumAsync(string albumUri);

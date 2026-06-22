@@ -1,3 +1,4 @@
+using LibreSpotUWP.Helpers;
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
@@ -25,6 +26,9 @@ namespace LibreSpotUWP.Services
 #if STORE_BUILD
             return new UpdateInfo { IsUpdateAvailable = false };
 #endif
+            if (!ConnectivityHelper.HasInternetAccess())
+                return new UpdateInfo { IsUpdateAvailable = false };
+
             try
             {
                 var filter = new Windows.Web.Http.Filters.HttpBaseProtocolFilter();
@@ -49,6 +53,7 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
+                ConnectivityHelper.ReportInternetAccessFailure();
                 Debug.WriteLine($"Update Check Failed: {ex.Message}");
                 LogService.Warn($"Update check failed: {ex.Message}");
                 return new UpdateInfo { IsUpdateAvailable = false };
