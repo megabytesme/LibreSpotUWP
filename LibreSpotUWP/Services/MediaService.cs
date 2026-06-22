@@ -5,6 +5,7 @@ using LibreSpotUWP.Exceptions;
 using SpotifyAPI.Web;
 using Newtonsoft.Json;
 using System;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
@@ -16,6 +17,7 @@ using Windows.Media.Devices;
 using Windows.Media.MediaProperties;
 using Windows.Media.Playback;
 using Windows.Networking.Connectivity;
+using Windows.Storage;
 using Windows.Storage.Streams;
 using Windows.UI.Xaml;
 using static LibreSpotUWP.Interop.Librespot;
@@ -62,6 +64,7 @@ namespace LibreSpotUWP.Services
         private const string PlaybackSnapshotKey = "LastPlaybackSnapshot";
         private const int PositionTimerIntervalMs = 500;
         private const int SnapshotWriteIntervalMs = 5000;
+        private const string AppDataLocalUriPrefix = "ms-appdata:///local/";
 
         public string CurrentAudioOutputDeviceId => UserSettings.AudioOutputDeviceId;
         public string CurrentSpotifyConnectDeviceId => GetSelectedSpotifyConnectDeviceId();
@@ -960,13 +963,14 @@ namespace LibreSpotUWP.Services
                 return;
 
             var id = trackUri.Replace("spotify:track:", "");
+            var offlineTrack = await App.OfflineCatalog.GetDownloadedTrackAsync(trackUri);
             var metadata = await _web.GetTrackAsync(id, true);
 
             UpdateState(state =>
             {
                 state.Metadata = metadata?.Value;
                 state.IsTrackMetadataFromCache = metadata?.IsFromCache == true;
-                state.ArtworkUri = ResolveArtworkUri(metadata?.Value, state.Track, null);
+                state.ArtworkUri = ResolveArtworkUri(metadata?.Value, state.Track, offlineTrack);
                 state.StatusMessage = metadata?.IsFromCache == true
                     ? "Showing refreshed track details from cache."
                     : null;
@@ -1397,8 +1401,11 @@ namespace LibreSpotUWP.Services
                     {
                         state.PositionMs = _lastPlaybackSnapshot.PositionMs;
                         state.DurationMs = _lastPlaybackSnapshot.DurationMs > 0 ? _lastPlaybackSnapshot.DurationMs : state.DurationMs;
-                        if (!string.IsNullOrWhiteSpace(_lastPlaybackSnapshot.ArtworkUri))
+                        if (string.IsNullOrWhiteSpace(state.ArtworkUri) &&
+                            !string.IsNullOrWhiteSpace(_lastPlaybackSnapshot.ArtworkUri))
+                        {
                             state.ArtworkUri = _lastPlaybackSnapshot.ArtworkUri;
+                        }
                     }
                 });
 
@@ -1720,6 +1727,10 @@ namespace LibreSpotUWP.Services
                 CoverUrl = snapshot.TrackCoverUrl,
                 Duration = TimeSpan.FromMilliseconds(snapshot.DurationMs)
             };
+            var offlineTrack = await App.OfflineCatalog.GetDownloadedTrackAsync(snapshot.TrackUri);
+            var artworkUri = FirstNonBlank(
+                ResolveArtworkUri(null, trackInfo, offlineTrack),
+                snapshot.ArtworkUri);
 
             UpdateState(s =>
             {
@@ -1730,7 +1741,7 @@ namespace LibreSpotUWP.Services
                 s.DurationMs = snapshot.DurationMs;
                 s.PlaybackState = LibrespotPlaybackState.Paused;
                 s.Volume = snapshot.Volume > 0 ? snapshot.Volume : s.Volume;
-                s.ArtworkUri = snapshot.ArtworkUri ?? s.ArtworkUri;
+                s.ArtworkUri = artworkUri ?? s.ArtworkUri;
             });
 
             UpdateSmtcDisplay();
@@ -1917,17 +1928,43 @@ namespace LibreSpotUWP.Services
 
         private static string ResolveArtworkUri(FullTrack metadata, LibrespotTrackInfo track, OfflineTrackEntry offlineTrack)
         {
+            var localImageUri = GetExistingLocalArtworkUri(offlineTrack?.ImageLocalUri);
+            if (!string.IsNullOrWhiteSpace(localImageUri))
+                return localImageUri;
+
             var imageUrl = metadata?.Album?.Images?.FirstOrDefault()?.Url;
             if (!string.IsNullOrWhiteSpace(imageUrl))
                 return imageUrl;
-
-            if (!string.IsNullOrWhiteSpace(offlineTrack?.ImageLocalUri))
-                return offlineTrack.ImageLocalUri;
 
             if (!string.IsNullOrWhiteSpace(offlineTrack?.ImageUrl))
                 return offlineTrack.ImageUrl;
 
             return track?.CoverUrl;
+        }
+
+        private static string GetExistingLocalArtworkUri(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            if (!value.StartsWith(AppDataLocalUriPrefix, StringComparison.OrdinalIgnoreCase))
+                return value;
+
+            var relativePath = Uri.UnescapeDataString(value.Substring(AppDataLocalUriPrefix.Length))
+                .Replace('/', Path.DirectorySeparatorChar);
+            var localPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, relativePath);
+            return File.Exists(localPath) ? value : null;
+        }
+
+        private static string FirstNonBlank(params string[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            return null;
         }
 
         private static bool TryCreateArtworkUri(string value, out Uri uri)
