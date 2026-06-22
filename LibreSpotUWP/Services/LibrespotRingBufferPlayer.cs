@@ -58,6 +58,8 @@ namespace LibreSpotUWP.Services
         private readonly ConcurrentQueue<PooledFrame> _framePool = new ConcurrentQueue<PooledFrame>();
         private const int PoolSize = 6;
         private const int TelemetryIntervalMs = 10000;
+        private const int SignificantLateCallbackCount = 10;
+        private const double SignificantLateCallbackGapMs = 40.0;
         private const int DefaultEqualizerBandCount = 5;
         private const double EqualizerMinLinearGain = 0.126;
         private const double EqualizerMaxLinearGain = 7.94;
@@ -629,17 +631,22 @@ namespace LibreSpotUWP.Services
             int minAvailableBytes = Interlocked.Exchange(ref _telemetryMinAvailableBytes, int.MaxValue);
             int maxAvailableBytes = Interlocked.Exchange(ref _telemetryMaxAvailableBytes, 0);
 
-            bool hasAudioPressure = silenceFillQuantumCount > 0 || lateQuantumCount > 0 || framePoolMissCount > 0;
-            if (!hasAudioPressure)
-                return;
-
             if (minAvailableBytes == int.MaxValue)
                 minAvailableBytes = 0;
 
             double avgAvailableBytes = quantumCount > 0 ? availableBytes / (double)quantumCount : 0;
             double fillPercent = requestedBytes > 0 ? copiedBytes * 100.0 / requestedBytes : 100.0;
+            double maxCallbackGapMs = TicksToMilliseconds(maxQuantumElapsedTicks);
 
-            LogService.Warn($"[LibrespotRingBufferPlayer.AudioHealth] track={_firstAudioFrameTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={TicksToMilliseconds(maxQuantumElapsedTicks):F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.");
+            bool hasUnderrun = silenceFillQuantumCount > 0 || zeroAvailableQuantumCount > 0 || fillPercent < 99.9;
+            bool hasSignificantLateCallbacks = lateQuantumCount >= SignificantLateCallbackCount || maxCallbackGapMs >= SignificantLateCallbackGapMs;
+            bool hasPoolPressure = framePoolMissCount > 0;
+            if (!hasUnderrun && !hasSignificantLateCallbacks && !hasPoolPressure)
+                return;
+
+            string reason = BuildAudioHealthReason(hasUnderrun, hasSignificantLateCallbacks, hasPoolPressure);
+
+            LogService.Warn($"[LibrespotRingBufferPlayer.AudioHealth] reason={reason}, track={_firstAudioFrameTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={maxCallbackGapMs:F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.");
         }
 
         private double BytesToMilliseconds(long byteCount)
@@ -648,6 +655,22 @@ namespace LibreSpotUWP.Services
                 return 0;
 
             return byteCount * 1000.0 / _frameSize / _props.SampleRate;
+        }
+
+        private static string BuildAudioHealthReason(bool hasUnderrun, bool hasSignificantLateCallbacks, bool hasPoolPressure)
+        {
+            string reason = null;
+
+            if (hasUnderrun)
+                reason = "underrun";
+
+            if (hasSignificantLateCallbacks)
+                reason = string.IsNullOrEmpty(reason) ? "late-callback" : reason + "+late-callback";
+
+            if (hasPoolPressure)
+                reason = string.IsNullOrEmpty(reason) ? "pool-miss" : reason + "+pool-miss";
+
+            return reason ?? "unknown";
         }
 
         private static double TicksToMilliseconds(long ticks)
