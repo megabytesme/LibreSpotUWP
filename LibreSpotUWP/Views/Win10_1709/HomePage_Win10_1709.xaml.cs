@@ -2,6 +2,7 @@ using LibreSpotUWP.Exceptions;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.ViewModels;
+using LibreSpotUWP.Services;
 using SpotifyAPI.Web;
 using System;
 using System.Diagnostics;
@@ -69,7 +70,7 @@ namespace LibreSpotUWP.Views.Win10_1709
             catch (OperationCanceledException) { }
             catch (SpotifyWebException ex)
             {
-                Debug.WriteLine("Homepage Load Failed: " + ex.Message);
+                LogService.Warn("Homepage load failed: " + ex.Message);
             }
         }
 
@@ -86,27 +87,27 @@ namespace LibreSpotUWP.Views.Win10_1709
             {
                 case FullAlbum album:
                     mainPage.NavigateToAlbum(album.Id);
-                    Debug.WriteLine($"Navigating to album: {album.Name}");
+                    LogService.Info($"Navigating to album: {album.Name}");
                     break;
 
                 case SavedAlbum saved:
                     mainPage.NavigateToAlbum(saved.Album.Id);
-                    Debug.WriteLine($"Navigating to saved album: {saved.Album.Name}");
+                    LogService.Info($"Navigating to saved album: {saved.Album.Name}");
                     break;
 
                 case FullArtist artist:
                     mainPage.NavigateToArtist(artist.Id);
-                    Debug.WriteLine($"Navigating to artist: {artist.Name}");
+                    LogService.Info($"Navigating to artist: {artist.Name}");
                     break;
 
                 case FullPlaylist playlist:
                     mainPage.NavigateToPlaylist(playlist.Id);
-                    Debug.WriteLine($"Navigating to playlist: {playlist.Name}");
+                    LogService.Info($"Navigating to playlist: {playlist.Name}");
                     break;
 
                 case FullTrack track:
                     mainPage.NavigateToAlbum(track.Album.Id);
-                    Debug.WriteLine($"Navigating to track: {track.Name}");
+                    LogService.Info($"Navigating to track: {track.Name}");
                     break;
 
                 case OfflineAlbumEntry offlineAlbum:
@@ -122,7 +123,7 @@ namespace LibreSpotUWP.Views.Win10_1709
                     break;
 
                 default:
-                    Debug.WriteLine("Unknown item type clicked: " + item.GetType().Name);
+                    LogService.Info("Unknown item type clicked: " + item.GetType().Name);
                     break;
             }
         }

@@ -1,4 +1,4 @@
-﻿using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -139,7 +139,7 @@ namespace LibreSpotUWP.Services
             catch (FileNotFoundException) {  }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[FileSystem] DeleteFolder FAILED → {ex.Message}");
+                LogService.Warn($"DeleteFolder failed: {ex.Message}");
             }
         }
     }

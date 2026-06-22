@@ -1,4 +1,4 @@
-﻿using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Interop;
 using LibreSpotUWP.Models;
@@ -940,7 +940,7 @@ namespace LibreSpotUWP.Services
             {
                 case EventType.LogMessage:
                     string msg = ReadString(evt.data.log_msg);
-                    Debug.WriteLine($"{ts} [LibreSpot Internal] {msg}");
+                    LogService.Info($"{ts} [LibreSpot Internal] {msg}");
                     RaiseOnMainThread(() => LogMessage?.Invoke(this, msg), nameof(LogMessage));
                     break;
 
@@ -950,7 +950,7 @@ namespace LibreSpotUWP.Services
                     string trackName = ReadString(t.name);
                     string artistName = ReadString(t.artist);
 
-                    Debug.WriteLine($"{logPrefix} Track: {trackName} by {artistName} ({trackUri})");
+                    LogService.Info($"{logPrefix} Track: {trackName} by {artistName} ({trackUri})");
 
                     var track = new LibrespotTrackInfo
                     {
@@ -966,23 +966,23 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.PlaybackPaused:
-                    Debug.WriteLine($"{logPrefix} State -> Paused at {evt.data.position_ms}ms");
+                    LogService.Info($"{logPrefix} State -> Paused at {evt.data.position_ms}ms");
                     UpdatePlaybackState(LibrespotPlaybackState.Paused);
                     break;
 
                 case EventType.PlaybackResumed:
-                    Debug.WriteLine($"{logPrefix} State -> Playing from {evt.data.position_ms}ms");
+                    LogService.Info($"{logPrefix} State -> Playing from {evt.data.position_ms}ms");
                     UpdatePlaybackState(LibrespotPlaybackState.Playing);
                     break;
 
                 case EventType.PlaybackLoading:
-                    Debug.WriteLine($"{logPrefix} Buffering/Loading track...");
+                    LogService.Info($"{logPrefix} Buffering/Loading track...");
                     UpdatePlaybackState(LibrespotPlaybackState.Loading);
                     break;
 
                 case EventType.PlaybackStopped:
                 case EventType.PlaybackUnavailable:
-                    Debug.WriteLine($"{logPrefix} Playback Stopped.");
+                    LogService.Info($"{logPrefix} Playback Stopped.");
                     UpdatePlaybackState(LibrespotPlaybackState.Stopped);
                     break;
 
@@ -993,17 +993,17 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.VolumeChanged:
-                    Debug.WriteLine($"{logPrefix} Volume: {evt.data.volume}");
+                    LogService.Info($"{logPrefix} Volume: {evt.data.volume}");
                     UpdateVolume(evt.data.volume);
                     break;
 
                 case EventType.ShuffleChanged:
-                    Debug.WriteLine($"{logPrefix} Shuffle: {evt.data.shuffle}");
+                    LogService.Info($"{logPrefix} Shuffle: {evt.data.shuffle}");
                     UpdateShuffle(evt.data.shuffle);
                     break;
 
                 case EventType.RepeatChanged:
-                    Debug.WriteLine($"{logPrefix} Repeat Mode: {evt.data.repeat_mode}");
+                    LogService.Info($"{logPrefix} Repeat Mode: {evt.data.repeat_mode}");
                     UpdateRepeat(evt.data.repeat_mode);
                     break;
 
@@ -1011,50 +1011,50 @@ namespace LibreSpotUWP.Services
                 case EventType.PositionCorrection:
                 case EventType.PositionChanged:
                     if (evt.event_type != EventType.PositionChanged)
-                        Debug.WriteLine($"{logPrefix} Syncing position to {evt.data.position_ms}ms");
+                        LogService.Info($"{logPrefix} Syncing position to {evt.data.position_ms}ms");
 
                     UpdatePosition(evt.data.position_ms);
                     break;
 
                 case EventType.SessionConnected:
                     string user = ReadString(evt.data.session_user);
-                    Debug.WriteLine($"{logPrefix} Connected as user: {user}");
+                    LogService.Info($"{logPrefix} Connected as user: {user}");
                     OnSessionChanged(true, user);
                     break;
 
                 case EventType.SessionDisconnected:
-                    Debug.WriteLine($"{logPrefix} Session Disconnected");
+                    LogService.Info($"{logPrefix} Session Disconnected");
                     OnSessionChanged(false, null);
                     break;
 
                 case EventType.ClientChanged:
                     string client = ReadString(evt.data.client_name);
-                    Debug.WriteLine($"{logPrefix} Active Client switched to: {client}");
+                    LogService.Info($"{logPrefix} Active Client switched to: {client}");
                     UpdateClientInfo(client);
                     break;
 
                 case EventType.AutoPlayChanged:
-                    Debug.WriteLine($"{logPrefix} AutoPlay: {evt.data.auto_play}");
+                    LogService.Info($"{logPrefix} AutoPlay: {evt.data.auto_play}");
                     UpdateAutoPlay(evt.data.auto_play);
                     break;
 
                 case EventType.ExplicitFilterChanged:
-                    Debug.WriteLine($"{logPrefix} Explicit Filter: {evt.data.filter_explicit}");
+                    LogService.Info($"{logPrefix} Explicit Filter: {evt.data.filter_explicit}");
                     UpdateExplicitFilter(evt.data.filter_explicit);
                     break;
 
                 case EventType.AddedToQueue:
-                    Debug.WriteLine($"{logPrefix} Track added to queue: {ReadString(evt.data.track_uri)}");
+                    LogService.Info($"{logPrefix} Track added to queue: {ReadString(evt.data.track_uri)}");
                     break;
 
                 case EventType.Panic:
                     string panicMsg = ReadString(evt.data.log_msg);
-                    Debug.WriteLine($"{ts} [CRITICAL PANIC] {panicMsg}");
+                    LogService.Error($"{ts} [CRITICAL PANIC] {panicMsg}");
                     RaisePanic(panicMsg);
                     break;
 
                 default:
-                    Debug.WriteLine($"{logPrefix} No specific handler for this event.");
+                    LogService.Info($"{logPrefix} No specific handler for this event.");
                     break;
             }
         }
@@ -1116,19 +1116,19 @@ namespace LibreSpotUWP.Services
         private void UpdateClientInfo(string clientName)
         {
             ActiveClientName = clientName;
-            Debug.WriteLine($"[LibreSpot] Active Client: {clientName}");
+            LogService.Info($"[LibreSpot] Active Client: {clientName}");
         }
 
         private void UpdateAutoPlay(bool enabled)
         {
             IsAutoPlayEnabled = enabled;
-            Debug.WriteLine($"[LibreSpot] AutoPlay updated: {enabled}");
+            LogService.Info($"[LibreSpot] AutoPlay updated: {enabled}");
         }
 
         private void UpdateExplicitFilter(bool enabled)
         {
             IsExplicitFilterEnabled = enabled;
-            Debug.WriteLine($"[LibreSpot] Explicit Filter updated: {enabled}");
+            LogService.Info($"[LibreSpot] Explicit Filter updated: {enabled}");
         }
 
         private void UpdatePosition(uint positionMs)
@@ -1139,14 +1139,14 @@ namespace LibreSpotUWP.Services
 
         private void UpdateShuffle(bool enabled)
         {
-            Debug.WriteLine($"[LibreSpot] Shuffle updated: {enabled}");
+            LogService.Info($"[LibreSpot] Shuffle updated: {enabled}");
             lock (_stateLock) { _shuffle = enabled; }
             RaiseOnMainThread(() => ShuffleChanged?.Invoke(this, enabled), nameof(ShuffleChanged));
         }
 
         private void UpdateRepeat(uint mode)
         {
-            Debug.WriteLine($"[LibreSpot] Repeat mode updated: {mode}");
+            LogService.Info($"[LibreSpot] Repeat mode updated: {mode}");
             lock (_stateLock) { _repeatMode = mode; }
             RaiseOnMainThread(() => RepeatChanged?.Invoke(this, mode), nameof(RepeatChanged));
         }

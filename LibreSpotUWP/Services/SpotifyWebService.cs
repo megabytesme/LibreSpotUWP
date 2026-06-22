@@ -77,14 +77,14 @@ namespace LibreSpotUWP.Services
                 catch (APIException apiEx) when (IsRateLimited(apiEx) && attempt < maxAttempts)
                 {
                     var wait = TimeSpan.FromSeconds(Math.Min(5, attempt * 2));
-                    System.Diagnostics.Debug.WriteLine(
+                    LogService.Warn(
                         $"Spotify API rate limited in {action.Method.Name}, retrying in {wait.TotalSeconds:0.#}s: {apiEx.Message}");
                     await Task.Delay(wait, ct).ConfigureAwait(false);
                 }
                 catch (APIException apiEx)
                 {
                     var method = action.Method.Name;
-                    System.Diagnostics.Debug.WriteLine(
+                    LogService.Warn(
                         $"Spotify API Error in {method}: {apiEx.Response?.StatusCode} - {apiEx.Message}");
 
                     throw new SpotifyWebException(
@@ -95,7 +95,7 @@ namespace LibreSpotUWP.Services
                     ReportInternetAccessFailureIfNetworkLooksOffline();
 
                     var method = action.Method.Name;
-                    System.Diagnostics.Debug.WriteLine(
+                    LogService.Warn(
                         $"Spotify HTTP Error in {method}: {httpEx.Message}");
 
                     throw new SpotifyWebException("Spotify request failed.", httpEx);
@@ -105,7 +105,7 @@ namespace LibreSpotUWP.Services
                     ReportInternetAccessFailureIfNetworkLooksOffline();
 
                     var method = action.Method.Name;
-                    System.Diagnostics.Debug.WriteLine(
+                    LogService.Warn(
                         $"Spotify request timeout in {method}: {canceledEx.Message}");
 
                     throw new SpotifyWebException("Spotify request timed out.", canceledEx);

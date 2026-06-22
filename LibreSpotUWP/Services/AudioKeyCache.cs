@@ -88,12 +88,11 @@ namespace LibreSpotUWP.Services
 
                 _isInitialized = true;
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] Volatile + persisted key folders ready.");
+                LogService.Info("[KeyCache] Volatile + persisted key folders ready.");
                 LogService.Info($"[AudioKeyCache.InitializeAsync] Loaded {persistedCount} persisted and {volatileCount} volatile keys.");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[KeyCache] Init Error: {ex.Message}");
                 LogService.Error(ex, "[AudioKeyCache.InitializeAsync] Failed to initialize key cache. Continuing without preloaded keys.");
                 _isInitialized = true;
             }
@@ -129,11 +128,10 @@ namespace LibreSpotUWP.Services
                 _hotCache[trackId] = storedKey;
                 _persistedTrackIndex.TryRemove(trackId, out _);
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] Saved volatile key.");
+                LogService.Info("[KeyCache] Saved volatile key.");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[KeyCache] Volatile save error: {ex.Message}");
                 LogService.Error(ex, "[AudioKeyCache.AddVolatileKeyAsync] Failed to save volatile key.");
             }
             finally
@@ -163,11 +161,10 @@ namespace LibreSpotUWP.Services
                 _hotCache[trackId] = storedKey;
                 _persistedTrackIndex[trackId] = 1;
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] Saved persisted key.");
+                LogService.Info("[KeyCache] Saved persisted key.");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[KeyCache] Persisted save error: {ex.Message}");
                 LogService.Error(ex, "[AudioKeyCache.AddPersistedKeyAsync] Failed to save persisted key.");
             }
             finally
@@ -195,7 +192,7 @@ namespace LibreSpotUWP.Services
                 _hotCache.TryRemove(trackId, out _);
                 _persistedTrackIndex.TryRemove(trackId, out _);
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] Removed key.");
+                LogService.Info("[KeyCache] Removed key.");
             }
             finally
             {
@@ -222,7 +219,7 @@ namespace LibreSpotUWP.Services
                 if (!_persistedTrackIndex.ContainsKey(trackId) && !await StorageFileExistsAsync(await GetPersistedKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false))
                     _hotCache.TryRemove(trackId, out _);
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] Removed volatile key.");
+                LogService.Info("[KeyCache] Removed volatile key.");
             }
             finally
             {
@@ -250,7 +247,7 @@ namespace LibreSpotUWP.Services
                 if (!await StorageFileExistsAsync(await GetVolatileKeyFolderAsync().ConfigureAwait(false), fileName).ConfigureAwait(false))
                     _hotCache.TryRemove(trackId, out _);
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] Removed persisted key.");
+                LogService.Info("[KeyCache] Removed persisted key.");
             }
             finally
             {
@@ -281,7 +278,7 @@ namespace LibreSpotUWP.Services
                 if (volatileFile != null && await CopyFileReplacingDestinationAsync(volatileFile, persistedFolder).ConfigureAwait(false))
                 {
                     await TryDeleteStorageFileAsync(volatileFile).ConfigureAwait(false);
-                    System.Diagnostics.Debug.WriteLine("[KeyCache] Moved key to persisted storage.");
+                    LogService.Info("[KeyCache] Moved key to persisted storage.");
                     return;
                 }
 
@@ -289,15 +286,14 @@ namespace LibreSpotUWP.Services
                 {
                     await WriteProtectedKeyAsync(persistedFolder, fileName, trackId, rawKey).ConfigureAwait(false);
                     await TryDeleteStorageFileAsync(volatileFolder, fileName).ConfigureAwait(false);
-                    System.Diagnostics.Debug.WriteLine("[KeyCache] Rebuilt persisted key from hot cache.");
+                    LogService.Info("[KeyCache] Rebuilt persisted key from hot cache.");
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] MoveKeyToPersistedAsync: no volatile or hot key found.");
+                LogService.Info("[KeyCache] MoveKeyToPersistedAsync: no volatile or hot key found.");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[KeyCache] Move to persisted error: {ex.Message}");
                 LogService.Error(ex, "[AudioKeyCache.MoveKeyToPersistedAsync] Failed to move key to persisted storage.");
             }
             finally
@@ -329,7 +325,7 @@ namespace LibreSpotUWP.Services
                 if (persistedFile != null && await CopyFileReplacingDestinationAsync(persistedFile, volatileFolder).ConfigureAwait(false))
                 {
                     await TryDeleteStorageFileAsync(persistedFile).ConfigureAwait(false);
-                    System.Diagnostics.Debug.WriteLine("[KeyCache] Moved key to volatile storage.");
+                    LogService.Info("[KeyCache] Moved key to volatile storage.");
                     return;
                 }
 
@@ -337,15 +333,14 @@ namespace LibreSpotUWP.Services
                 {
                     await WriteProtectedKeyAsync(volatileFolder, fileName, trackId, rawKey).ConfigureAwait(false);
                     await TryDeleteStorageFileAsync(persistedFolder, fileName).ConfigureAwait(false);
-                    System.Diagnostics.Debug.WriteLine("[KeyCache] Rebuilt volatile key from hot cache.");
+                    LogService.Info("[KeyCache] Rebuilt volatile key from hot cache.");
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine("[KeyCache] MoveKeyToVolatileAsync: no persisted or hot key found.");
+                LogService.Info("[KeyCache] MoveKeyToVolatileAsync: no persisted or hot key found.");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[KeyCache] Move to volatile error: {ex.Message}");
                 LogService.Error(ex, "[AudioKeyCache.MoveKeyToVolatileAsync] Failed to move key to volatile storage.");
             }
             finally

@@ -111,7 +111,7 @@ namespace LibreSpotUWP.Services
             var result = await AudioGraph.CreateAsync(settings);
             if (result.Status != AudioGraphCreationStatus.Success && outputDevice != null)
             {
-                Debug.WriteLine($"AudioGraph creation failed for selected output '{_outputDeviceId}' ({result.Status}); retrying default output.");
+                LogService.Warn($"AudioGraph creation failed for selected output '{_outputDeviceId}' ({result.Status}); retrying default output.");
                 settings.PrimaryRenderDevice = null;
                 result = await AudioGraph.CreateAsync(settings);
             }
@@ -322,7 +322,7 @@ namespace LibreSpotUWP.Services
             }
             catch (ArgumentException ex)
             {
-                Debug.WriteLine($"Failed to apply audio effects preset '{preset}': {ex.Message}");
+                LogService.Warn($"Failed to apply audio effects preset '{preset}': {ex.Message}");
                 DisableAllAudioEffects();
             }
         }
@@ -362,7 +362,7 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Unable to select audio output device '{deviceId}': {ex.Message}");
+                LogService.Warn($"Unable to select audio output device '{deviceId}': {ex.Message}");
                 return null;
             }
         }
@@ -453,7 +453,7 @@ namespace LibreSpotUWP.Services
                 }
 
                 if (!TryApplyBandGain(band, DecibelsToLinearGain(targetGainDb)))
-                    Debug.WriteLine($"Skipping equalizer band at {band.FrequencyCenter}Hz for preset '{preset}' ({targetGainDb} dB): Value does not fall within the expected range.");
+                    LogService.Warn($"Skipping equalizer band at {band.FrequencyCenter}Hz for preset '{preset}' ({targetGainDb} dB): Value does not fall within the expected range.");
 
                 index++;
             }

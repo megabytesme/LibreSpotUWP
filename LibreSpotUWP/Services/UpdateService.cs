@@ -42,7 +42,6 @@ namespace LibreSpotUWP.Services
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        Debug.WriteLine($"Update Check Failed: HTTP {response.StatusCode}");
                         LogService.Warn($"Update check failed: HTTP {response.StatusCode}");
                         return new UpdateInfo { IsUpdateAvailable = false };
                     }
@@ -54,7 +53,6 @@ namespace LibreSpotUWP.Services
             catch (Exception ex)
             {
                 ConnectivityHelper.ReportInternetAccessFailure();
-                Debug.WriteLine($"Update Check Failed: {ex.Message}");
                 LogService.Warn($"Update check failed: {ex.Message}");
                 return new UpdateInfo { IsUpdateAvailable = false };
             }
@@ -86,7 +84,7 @@ namespace LibreSpotUWP.Services
 
                     string cleanVer = tagName.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? tagName.Substring(1) : tagName;
 
-                    Debug.WriteLine($"Found release: {tagName}, draft={isDraft}, prerelease={isPrerelease}");
+                    LogService.Info($"Found release: {tagName}, draft={isDraft}, prerelease={isPrerelease}");
 
                     if (Version.TryParse(cleanVer, out Version remoteVer))
                     {
@@ -115,7 +113,6 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"ParseReleases failed: {ex.Message}");
                 LogService.Warn($"Update release parsing failed: {ex.Message}");
             }
 

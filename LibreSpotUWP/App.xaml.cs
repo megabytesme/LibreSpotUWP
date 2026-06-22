@@ -113,7 +113,7 @@ namespace LibreSpotUWP
 
                     var p = (ProtocolActivatedEventArgs)args;
                     var uri = p.Uri;
-                    LogService.Info("PKCE Callback URI: " + uri);
+                    LogService.Info("[App.OnActivated] PKCE callback received.");
 
                     var query = uri.Query;
                     var parsed = System.Web.HttpUtility.ParseQueryString(query);

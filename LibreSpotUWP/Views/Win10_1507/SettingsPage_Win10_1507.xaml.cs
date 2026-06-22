@@ -242,7 +242,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Failed to update audio effects preset: {ex}");
+                LogService.Warn($"Failed to update audio effects preset: {ex}");
             }
         }
 
@@ -721,7 +721,7 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Failed to refresh storage status: {ex}");
+                LogService.Warn($"Failed to refresh storage status: {ex}");
                 PersistedStorageText.Text = "Persisted audio: Unavailable";
                 CachedStorageText.Text = "Cached audio: Unavailable";
             }

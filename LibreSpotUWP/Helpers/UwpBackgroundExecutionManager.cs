@@ -1,4 +1,5 @@
-﻿using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Interfaces;
+using LibreSpotUWP.Services;
 using System;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Background;
@@ -41,7 +42,7 @@ namespace LibreSpotUWP.Helpers
             }
 #endif
 
-            System.Diagnostics.Debug.WriteLine($"[Background] Access Denied: {accessStatus}");
+            LogService.Warn($"Background access denied: {accessStatus}");
             return false;
         }
 
@@ -64,18 +65,18 @@ namespace LibreSpotUWP.Helpers
 
                 if (result == ExtendedExecutionResult.Allowed)
                 {
-                    System.Diagnostics.Debug.WriteLine("[Background] Extended Execution Allowed.");
+                    LogService.Info("Extended execution allowed.");
                     return true;
                 }
 
-                System.Diagnostics.Debug.WriteLine("[Background] Extended Execution Denied.");
+                LogService.Warn("Extended execution denied.");
                 _session.Dispose();
                 _session = null;
                 return false;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Background] Error: {ex.Message}");
+                LogService.Warn($"Extended execution request failed: {ex.Message}");
                 return false;
             }
         }
@@ -87,13 +88,13 @@ namespace LibreSpotUWP.Helpers
                 _session.Revoked -= Session_Revoked;
                 _session.Dispose();
                 _session = null;
-                System.Diagnostics.Debug.WriteLine("[Background] Extended Execution Stopped.");
+                LogService.Info("Extended execution stopped.");
             }
         }
 
         private void Session_Revoked(object sender, ExtendedExecutionRevokedEventArgs args)
         {
-            System.Diagnostics.Debug.WriteLine($"[Background] Session Revoked! Reason: {args.Reason}");
+            LogService.Warn($"Extended execution session revoked. reason={args.Reason}");
             _revoked = true;
         }
     }
