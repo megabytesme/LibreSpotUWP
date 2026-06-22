@@ -32,6 +32,7 @@ namespace LibreSpotUWP.Services
         private readonly ISpotifyWebService _web;
 
         private readonly object _lock = new object();
+        private readonly object _spotifyConnectRefreshScheduleLock = new object();
         private readonly SemaphoreSlim _playbackGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _networkStatusGate = new SemaphoreSlim(1, 1);
         private readonly Random _random = new Random();
@@ -67,6 +68,8 @@ namespace LibreSpotUWP.Services
         private ushort _pendingVolume;
         private bool _volumeDirty = false;
         private bool _refreshingSpotifyConnectPlayback;
+        private int _spotifyConnectRefreshFailureCount;
+        private DateTimeOffset _nextSpotifyConnectRefreshAt = DateTimeOffset.MinValue;
         private uint _remotePositionBaseMs;
         private DateTimeOffset _remotePositionUpdatedAt = DateTimeOffset.MinValue;
         private string[] _offlineQueue = Array.Empty<string>();
@@ -112,6 +115,7 @@ namespace LibreSpotUWP.Services
         private static readonly TimeSpan LocalSessionConnectTimeout = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan OfflineLoadStopValidationDelay = TimeSpan.FromMilliseconds(1200);
         private static readonly TimeSpan MediaFailureInternetBackoff = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan SpotifyConnectRefreshMaxFailureBackoff = TimeSpan.FromSeconds(30);
         private const string AppDataLocalUriPrefix = "ms-appdata:///local/";
 
         public string CurrentAudioOutputDeviceId => UserSettings.AudioOutputDeviceId;
@@ -1419,6 +1423,9 @@ namespace LibreSpotUWP.Services
             if (!ConnectivityHelper.HasInternetAccess())
                 return;
 
+            if (!CanRefreshSpotifyConnectPlayback(force))
+                return;
+
             if (_refreshingSpotifyConnectPlayback && !force)
                 return;
 
@@ -1426,15 +1433,57 @@ namespace LibreSpotUWP.Services
             try
             {
                 var playback = await _web.GetCurrentPlaybackAsync().ConfigureAwait(false);
+                ResetSpotifyConnectRefreshFailureBackoff();
                 ApplyRemotePlayback(playback);
             }
             catch (Exception ex)
             {
-                LogService.Warn($"[MediaService.RefreshSpotifyConnectPlaybackAsync] Unable to refresh Connect playback: {ex.Message}");
+                var retryDelay = DeferSpotifyConnectRefreshAfterFailure(force);
+                if (force)
+                    LogService.Warn($"[MediaService.RefreshSpotifyConnectPlaybackAsync] Unable to refresh Connect playback: {ex.Message}");
+                else
+                    LogService.Warn($"[MediaService.RefreshSpotifyConnectPlaybackAsync] Unable to refresh Connect playback, retrying in {retryDelay.TotalSeconds:F0}s: {ex.Message}");
             }
             finally
             {
                 _refreshingSpotifyConnectPlayback = false;
+            }
+        }
+
+        private bool CanRefreshSpotifyConnectPlayback(bool force)
+        {
+            if (force)
+                return true;
+
+            lock (_spotifyConnectRefreshScheduleLock)
+            {
+                return DateTimeOffset.UtcNow >= _nextSpotifyConnectRefreshAt;
+            }
+        }
+
+        private void ResetSpotifyConnectRefreshFailureBackoff()
+        {
+            lock (_spotifyConnectRefreshScheduleLock)
+            {
+                _spotifyConnectRefreshFailureCount = 0;
+                _nextSpotifyConnectRefreshAt = DateTimeOffset.MinValue;
+            }
+        }
+
+        private TimeSpan DeferSpotifyConnectRefreshAfterFailure(bool force)
+        {
+            if (force)
+                return TimeSpan.Zero;
+
+            lock (_spotifyConnectRefreshScheduleLock)
+            {
+                _spotifyConnectRefreshFailureCount = Math.Min(_spotifyConnectRefreshFailureCount + 1, 6);
+                var delaySeconds = Math.Min(
+                    SpotifyConnectRefreshMaxFailureBackoff.TotalSeconds,
+                    5 * _spotifyConnectRefreshFailureCount);
+                var delay = TimeSpan.FromSeconds(delaySeconds);
+                _nextSpotifyConnectRefreshAt = DateTimeOffset.UtcNow.Add(delay);
+                return delay;
             }
         }
 
