@@ -1,7 +1,7 @@
 | <h1>LibreSpotUWP</h1> | <img src="https://github.com/user-attachments/assets/b53f3efe-a089-4e68-8caa-57a0bf2693a9" width="60" height="60"> |
 | --- | --- |
 
-**LibreSpotUWP** is a Spotify client designed with UWP in mind, powered by LibreSpot. It supports Spotify Premium-based accounts, and works with Spotfiy Connect.
+**LibreSpotUWP** is a Spotify client designed with UWP in mind, powered by LibreSpot. **A Spotify Premium account is required. Spotify Free accounts are not supported.** It works with Spotify Connect.
 
 **Disclaimer:** This is an unofficial, third-party implementation of a Spotify client for the Universal Windows Platform (UWP). This project is not affiliated with, endorsed, or sponsored by Spotify AB. Spotify is a trademark of Spotify AB.
 
@@ -22,6 +22,9 @@
 ### See the [Latest Release](https://github.com/megabytesme/LibreSpotUWP/releases/latest).
 
 ## FAQ
+### Can I use LibreSpotUWP with a Spotify Free account?
+#### No. LibreSpotUWP requires Spotify Premium because playback uses Spotify features that are not available to Free accounts. If you try to sign in with a Free account, the app will reject the sign-in and ask you to use Spotify Premium.
+
 ### How do I login?
 #### To login, you must do the following:
 1. Download the latest version of [LibreSpotUWP Login Helper](https://github.com/megabytesme/LibreSpotUWPLoginHelper/releases/latest)

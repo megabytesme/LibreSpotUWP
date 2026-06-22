@@ -2,6 +2,7 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Services;
 using LibreSpotUWP.Controls;
+using LibreSpotUWP.Exceptions;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -45,6 +46,7 @@ namespace LibreSpotUWP
         private readonly SemaphoreSlim _launchGate = new SemaphoreSlim(1, 1);
         private bool _servicesInitialized;
         private bool _startupUpdateCheckQueued;
+        private SpotifyPremiumRequiredException _startupPremiumRequiredException;
         private static bool _fatalDialogOpen;
         public static AudioKeyCache KeyCache { get; private set; }
 
@@ -132,6 +134,11 @@ namespace LibreSpotUWP
                     Window.Current.Activate();
                 }
             }
+            catch (SpotifyPremiumRequiredException ex)
+            {
+                LogService.Warn($"Spotify Premium required during activation: {ex.Message}");
+                await RunOnUiAsync(() => PremiumRequiredDialog.ShowAsync(ex));
+            }
             catch (Exception ex)
             {
                 LogService.Error(ex, "Unhandled exception during activation");
@@ -202,6 +209,13 @@ namespace LibreSpotUWP
                     if (shouldCheckForUpdates)
                         _ = CheckForUpdatesAtStartup();
 
+                    if (_startupPremiumRequiredException != null)
+                    {
+                        var premiumRequired = _startupPremiumRequiredException;
+                        _startupPremiumRequiredException = null;
+                        await PremiumRequiredDialog.ShowAsync(premiumRequired);
+                    }
+
                     if (shouldNavigateToLaunchTarget)
                         await NavigateToLiveTileTargetAsync(launchNavigationTag);
                 }
@@ -252,9 +266,24 @@ namespace LibreSpotUWP
             await OfflineCatalog.InitializeAsync();
 
             var hasInternet = ConnectivityHelper.HasInternetAccess();
-            var token = hasInternet
-                ? await SpotifyAuth.EnsureValidAccessTokenAsync()
-                : await SpotifyAuth.GetAccessToken();
+            string token = null;
+
+            try
+            {
+                token = hasInternet
+                    ? await SpotifyAuth.EnsureValidAccessTokenAsync()
+                    : await SpotifyAuth.GetAccessToken();
+
+                if (hasInternet && !string.IsNullOrEmpty(token))
+                    await SpotifyAuth.EnsureCurrentAccountIsPremiumAsync();
+            }
+            catch (SpotifyPremiumRequiredException ex)
+            {
+                LogService.Warn($"Spotify Premium required during launch: {ex.Message}");
+                _startupPremiumRequiredException = ex;
+                token = null;
+            }
+
             var isSignedIn = !string.IsNullOrEmpty(token) ||
                 (!hasInternet && HasCachedAuthState());
 
