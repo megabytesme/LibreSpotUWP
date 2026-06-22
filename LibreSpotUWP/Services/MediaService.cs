@@ -1906,8 +1906,9 @@ namespace LibreSpotUWP.Services
         {
             LogService.Info("[MediaService.OnNetworkStatusChanged] Windows reported a network status change.");
             if (ConnectivityHelper.HasNetworkReportedInternetAccess() &&
-                ConnectivityHelper.ClearInternetAccessFailure())
+                ConnectivityHelper.ClearInternetAccessFailure(force: true))
             {
+                LogService.Info("[MediaService.OnNetworkStatusChanged] Windows reports internet access, clearing media connectivity backoff early.");
                 return;
             }
 
