@@ -313,7 +313,7 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                return Marshal.PtrToStringAnsi(errorPtr);
+                return ReadString(errorPtr);
             }
             finally
             {
@@ -339,7 +339,7 @@ namespace LibreSpotUWP.Services
 
                 try
                 {
-                    argumentPtr = Marshal.StringToHGlobalAnsi(argument ?? string.Empty);
+                    argumentPtr = AllocUtf8String(argument ?? string.Empty);
                     payloadPtr = Librespot.librespot_appdata_get(_instance, (int)kind, argumentPtr);
 
                     if (payloadPtr == IntPtr.Zero)
@@ -357,7 +357,7 @@ namespace LibreSpotUWP.Services
                                 : $"librespot app data request returned null for {argument}. Native error: {lastError}");
                     }
 
-                    var json = Marshal.PtrToStringAnsi(payloadPtr);
+                    var json = ReadString(payloadPtr);
                     if (string.IsNullOrWhiteSpace(json))
                         throw new InvalidOperationException("App data payload was empty.");
 
@@ -412,7 +412,7 @@ namespace LibreSpotUWP.Services
 
             return Task.Run(() =>
             {
-                IntPtr argumentPtr = Marshal.StringToHGlobalAnsi(argument);
+                IntPtr argumentPtr = AllocUtf8String(argument);
                 try
                 {
                     var resultPtr = getter(_instance, argumentPtr);
@@ -456,6 +456,21 @@ namespace LibreSpotUWP.Services
             byte[] buffer = new byte[length];
             Marshal.Copy(value, buffer, 0, length);
             return Encoding.UTF8.GetString(buffer, 0, buffer.Length);
+        }
+
+        private static IntPtr AllocUtf8String(string value)
+        {
+            if (value == null)
+                return IntPtr.Zero;
+
+            var bytes = Encoding.UTF8.GetBytes(value);
+            var ptr = Marshal.AllocHGlobal(bytes.Length + 1);
+
+            if (bytes.Length > 0)
+                Marshal.Copy(bytes, 0, ptr, bytes.Length);
+
+            Marshal.WriteByte(ptr, bytes.Length, 0);
+            return ptr;
         }
 
         private static int ReadCount(UIntPtr count)
@@ -681,8 +696,8 @@ namespace LibreSpotUWP.Services
 
             LogService.Info($"[LibrespotService.LoadAndPlayAsync] context={contextUri}, start={startUri ?? "(null)"}.");
 
-            IntPtr contextPtr = Marshal.StringToHGlobalAnsi(contextUri);
-            IntPtr startPtr = startUri != null ? Marshal.StringToHGlobalAnsi(startUri) : IntPtr.Zero;
+            IntPtr contextPtr = AllocUtf8String(contextUri);
+            IntPtr startPtr = startUri != null ? AllocUtf8String(startUri) : IntPtr.Zero;
 
             try
             {
@@ -794,7 +809,7 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrWhiteSpace(trackIdHex))
                 throw new ArgumentException("trackIdHex must not be null or empty.", nameof(trackIdHex));
 
-            IntPtr fileIdPtr = Marshal.StringToHGlobalAnsi(fileIdHex);
+            IntPtr fileIdPtr = AllocUtf8String(fileIdHex);
 
             try
             {
@@ -832,7 +847,7 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrWhiteSpace(trackIdHex))
                 throw new InvalidOperationException("Unable to derive Spotify track ID from URI.");
 
-            IntPtr trackUriPtr = Marshal.StringToHGlobalAnsi(trackUri);
+            IntPtr trackUriPtr = AllocUtf8String(trackUri);
 
             try
             {
@@ -894,16 +909,16 @@ namespace LibreSpotUWP.Services
             switch (evt.event_type)
             {
                 case EventType.LogMessage:
-                    string msg = Marshal.PtrToStringAnsi(evt.data.log_msg);
+                    string msg = ReadString(evt.data.log_msg);
                     Debug.WriteLine($"{ts} [LibreSpot Internal] {msg}");
                     RaiseOnMainThread(() => LogMessage?.Invoke(this, msg), nameof(LogMessage));
                     break;
 
                 case EventType.TrackChanged:
                     var t = evt.data.track;
-                    string trackUri = Marshal.PtrToStringAnsi(t.uri);
-                    string trackName = Marshal.PtrToStringAnsi(t.name);
-                    string artistName = Marshal.PtrToStringAnsi(t.artist);
+                    string trackUri = ReadString(t.uri);
+                    string trackName = ReadString(t.name);
+                    string artistName = ReadString(t.artist);
 
                     Debug.WriteLine($"{logPrefix} Track: {trackName} by {artistName} ({trackUri})");
 
@@ -912,8 +927,8 @@ namespace LibreSpotUWP.Services
                         Uri = trackUri,
                         Name = trackName,
                         Artist = artistName,
-                        Album = Marshal.PtrToStringAnsi(t.album),
-                        CoverUrl = Marshal.PtrToStringAnsi(t.cover_url),
+                        Album = ReadString(t.album),
+                        CoverUrl = ReadString(t.cover_url),
                         Duration = TimeSpan.FromMilliseconds(t.duration_ms)
                     };
                     UpdateTrack(track);
@@ -942,7 +957,7 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.EndOfTrack:
-                    var endedTrackUri = Marshal.PtrToStringAnsi(evt.data.track_uri);
+                    var endedTrackUri = ReadString(evt.data.track_uri);
                     LogService.Info($"{logPrefix} Reached end of track URI: {endedTrackUri}");
                     OnEndOfTrack(endedTrackUri);
                     break;
@@ -972,7 +987,7 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.SessionConnected:
-                    string user = Marshal.PtrToStringAnsi(evt.data.session_user);
+                    string user = ReadString(evt.data.session_user);
                     Debug.WriteLine($"{logPrefix} Connected as user: {user}");
                     OnSessionChanged(true, user);
                     break;
@@ -983,7 +998,7 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.ClientChanged:
-                    string client = Marshal.PtrToStringAnsi(evt.data.client_name);
+                    string client = ReadString(evt.data.client_name);
                     Debug.WriteLine($"{logPrefix} Active Client switched to: {client}");
                     UpdateClientInfo(client);
                     break;
@@ -999,11 +1014,11 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.AddedToQueue:
-                    Debug.WriteLine($"{logPrefix} Track added to queue: {Marshal.PtrToStringAnsi(evt.data.track_uri)}");
+                    Debug.WriteLine($"{logPrefix} Track added to queue: {ReadString(evt.data.track_uri)}");
                     break;
 
                 case EventType.Panic:
-                    string panicMsg = Marshal.PtrToStringAnsi(evt.data.log_msg);
+                    string panicMsg = ReadString(evt.data.log_msg);
                     Debug.WriteLine($"{ts} [CRITICAL PANIC] {panicMsg}");
                     RaisePanic(panicMsg);
                     break;
@@ -1189,10 +1204,10 @@ namespace LibreSpotUWP.Services
 
             return new LibrespotConfig
             {
-                device_name = Marshal.StringToHGlobalAnsi(Environment.MachineName),
-                device_type = Marshal.StringToHGlobalAnsi(deviceType),
-                cache_dir = Marshal.StringToHGlobalAnsi(cacheDir),
-                persisted_cache_dir = Marshal.StringToHGlobalAnsi(persistedCacheDir),
+                device_name = AllocUtf8String(Environment.MachineName),
+                device_type = AllocUtf8String(deviceType),
+                cache_dir = AllocUtf8String(cacheDir),
+                persisted_cache_dir = AllocUtf8String(persistedCacheDir),
                 enable_discovery = false,
                 enable_volume_normalisation = false,
                 bitrate = Bitrate.B320,
@@ -1201,7 +1216,7 @@ namespace LibreSpotUWP.Services
                 username = IntPtr.Zero,
                 password = IntPtr.Zero,
                 auth_blob = IntPtr.Zero,
-                access_token = Marshal.StringToHGlobalAnsi(accessToken),
+                access_token = AllocUtf8String(accessToken),
                 key_callback = _keyCallbackDelegate,
                 key_save_callback = _keySaveDelegate,
                 key_remove_callback = _keyRemoveDelegate,
