@@ -1,6 +1,7 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Services;
 using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
@@ -72,7 +73,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[PlaylistPageViewModel] ERROR during pagination: {ex.Message}");
+                LogService.Warn($"Pagination failed: {ex.Message}");
             }
             finally
             {

@@ -1,4 +1,4 @@
-﻿using LibreSpotUWP.Constants;
+using LibreSpotUWP.Constants;
 using LibreSpotUWP.Exceptions;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Helpers;

@@ -1,6 +1,7 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Services;
 using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
@@ -289,7 +290,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("LoadRecentlyPlayedAsync failed: " + ex);
+                LogService.Warn("LoadRecentlyPlayedAsync failed: " + ex);
             }
         }
 
@@ -309,7 +310,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("LoadUserPlaylistsAsync failed: " + ex);
+                LogService.Warn("LoadUserPlaylistsAsync failed: " + ex);
             }
         }
 
@@ -329,7 +330,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("LoadTopArtistsAsync failed: " + ex);
+                LogService.Warn("LoadTopArtistsAsync failed: " + ex);
             }
         }
 
@@ -349,7 +350,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("LoadTopTracksAsync failed: " + ex);
+                LogService.Warn("LoadTopTracksAsync failed: " + ex);
             }
         }
 
@@ -369,7 +370,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("LoadSavedAlbumsAsync failed: " + ex);
+                LogService.Warn("LoadSavedAlbumsAsync failed: " + ex);
             }
         }
 
@@ -389,7 +390,7 @@ namespace LibreSpotUWP.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("LoadFollowedArtistsAsync failed: " + ex);
+                LogService.Warn("LoadFollowedArtistsAsync failed: " + ex);
             }
         }
 
@@ -417,7 +418,7 @@ namespace LibreSpotUWP.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"AlbumsFromTopArtists: failed artist {artist.Id}: {ex.Message}");
+                    LogService.Warn($"AlbumsFromTopArtists failed for artistId={artist.Id}: {ex.Message}");
                 }
             }
 

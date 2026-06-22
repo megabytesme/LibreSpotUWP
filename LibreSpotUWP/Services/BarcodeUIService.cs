@@ -1,4 +1,4 @@
-﻿using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Helpers;
 using System;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -20,11 +20,11 @@ namespace LibreSpotUWP.Services
             if (!BarcodeHelper.IsSupportedDisplayType(displayType) ||
                 !BarcodeHelper.ValidateBarcode(value, displayType, out _))
             {
-                System.Diagnostics.Debug.WriteLine($"GenerateBarcodeBitmap: Invalid type ({displayType}) or value for barcode generation. Falling back to QR_CODE.");
+                LogService.Warn($"Invalid barcode input for displayType={displayType}; falling back to QR_CODE.");
                 displayType = BarcodeFormat.QR_CODE;
                 if (!BarcodeHelper.ValidateBarcode(value, displayType, out _))
                 {
-                    System.Diagnostics.Debug.WriteLine($"GenerateBarcodeBitmap: Value invalid even for QR_CODE: {value}");
+                    LogService.Warn("Barcode input was invalid for QR_CODE fallback.");
                     return null;
                 }
             }
@@ -45,7 +45,7 @@ namespace LibreSpotUWP.Services
                 var pixelData = writer.Write(value);
                 if (pixelData?.Pixels == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"ZXing writer.Write returned null pixel data for value: {value}, type: {displayType}");
+                    LogService.Warn($"ZXing writer returned null pixel data for displayType={displayType}.");
                     return null;
                 }
 
@@ -59,7 +59,7 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error generating barcode WriteableBitmap: {ex.Message}");
+                LogService.Warn($"Error generating barcode WriteableBitmap: {ex.Message}");
                 return null;
             }
         }
@@ -86,7 +86,7 @@ namespace LibreSpotUWP.Services
                     var pixelData = writer.Write(content);
                     if (pixelData?.Pixels == null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"ZXing QR writer.Write returned null pixel data.");
+                        LogService.Warn("ZXing QR writer returned null pixel data.");
                         return null;
                     }
 
@@ -104,7 +104,7 @@ namespace LibreSpotUWP.Services
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error generating QR code WriteableBitmap: {ex.Message}");
+                    LogService.Warn($"Error generating QR code WriteableBitmap: {ex.Message}");
                     return null;
                 }
             });

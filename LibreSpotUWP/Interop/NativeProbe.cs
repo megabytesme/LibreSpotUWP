@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using LibreSpotUWP.Services;
 
 namespace LibreSpotUWP.Interop
 {
@@ -17,7 +18,7 @@ namespace LibreSpotUWP.Interop
             const string dllName = "librespot.dll";
             IntPtr handle = LoadPackagedLibrary(dllName, 0);
             int error = Marshal.GetLastWin32Error();
-            Debug.WriteLine($"[Probe] LoadPackagedLibrary('{dllName}') => 0x{handle.ToInt64():X}, GetLastError={error}");
+            LogService.Info($"LoadPackagedLibrary('{dllName}') success={handle != IntPtr.Zero}, getLastError={error}.");
             return handle;
         }
 
@@ -28,7 +29,7 @@ namespace LibreSpotUWP.Interop
 
             bool ok = FreeLibrary(handle);
             int error = Marshal.GetLastWin32Error();
-            Debug.WriteLine($"[Probe] FreeLibrary => {ok}, GetLastError={error}");
+            LogService.Info($"FreeLibrary success={ok}, getLastError={error}.");
         }
     }
 }

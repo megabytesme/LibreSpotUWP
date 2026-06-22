@@ -1,5 +1,6 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Services;
 using Newtonsoft.Json;
 using System;
 using System.Collections.ObjectModel;
@@ -147,10 +148,10 @@ namespace LibreSpotUWP.Views.Win11
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine($"Requesting lyrics for {trackUri}.");
+                LogService.Info($"Requesting lyrics for {trackUri}.");
                 var lyricsJson = await TryLoadLyricsJsonAsync(trackUri);
                 var lyrics = DeserializeLyrics(lyricsJson);
-                System.Diagnostics.Debug.WriteLine(
+                LogService.Info(
                     $"Lyrics response for {trackUri}: provider={lyrics?.Provider ?? "(null)"}, syncType={lyrics?.SyncType ?? "(null)"}, lineCount={lyrics?.Lines?.Count ?? -1}.");
 
                 if (!string.Equals(_currentTrackUri, trackUri, StringComparison.OrdinalIgnoreCase))
@@ -159,7 +160,7 @@ namespace LibreSpotUWP.Views.Win11
                 if (!HasLyrics(lyrics))
                 {
                     SetStatus("No synced lyrics were found for this track.");
-                    System.Diagnostics.Debug.WriteLine(
+                    LogService.Info(
                         $"No lyric lines returned for {trackUri}. provider={lyrics?.Provider ?? "(null)"}, syncType={lyrics?.SyncType ?? "(null)"}, hasVocalRemoval={lyrics?.HasVocalRemoval.ToString() ?? "(null)"}.");
                     return;
                 }
@@ -178,7 +179,7 @@ namespace LibreSpotUWP.Views.Win11
             catch (Exception ex)
             {
                 SetStatus("Lyrics could not be loaded.");
-                System.Diagnostics.Debug.WriteLine($"Failed to load lyrics: {ex}");
+                LogService.Warn($"Failed to load lyrics: {ex}");
             }
             finally
             {
@@ -202,7 +203,7 @@ namespace LibreSpotUWP.Views.Win11
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Lyrics lookup failed for {trackUri}: {ex}");
+                LogService.Warn($"Lyrics lookup failed for {trackUri}: {ex}");
                 return null;
             }
         }
@@ -332,7 +333,7 @@ namespace LibreSpotUWP.Views.Win11
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Lyrics auto-scroll failed: {ex}");
+                    LogService.Warn($"Lyrics auto-scroll failed: {ex}");
                 }
                 finally
                 {
