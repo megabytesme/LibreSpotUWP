@@ -196,6 +196,26 @@
                             TextWrapping="WrapWholeWords" />
 
                         <ToggleSwitch
+                            x:Name="PlayDownloadedDuringConnectionLossToggle"
+                            Header="Play downloaded songs during connection loss"
+                            Toggled="PlayDownloadedDuringConnectionLossToggle_Toggled" />
+                        <TextBlock
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="When a song finishes offline, continue with downloaded songs. Turn this off to wait for internet before continuing the queue."
+                            TextWrapping="WrapWholeWords" />
+                        <ToggleSwitch
+                            x:Name="RandomOfflineFallbackToggle"
+                            Header="Use a random downloaded song if needed"
+                            Toggled="RandomOfflineFallbackToggle_Toggled" />
+                        <TextBlock
+                            x:Name="RandomOfflineFallbackDescription"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="If the selected online song is not available offline, play a random downloaded song instead."
+                            TextWrapping="WrapWholeWords" />
+
+                        <ToggleSwitch
                             x:Name="RememberLastPlaybackToggle"
                             Header="Remember last played song"
                             Toggled="RememberLastPlaybackToggle_Toggled" />

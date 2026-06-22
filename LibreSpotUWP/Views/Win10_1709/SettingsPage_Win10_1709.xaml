@@ -199,6 +199,31 @@
                         Text="Force the app to behave as offline even when internet is available." />
 
                     <ToggleSwitch
+                        x:Name="PlayDownloadedDuringConnectionLossToggle"
+                        Margin="0,12,0,0"
+                        Header="Play downloaded songs during connection loss"
+                        Toggled="PlayDownloadedDuringConnectionLossToggle_Toggled" />
+
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="When a song finishes offline, continue with downloaded songs. Turn this off to wait for internet before continuing the queue." />
+
+                    <ToggleSwitch
+                        x:Name="RandomOfflineFallbackToggle"
+                        Margin="0,12,0,0"
+                        Header="Use a random downloaded song if needed"
+                        Toggled="RandomOfflineFallbackToggle_Toggled" />
+
+                    <TextBlock
+                        x:Name="RandomOfflineFallbackDescription"
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="If the selected online song is not available offline, play a random downloaded song instead." />
+
+                    <ToggleSwitch
                         x:Name="RememberLastPlaybackToggle"
                         Margin="0,12,0,0"
                         Header="Remember last played song"
