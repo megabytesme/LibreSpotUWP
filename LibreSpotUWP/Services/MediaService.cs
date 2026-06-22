@@ -601,14 +601,19 @@ namespace LibreSpotUWP.Services
                 if (firstPlayableIndex < 0)
                 {
                     SetOnlineQueueResumePoint(playbackContextUri, offlineQueue, 0);
-                    if (await TryLoadRandomOfflineFallbackCoreAsync("selected context is unavailable offline").ConfigureAwait(false))
+                    if (!IsPersistedOfflineContext(playbackContextUri) &&
+                        await TryLoadRandomOfflineFallbackCoreAsync("selected context is unavailable offline").ConfigureAwait(false))
+                    {
                         return;
+                    }
 
                     SetTransportMode(PlaybackTransportMode.WaitingForOnline, "selected context unavailable offline");
                     UpdateState(s =>
                     {
                         s.IsOffline = true;
-                        s.StatusMessage = "Offline. This album or playlist has not been downloaded yet.";
+                        s.StatusMessage = IsPersistedOfflineContext(playbackContextUri)
+                            ? "Offline. This downloaded album or playlist is not ready to continue yet."
+                            : "Offline. This album or playlist has not been downloaded yet.";
                     });
                     return;
                 }
@@ -638,8 +643,11 @@ namespace LibreSpotUWP.Services
                     else
                         SetOnlineQueueResumeTrack(playbackContextUri, directTrackUri);
 
-                    if (await TryLoadRandomOfflineFallbackCoreAsync("selected track is unavailable offline").ConfigureAwait(false))
+                    if (!IsPersistedOfflineContext(playbackContextUri) &&
+                        await TryLoadRandomOfflineFallbackCoreAsync("selected track is unavailable offline").ConfigureAwait(false))
+                    {
                         return;
+                    }
 
                     SetTransportMode(PlaybackTransportMode.WaitingForOnline, "selected track unavailable offline");
                     UpdateState(s =>
@@ -2092,8 +2100,12 @@ namespace LibreSpotUWP.Services
 
             if (Current.IsOffline && _offlineQueue.Length > 0)
             {
-                if (await TryPlayRandomOfflineFallbackAsync("no downloaded continuation is available in the current queue"))
+                var isPersistedContextQueue = ShouldKeepPersistedOfflineContextQueue();
+                if (!isPersistedContextQueue &&
+                    await TryPlayRandomOfflineFallbackAsync("no downloaded continuation is available in the current queue"))
+                {
                     return;
+                }
 
                 var hasKnownNextTrack = _offlineQueueIndex + 1 >= 0 && _offlineQueueIndex + 1 < _offlineQueue.Length;
                 if (shouldContinuePlaying &&
@@ -2113,7 +2125,9 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                LogService.Info("[MediaService.OnEndOfTrack] Offline queue reached the end.");
+                LogService.Info(isPersistedContextQueue
+                    ? "[MediaService.OnEndOfTrack] Persisted offline context queue reached the end."
+                    : "[MediaService.OnEndOfTrack] Offline queue reached the end.");
                 UpdateState(s =>
                 {
                     s.StatusMessage = "Offline queue finished.";
@@ -2734,6 +2748,18 @@ namespace LibreSpotUWP.Services
                         }
                     }
 
+                    if (ShouldKeepPersistedOfflineContextQueue())
+                    {
+                        LogService.Info($"[MediaService.ContinueDownloadedPlaybackAfterOnlineFailureAsync] Preserving persisted context queue instead of choosing a random downloaded song. reason={reason}");
+                        UpdateState(s =>
+                        {
+                            s.IsOffline = true;
+                            s.PlaybackState = LibrespotPlaybackState.Paused;
+                            s.StatusMessage = "Offline. No further downloaded songs are available in this album or playlist.";
+                        });
+                        return false;
+                    }
+
                     if (await TryLoadRandomOfflineFallbackCoreAsync(reason, allowWhileOnline: true).ConfigureAwait(false))
                         return true;
 
@@ -3124,6 +3150,7 @@ namespace LibreSpotUWP.Services
                 _playbackIntent?.PlaybackContextUri,
                 _state.ContextUri,
                 trackUri);
+            var isPersistedContextQueue = IsPersistedOfflineContext(contextUri);
             var queue = await GetKnownTrackUrisForPlaybackContextAsync(contextUri).ConfigureAwait(false);
             if (queue.Count == 0)
             {
@@ -3154,9 +3181,21 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                _offlineQueue = new[] { trackUri };
-                _offlineQueueIndex = 0;
-                LogService.Warn($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Current downloaded track {trackUri} was not found in known context {contextUri}; using a single-track queue.");
+                if (!_currentOfflineFallbackIsRandom &&
+                    isPersistedContextQueue &&
+                    _offlineQueue.Length > 0)
+                {
+                    var resumeIndex = IndexOfTrackUri(_offlineQueue, _onlineQueueResumeStartUri);
+                    _offlineQueueIndex = resumeIndex > 0 ? resumeIndex - 1 : -1;
+                    SetOnlineQueueResumePoint(contextUri, _offlineQueue, resumeIndex >= 0 ? resumeIndex : 0);
+                    LogService.Warn($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Current downloaded track {trackUri} was not found in persisted context {contextUri}; preserving the {queue.Count}-track context queue from index {_offlineQueueIndex}.");
+                }
+                else
+                {
+                    _offlineQueue = new[] { trackUri };
+                    _offlineQueueIndex = 0;
+                    LogService.Warn($"[MediaService.PrepareOfflineQueueForCurrentTrackAsync] Current downloaded track {trackUri} was not found in known context {contextUri}; using a single-track queue.");
+                }
             }
             _offlineQueueContextUri = contextUri;
 
@@ -3260,6 +3299,27 @@ namespace LibreSpotUWP.Services
                 LogService.Warn($"[MediaService.IsDownloadedTrackPlayableOffline] Skipping persisted track without a cached audio key: {trackUri}");
 
             return hasKey;
+        }
+
+        private bool ShouldKeepPersistedOfflineContextQueue()
+        {
+            return !_currentOfflineFallbackIsRandom &&
+                _offlineQueue.Length > 0 &&
+                IsPersistedOfflineContext(_offlineQueueContextUri);
+        }
+
+        private bool IsPersistedOfflineContext(string contextUri)
+        {
+            if (App.OfflineCatalog == null || string.IsNullOrWhiteSpace(contextUri))
+                return false;
+
+            if (TryGetSpotifyUriId(contextUri, "spotify:album:", out var albumId))
+                return App.OfflineCatalog.IsAlbumPersisted(albumId);
+
+            if (TryGetSpotifyUriId(contextUri, "spotify:playlist:", out var playlistId))
+                return App.OfflineCatalog.IsPlaylistPersisted(playlistId);
+
+            return false;
         }
 
         private static int IndexOfTrackUri(IReadOnlyList<string> queue, string trackUri)
