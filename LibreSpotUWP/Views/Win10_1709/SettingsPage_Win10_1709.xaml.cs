@@ -44,6 +44,9 @@ namespace LibreSpotUWP.Views.Win10_1709
             SpotifyCustomClientIdTextBox.Text = UserSettings.SpotifyCustomClientId;
             SyncAppearanceRadioSelection();
             OfflineModeToggle.IsOn = ConnectivityHelper.IsManualOfflineModeEnabled();
+            PlayDownloadedDuringConnectionLossToggle.IsOn = UserSettings.PlayDownloadedSongsDuringConnectionLoss;
+            RandomOfflineFallbackToggle.IsOn = UserSettings.PlayRandomOfflineSongWhenUnavailable;
+            UpdateRandomOfflineFallbackVisibility();
             LyricsThemeToggle.IsOn = UserSettings.LyricsUseSpotifyTheme;
             LoadLiveTileSettings();
             RememberLastPlaybackToggle.IsOn = UserSettings.RememberLastPlaybackState;
@@ -101,34 +104,28 @@ namespace LibreSpotUWP.Views.Win10_1709
             return OSHelper.SupportsWin10_1507Appearance;
         }
 
-        private async void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
+        private void OfflineModeToggle_Toggled(object sender, RoutedEventArgs e)
         {
             ConnectivityHelper.SetManualOfflineModeEnabled(OfflineModeToggle.IsOn);
-
-            if (App.Librespot == null)
-                return;
-
-            if (OfflineModeToggle.IsOn)
-            {
-                await App.Librespot.DisconnectAsync();
+            if (App.Librespot != null)
                 UpdateLibrespotStatus(App.Librespot.Session);
+        }
+
+        private void PlayDownloadedDuringConnectionLossToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
                 return;
-            }
 
-            try
-            {
-                var token = _auth == null
-                    ? null
-                    : await _auth.EnsureValidAccessTokenAsync();
-                if (!string.IsNullOrWhiteSpace(token))
-                    await App.Librespot.ConnectWithAccessTokenAsync(token);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to reconnect librespot after leaving offline mode: {ex}");
-            }
+            UserSettings.PlayDownloadedSongsDuringConnectionLoss = PlayDownloadedDuringConnectionLossToggle.IsOn;
+            UpdateRandomOfflineFallbackVisibility();
+        }
 
-            UpdateLibrespotStatus(App.Librespot.Session);
+        private void RandomOfflineFallbackToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading)
+                return;
+
+            UserSettings.PlayRandomOfflineSongWhenUnavailable = RandomOfflineFallbackToggle.IsOn;
         }
 
         private void RememberLastPlaybackToggle_Toggled(object sender, RoutedEventArgs e)
@@ -146,6 +143,13 @@ namespace LibreSpotUWP.Views.Win10_1709
                 ResumeLastPlaybackToggle.IsOn = false;
                 UserSettings.ResumeLastPlaybackIfWasPlaying = false;
             }
+        }
+
+        private void UpdateRandomOfflineFallbackVisibility()
+        {
+            var visible = PlayDownloadedDuringConnectionLossToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+            RandomOfflineFallbackToggle.Visibility = visible;
+            RandomOfflineFallbackDescription.Visibility = visible;
         }
 
         private void RememberLastPageToggle_Toggled(object sender, RoutedEventArgs e)

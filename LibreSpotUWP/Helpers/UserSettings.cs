@@ -26,6 +26,8 @@ namespace LibreSpotUWP.Helpers
         private const string EqualizerBandsUnitDb = "Db";
         private const string RememberLastPlaybackStateKey = "RememberLastPlaybackState";
         private const string ResumeLastPlaybackIfWasPlayingKey = "ResumeLastPlaybackIfWasPlaying";
+        private const string PlayDownloadedSongsDuringConnectionLossKey = "PlayDownloadedSongsDuringConnectionLoss";
+        private const string PlayRandomOfflineSongWhenUnavailableKey = "PlayRandomOfflineSongWhenUnavailable";
         private const string RememberLastPageKey = "RememberLastPage";
         private const string LyricsUseSpotifyThemeKey = "LyricsUseSpotifyTheme";
         private const string LiveTilesEnabledKey = "LiveTilesEnabled";
@@ -171,6 +173,18 @@ namespace LibreSpotUWP.Helpers
         {
             get => ApplicationData.Current.LocalSettings.Values.TryGetValue(ResumeLastPlaybackIfWasPlayingKey, out object value) && value is bool enabled && enabled;
             set => ApplicationData.Current.LocalSettings.Values[ResumeLastPlaybackIfWasPlayingKey] = value;
+        }
+
+        public static bool PlayDownloadedSongsDuringConnectionLoss
+        {
+            get => GetBoolSetting(PlayDownloadedSongsDuringConnectionLossKey, defaultValue: true);
+            set => ApplicationData.Current.LocalSettings.Values[PlayDownloadedSongsDuringConnectionLossKey] = value;
+        }
+
+        public static bool PlayRandomOfflineSongWhenUnavailable
+        {
+            get => GetBoolSetting(PlayRandomOfflineSongWhenUnavailableKey, defaultValue: false);
+            set => ApplicationData.Current.LocalSettings.Values[PlayRandomOfflineSongWhenUnavailableKey] = value;
         }
 
         public static bool LyricsUseSpotifyTheme
