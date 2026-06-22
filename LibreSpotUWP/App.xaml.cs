@@ -255,9 +255,10 @@ namespace LibreSpotUWP
             var token = hasInternet
                 ? await SpotifyAuth.EnsureValidAccessTokenAsync()
                 : await SpotifyAuth.GetAccessToken();
-            var isSignedIn = !string.IsNullOrEmpty(token);
+            var isSignedIn = !string.IsNullOrEmpty(token) ||
+                (!hasInternet && HasCachedAuthState());
 
-            if (isSignedIn)
+            if (!string.IsNullOrEmpty(token))
             {
                 await Librespot.ConnectWithAccessTokenAsync(token);
 
@@ -291,7 +292,15 @@ namespace LibreSpotUWP
             var auth = SpotifyAuth?.Current;
             return auth != null &&
                 !string.IsNullOrEmpty(auth.AccessToken) &&
-                !auth.IsExpired;
+                (!auth.IsExpired || !ConnectivityHelper.HasInternetAccess());
+        }
+
+        private static bool HasCachedAuthState()
+        {
+            var auth = SpotifyAuth?.Current;
+            return auth != null &&
+                !string.IsNullOrEmpty(auth.AccessToken) &&
+                !string.IsNullOrEmpty(auth.RefreshToken);
         }
 
         private static string GetLiveTileNavigationTag(LaunchActivatedEventArgs args)
