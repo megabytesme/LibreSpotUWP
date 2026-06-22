@@ -85,15 +85,21 @@ namespace LibreSpotUWP.Controls {
 
         public void SetAlbum(FullAlbum album)
         {
+            if (album == null)
+            {
+                ClearHeader("Album unavailable");
+                return;
+            }
+
             _currentId = album.Id;
             _currentType = "album";
 
-            TitleText.Text = album.Name;
+            TitleText.Text = string.IsNullOrWhiteSpace(album.Name) ? "Album" : album.Name;
 
             SubtitleText.Inlines.Clear();
             bool first = true;
 
-            foreach (var artist in album.Artists)
+            foreach (var artist in album.Artists ?? Enumerable.Empty<SimpleArtist>())
             {
                 if (!first)
                     SubtitleText.Inlines.Add(new Run { Text = ", " });
@@ -114,6 +120,18 @@ namespace LibreSpotUWP.Controls {
             MetadataPanel.Children.Add(new TextBlock { Text = $"Label: {album.Label}", TextWrapping = TextWrapping.Wrap });
             MetadataPanel.Children.Add(new TextBlock { Text = $"Tracks: {album.TotalTracks}", TextWrapping = TextWrapping.Wrap });
             MetadataPanel.Children.Add(new TextBlock { Text = $"Popularity: {album.Popularity}", TextWrapping = TextWrapping.Wrap });
+        }
+
+        private void ClearHeader(string title)
+        {
+            _currentId = null;
+            _currentType = null;
+
+            TitleText.Text = title;
+            SubtitleText.Inlines.Clear();
+            MetadataPanel.Children.Clear();
+            MainImage.Source = ImageUriHelper.CreateBitmapImage(null, useFallback: true);
+            ImageBorder.CornerRadius = new CornerRadius(4);
         }
 
         public void SetArtist(FullArtist artist)
