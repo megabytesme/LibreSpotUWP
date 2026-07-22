@@ -64,6 +64,7 @@ namespace LibreSpotUWP.Services
         private LibrespotRingBufferPlayer _ringPlayer;
 
         private DispatcherTimer _positionTimer;
+        private readonly PlaybackPositionSynchronizer _positionSynchronizer = new PlaybackPositionSynchronizer();
         private DispatcherTimer _volumeDebounceTimer;
         private DispatcherTimer _spotifyConnectTimer;
         private ushort _pendingVolume;
@@ -71,8 +72,7 @@ namespace LibreSpotUWP.Services
         private bool _refreshingSpotifyConnectPlayback;
         private int _spotifyConnectRefreshFailureCount;
         private DateTimeOffset _nextSpotifyConnectRefreshAt = DateTimeOffset.MinValue;
-        private uint _remotePositionBaseMs;
-        private DateTimeOffset _remotePositionUpdatedAt = DateTimeOffset.MinValue;
+        private bool _hasRemotePositionAnchor;
         private string[] _offlineQueue = Array.Empty<string>();
         private int _offlineQueueIndex = -1;
         private string _offlineQueueContextUri;
@@ -109,7 +109,7 @@ namespace LibreSpotUWP.Services
 
         private const string VolumeKey = "UserVolume";
         private const string PlaybackSnapshotKey = "LastPlaybackSnapshot";
-        private const int PositionTimerIntervalMs = 500;
+        private const int PositionTimerIntervalMs = PlaybackPositionSynchronizer.UiUpdateIntervalMs;
         private const int SnapshotWriteIntervalMs = 5000;
         private const int MaxOnlineQueueRecoveryAttempts = 2;
         private static readonly TimeSpan OnlineQueueRecoveryWatchdogDelay = TimeSpan.FromSeconds(12);
@@ -236,13 +236,47 @@ namespace LibreSpotUWP.Services
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
                 UpdateEstimatedRemotePosition();
-                return;
+            }
+            else
+            {
+                var isPlaying = _state.PlaybackState == LibrespotPlaybackState.Playing;
+                if (isPlaying)
+                {
+                    _positionSynchronizer.ObserveAuthoritative(
+                        _librespot.GetPositionMs(),
+                        PlaybackPositionOrigin.PeriodicPoll,
+                        isPlaying: true);
+                }
+
+                PublishSynchronizedPosition(persistSnapshot: isPlaying);
             }
 
-            if (_state.PlaybackState != LibrespotPlaybackState.Playing)
+            FlushPositionCorrectionBurstSummary();
+        }
+
+        private void PublishSynchronizedPosition(bool persistSnapshot)
+        {
+            uint visiblePosition;
+            if (_positionSynchronizer.TryGetVisiblePosition(
+                _state.DurationMs,
+                _state.PlaybackState == LibrespotPlaybackState.Playing,
+                force: false,
+                positionMs: out visiblePosition))
+            {
+                ApplyPlaybackPosition(visiblePosition, persistSnapshot);
+            }
+        }
+
+        private void FlushPositionCorrectionBurstSummary()
+        {
+            PositionCorrectionBurstSummary summary;
+            if (!_positionSynchronizer.TryTakeCorrectionBurstSummary(out summary))
                 return;
 
-            ApplyPlaybackPosition(_librespot.GetPositionMs(), persistSnapshot: true);
+            LogService.Info(
+                $"[MediaService.PositionSync] Correction burst count={summary.Count}, " +
+                $"durationMs={summary.DurationMs}, maxDriftMs={summary.MaximumDriftMs}, " +
+                $"hardCorrections={summary.HardCorrections}, actualSeeks={summary.ActualSeeksIssued}.");
         }
 
         private void SpotifyConnectTimer_Tick(object sender, object e)
@@ -357,7 +391,7 @@ namespace LibreSpotUWP.Services
             LogService.Warn($"[MediaService.{operation}] Spotify Connect device '{missingDeviceId}' is no longer available. Falling back to this device.");
 
             UserSettings.SpotifyConnectDeviceId = LocalSpotifyConnectDeviceId;
-            _remotePositionUpdatedAt = DateTimeOffset.MinValue;
+            _hasRemotePositionAnchor = false;
 
             UpdateSelectedSpotifyConnectDeviceState(new SpotifyConnectDeviceInfo
             {
@@ -1210,7 +1244,7 @@ namespace LibreSpotUWP.Services
                     Current.Track?.Uri,
                     preserveCurrent: false,
                     shouldPlay: true);
-                _librespot.Seek(Current.PositionMs);
+                await IssueSystemLibrespotSeekAsync(Current.PositionMs).ConfigureAwait(false);
             }
         }
 
@@ -1376,22 +1410,53 @@ namespace LibreSpotUWP.Services
 
         public void Seek(uint posMs)
         {
+            posMs = ClampPlaybackPosition(posMs);
+            var request = _positionSynchronizer.BeginUserSeek(posMs);
+            ApplyPlaybackPosition(posMs, persistSnapshot: false);
+
             if (!IsSelectedSpotifyConnectDeviceLocal)
             {
-                _ = SeekRemoteAsync(posMs);
+                _ = SeekRemoteAsync(request);
                 return;
             }
 
             var shouldContinuePlaying = Current.PlaybackState == LibrespotPlaybackState.Playing
                 || Current.PlaybackState == LibrespotPlaybackState.Loading;
-            _ringPlayer?.BeginTransition(
-                "seek",
-                Current.Track?.Uri,
-                Current.Track?.Uri,
-                preserveCurrent: false,
-                shouldPlay: shouldContinuePlaying);
-            UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Loading);
-            _librespot.Seek(posMs);
+            _ = SeekLocalAsync(request, shouldContinuePlaying);
+        }
+
+        private async Task SeekLocalAsync(PositionSeekRequest request, bool shouldContinuePlaying)
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    // Decoder seek and transition work never runs synchronously in
+                    // the slider/UI event. A superseded origin token is discarded.
+                    if (!_positionSynchronizer.TryRecordSeekIssued(request))
+                        return;
+
+                    _ringPlayer?.BeginTransition(
+                        "seek",
+                        Current.Track?.Uri,
+                        Current.Track?.Uri,
+                        preserveCurrent: false,
+                        shouldPlay: shouldContinuePlaying);
+                    UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Loading);
+                    _librespot.Seek(request.PositionMs);
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, $"[MediaService.SeekLocalAsync] Unable to seek to {request?.PositionMs}ms");
+            }
+        }
+
+        private async Task IssueSystemLibrespotSeekAsync(uint positionMs)
+        {
+            _positionSynchronizer.Reset(positionMs);
+            _positionSynchronizer.RecordSystemSeekIssued();
+            await Task.Run(() => _librespot.Seek(positionMs)).ConfigureAwait(false);
         }
 
         private async Task SkipRemoteAsync(int delta)
@@ -1415,12 +1480,15 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async Task SeekRemoteAsync(uint posMs)
+        private async Task SeekRemoteAsync(PositionSeekRequest request)
         {
             try
             {
-                await _web.SeekToAsync(GetSelectedSpotifyConnectDeviceId(), posMs).ConfigureAwait(false);
-                ApplyPlaybackPosition(posMs, persistSnapshot: false);
+                if (!_positionSynchronizer.TryRecordSeekIssued(request))
+                    return;
+
+                await _web.SeekToAsync(GetSelectedSpotifyConnectDeviceId(), request.PositionMs).ConfigureAwait(false);
+                ApplyPlaybackPosition(request.PositionMs, persistSnapshot: false);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -1594,9 +1662,24 @@ namespace LibreSpotUWP.Services
             var trackInfo = CreateTrackInfo(playback.Item);
             var fullTrack = playback.Item as FullTrack;
             var progress = playback.ProgressMs < 0 ? 0 : (uint)playback.ProgressMs;
+            var remoteTrackChanged = !string.Equals(
+                Current.Track?.Uri,
+                trackInfo?.Uri,
+                StringComparison.OrdinalIgnoreCase);
 
-            _remotePositionBaseMs = progress;
-            _remotePositionUpdatedAt = DateTimeOffset.UtcNow;
+            _hasRemotePositionAnchor = true;
+
+            if (remoteTrackChanged)
+                _positionSynchronizer.Reset(progress);
+            else
+                _positionSynchronizer.ObserveAuthoritative(
+                    progress,
+                    PlaybackPositionOrigin.RemoteConnect,
+                    playback.IsPlaying);
+
+            var synchronizedProgress = _positionSynchronizer.GetEstimatedPosition(
+                trackInfo != null ? (uint)trackInfo.Duration.TotalMilliseconds : Current.DurationMs,
+                playback.IsPlaying);
 
             UpdateState(s =>
             {
@@ -1606,7 +1689,7 @@ namespace LibreSpotUWP.Services
                 s.Track = trackInfo;
                 s.Metadata = fullTrack;
                 s.PlaybackState = playback.IsPlaying ? LibrespotPlaybackState.Playing : LibrespotPlaybackState.Paused;
-                s.PositionMs = progress;
+                s.PositionMs = synchronizedProgress;
                 s.DurationMs = trackInfo != null ? (uint)trackInfo.Duration.TotalMilliseconds : s.DurationMs;
                 s.ContextUri = playback.Context?.Uri ?? s.ContextUri;
                 s.ContextName = ResolveImmediateContextName(s.ContextUri, fullTrack);
@@ -1622,19 +1705,19 @@ namespace LibreSpotUWP.Services
             });
 
             UpdateSmtcDisplay();
-            UpdateSmtcTimeline(progress);
+            UpdateSmtcTimeline(synchronizedProgress);
             if (_smtc != null)
                 _smtc.PlaybackStatus = playback.IsPlaying ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
         }
 
         private void UpdateEstimatedRemotePosition()
         {
-            if (_state.PlaybackState != LibrespotPlaybackState.Playing || _remotePositionUpdatedAt == DateTimeOffset.MinValue)
+            if (_state.PlaybackState != LibrespotPlaybackState.Playing || !_hasRemotePositionAnchor)
                 return;
 
-            var elapsed = DateTimeOffset.UtcNow - _remotePositionUpdatedAt;
-            var estimated = _remotePositionBaseMs + (uint)Math.Max(0, elapsed.TotalMilliseconds);
-            ApplyPlaybackPosition(estimated, persistSnapshot: false);
+            // Local progression comes from Stopwatch through the synchronizer;
+            // wall-clock changes must not move a remote Connect position.
+            PublishSynchronizedPosition(persistSnapshot: false);
         }
 
         private static LibrespotTrackInfo CreateTrackInfo(IPlayableItem item)
@@ -1701,6 +1784,7 @@ namespace LibreSpotUWP.Services
                 var changeVersion = Interlocked.Increment(ref _trackChangeVersion);
                 if (track == null)
                 {
+                    _positionSynchronizer.Reset(0);
                     UpdateState(state =>
                     {
                         state.Track = null;
@@ -1760,6 +1844,8 @@ namespace LibreSpotUWP.Services
                     }
                 });
 
+                _positionSynchronizer.Reset(Current.PositionMs);
+
                 UpdateSmtcDisplay();
                 PersistPlaybackSnapshot(forceWrite: true);
 
@@ -1782,7 +1868,7 @@ namespace LibreSpotUWP.Services
                             track.Uri,
                             preserveCurrent: false,
                             shouldPlay: true);
-                        _librespot.Seek(seekPosition);
+                        await IssueSystemLibrespotSeekAsync(seekPosition).ConfigureAwait(false);
                     }
 
                     ApplyPlaybackPosition(seekPosition, persistSnapshot: true);
@@ -1882,6 +1968,10 @@ namespace LibreSpotUWP.Services
                             LogService.Info($"[MediaService.OnPlaybackChanged] Ignoring stale Loading request={playbackEvent.PlayRequestId}.");
                             return;
                         }
+                        _positionSynchronizer.ObserveAuthoritative(
+                            currentPos,
+                            PlaybackPositionOrigin.StateTransition,
+                            isPlaying: false);
                         UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Loading);
                         ApplyPlaybackPosition(currentPos, persistSnapshot: false);
                         break;
@@ -1906,7 +1996,7 @@ namespace LibreSpotUWP.Services
                                     _state.Track?.Uri,
                                     preserveCurrent: false,
                                     shouldPlay: true);
-                                _librespot.Seek(seekPosition);
+                                await IssueSystemLibrespotSeekAsync(seekPosition).ConfigureAwait(false);
                             }
 
                             ApplyPlaybackPosition(seekPosition, persistSnapshot: true);
@@ -1922,6 +2012,10 @@ namespace LibreSpotUWP.Services
                             return;
                         }
 
+                        _positionSynchronizer.ObserveAuthoritative(
+                            currentPos,
+                            PlaybackPositionOrigin.StateTransition,
+                            isPlaying: true);
                         UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Playing);
                         ApplyPlaybackPosition(currentPos, persistSnapshot: true);
                         if (_mediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
@@ -1951,6 +2045,10 @@ namespace LibreSpotUWP.Services
                             break;
                         }
 
+                        _positionSynchronizer.ObserveAuthoritative(
+                            currentPos,
+                            PlaybackPositionOrigin.StateTransition,
+                            isPlaying: false);
                         UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Paused);
                         ApplyPlaybackPosition(currentPos, persistSnapshot: false);
                         if (_ringPlayer != null)
@@ -1985,6 +2083,10 @@ namespace LibreSpotUWP.Services
 
                         if (!hasPendingAudioTransition)
                             _ringPlayer?.Stop();
+                        _positionSynchronizer.ObserveAuthoritative(
+                            currentPos,
+                            PlaybackPositionOrigin.StateTransition,
+                            isPlaying: false);
                         UpdateState(s => s.PlaybackState = LibrespotPlaybackState.Stopped);
                         ApplyPlaybackPosition(currentPos, persistSnapshot: false);
                         _mediaPlayer.Pause();
@@ -2026,18 +2128,38 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private void OnPositionChanged(object sender, uint positionMs)
+        private void OnPositionChanged(object sender, LibrespotPositionUpdate update)
         {
             try
             {
                 if (!IsSelectedSpotifyConnectDeviceLocal)
                     return;
 
-                ApplyPlaybackPosition(positionMs, persistSnapshot: _state.PlaybackState == LibrespotPlaybackState.Playing);
+                PlaybackPositionOrigin origin;
+                switch (update.Origin)
+                {
+                    case LibrespotPositionUpdateOrigin.SeekAcknowledgement:
+                        origin = PlaybackPositionOrigin.SeekAcknowledgement;
+                        break;
+                    case LibrespotPositionUpdateOrigin.PositionCorrection:
+                        origin = PlaybackPositionOrigin.LibrespotCorrection;
+                        break;
+                    default:
+                        origin = PlaybackPositionOrigin.LibrespotProgress;
+                        break;
+                }
+
+                // This handler runs on the native callback thread and deliberately
+                // performs no dispatcher work. The 4 Hz position timer publishes
+                // the latest monotonic estimate to MediaState and the UI.
+                _positionSynchronizer.ObserveAuthoritative(
+                    update.PositionMs,
+                    origin,
+                    _state.PlaybackState == LibrespotPlaybackState.Playing);
             }
             catch (Exception ex)
             {
-                LogService.Error(ex, $"[MediaService.OnPositionChanged] Unhandled error while processing position {positionMs}");
+                LogService.Error(ex, $"[MediaService.OnPositionChanged] Unhandled error while processing position {update.PositionMs}");
             }
         }
 

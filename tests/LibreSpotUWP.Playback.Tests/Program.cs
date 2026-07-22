@@ -17,7 +17,15 @@ internal static class Program
             StalePcmFromPreviousGeneration,
             RapidNextPrevious,
             CancellationDuringTransition,
-            ReconnectDuringLoading
+            ReconnectDuringLoading,
+            UserDragCommitsOneSeek,
+            RemoteCorrectionAfterLocalSeekDoesNotReseek,
+            RepeatedCorrectionsInsideToleranceAreIgnored,
+            LargeLegitimateCorrectionIsApplied,
+            ProgrammaticUiUpdatesNeverSeek,
+            RemoteConnectPositionRemainsSynchronized,
+            CorrectionStormKeepsDispatcherAndAudioWorkBounded,
+            LumiaStyleSequenceDoesNotUnderrun
         };
 
         try
@@ -188,6 +196,221 @@ internal static class Program
             (QuantumBytes * 320) + PreRollBytes,
             QuantumBytes * 320).ShouldResume,
             "reconnected generation did not resume after pre-roll");
+    }
+
+    private static void UserDragCommitsOneSeek()
+    {
+        var interaction = new PositionSeekInteraction();
+        interaction.BeginDrag();
+        Assert(interaction.IsDragging, "slider did not enter preview mode");
+
+        uint positionMs;
+        Assert(interaction.TryCommit(84_374, out positionMs), "slider release did not commit");
+        Assert(positionMs == 84_374, "slider committed the wrong preview position");
+        Assert(!interaction.TryCommit(84_374, out positionMs),
+            "capture loss committed a second seek after pointer release");
+
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        var request = synchronizer.BeginUserSeek(84_374);
+        Assert(synchronizer.TryRecordSeekIssued(request), "user seek token was not issued");
+        Assert(!synchronizer.TryRecordSeekIssued(request), "user seek token was issued twice");
+    }
+
+    private static void RemoteCorrectionAfterLocalSeekDoesNotReseek()
+    {
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        synchronizer.Reset(10_000);
+
+        var request = synchronizer.BeginUserSeek(84_374);
+        Assert(synchronizer.TryRecordSeekIssued(request), "local seek was not issued");
+
+        now = 5;
+        synchronizer.ObserveAuthoritative(
+            84_374,
+            PlaybackPositionOrigin.SeekAcknowledgement,
+            isPlaying: true);
+        now = 10;
+        var correction = synchronizer.ObserveAuthoritative(
+            84_384,
+            PlaybackPositionOrigin.LibrespotCorrection,
+            isPlaying: true);
+
+        Assert(!correction.AppliedHardCorrection, "seek acknowledgement caused a hard correction");
+        Assert(!synchronizer.TryRecordSeekIssued(request),
+            "a correction recursively reissued the original seek");
+
+        now += PlaybackPositionSynchronizer.CorrectionBurstQuietPeriodMs;
+        PositionCorrectionBurstSummary summary;
+        Assert(synchronizer.TryTakeCorrectionBurstSummary(out summary), "correction burst was not summarized");
+        Assert(summary.ActualSeeksIssued == 1, "correction burst did not retain the one originating seek");
+    }
+
+    private static void RepeatedCorrectionsInsideToleranceAreIgnored()
+    {
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        synchronizer.Reset(20_000);
+
+        for (var i = 1; i <= 100; i++)
+        {
+            now += 10;
+            var observation = synchronizer.ObserveAuthoritative(
+                (uint)(20_000 + now + 100),
+                PlaybackPositionOrigin.LibrespotCorrection,
+                isPlaying: true);
+            Assert(!observation.AppliedHardCorrection, "sub-tolerance drift caused a hard correction");
+        }
+    }
+
+    private static void LargeLegitimateCorrectionIsApplied()
+    {
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        synchronizer.Reset(10_000);
+
+        now = 100;
+        var observation = synchronizer.ObserveAuthoritative(
+            15_000,
+            PlaybackPositionOrigin.LibrespotCorrection,
+            isPlaying: true);
+
+        Assert(observation.AppliedHardCorrection, "large correction was ignored");
+        Assert(synchronizer.GetEstimatedPosition(30_000, isPlaying: true) == 15_000,
+            "large correction did not replace the monotonic position anchor");
+    }
+
+    private static void ProgrammaticUiUpdatesNeverSeek()
+    {
+        var interaction = new PositionSeekInteraction();
+        uint ignored;
+        Assert(!interaction.TryCommit(42_000, out ignored),
+            "programmatic slider value was interpreted as a user seek");
+
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        synchronizer.Reset(42_000);
+        synchronizer.ObserveAuthoritative(
+            42_100,
+            PlaybackPositionOrigin.LibrespotCorrection,
+            isPlaying: true);
+
+        now += PlaybackPositionSynchronizer.CorrectionBurstQuietPeriodMs;
+        PositionCorrectionBurstSummary summary;
+        Assert(synchronizer.TryTakeCorrectionBurstSummary(out summary), "UI correction was not summarized");
+        Assert(summary.ActualSeeksIssued == 0, "programmatic position update issued a seek");
+    }
+
+    private static void RemoteConnectPositionRemainsSynchronized()
+    {
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        synchronizer.Reset(5_000);
+
+        now = 250;
+        var remote = synchronizer.ObserveAuthoritative(
+            30_000,
+            PlaybackPositionOrigin.RemoteConnect,
+            isPlaying: true);
+        Assert(remote.AppliedHardCorrection, "large remote Connect update was not accepted");
+
+        now = 750;
+        Assert(synchronizer.GetEstimatedPosition(60_000, isPlaying: true) == 30_500,
+            "remote Connect position did not progress from monotonic time");
+    }
+
+    private static void CorrectionStormKeepsDispatcherAndAudioWorkBounded()
+    {
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        var seek = synchronizer.BeginUserSeek(84_374);
+        Assert(synchronizer.TryRecordSeekIssued(seek), "storm setup seek was not issued");
+
+        var uiDispatches = 0;
+        var audioBufferQuanta = 20;
+        var underruns = 0;
+        for (var i = 0; i < 1000; i++)
+        {
+            now += 10;
+            synchronizer.ObserveAuthoritative(
+                (uint)(84_374 + now),
+                PlaybackPositionOrigin.LibrespotCorrection,
+                isPlaying: true);
+
+            uint visible;
+            if (synchronizer.TryGetVisiblePosition(240_960, true, false, out visible))
+                uiDispatches++;
+
+            // Correction ingestion performs no dispatcher work, so the simulated
+            // 10 ms producer and AudioGraph consumer continue at equal cadence.
+            audioBufferQuanta++;
+            if (audioBufferQuanta == 0)
+                underruns++;
+            else
+                audioBufferQuanta--;
+        }
+
+        Assert(uiDispatches <= 41, "1,000 corrections created unbounded UI dispatcher work");
+        Assert(underruns == 0, "correction storm starved the simulated audio producer");
+
+        now += PlaybackPositionSynchronizer.CorrectionBurstQuietPeriodMs;
+        PositionCorrectionBurstSummary summary;
+        Assert(synchronizer.TryTakeCorrectionBurstSummary(out summary), "storm summary was not emitted");
+        Assert(summary.Count == 1000, "storm summary lost correction events");
+        Assert(summary.ActualSeeksIssued == 1, "storm recursively issued additional seeks");
+        Assert(summary.HardCorrections == 0, "in-tolerance Lumia sequence hard-corrected repeatedly");
+    }
+
+    private static void LumiaStyleSequenceDoesNotUnderrun()
+    {
+        const int correctionCount = 772;
+        const long burstDurationMs = 45_808;
+        const uint firstPositionMs = 84_374;
+        const uint positionAdvanceMs = 9_257;
+
+        long now = 0;
+        var synchronizer = new PlaybackPositionSynchronizer(() => now);
+        var seek = synchronizer.BeginUserSeek(firstPositionMs);
+        Assert(synchronizer.TryRecordSeekIssued(seek), "Lumia seek was not issued");
+
+        var uiDispatches = 0;
+        var audioBufferQuanta = 20;
+        var underruns = 0;
+        for (var i = 0; i < correctionCount; i++)
+        {
+            now = i * burstDurationMs / (correctionCount - 1);
+            var position = firstPositionMs +
+                (uint)(i * (long)positionAdvanceMs / (correctionCount - 1));
+
+            synchronizer.ObserveAuthoritative(
+                position,
+                PlaybackPositionOrigin.LibrespotCorrection,
+                isPlaying: true);
+
+            uint visible;
+            if (synchronizer.TryGetVisiblePosition(240_960, true, false, out visible))
+                uiDispatches++;
+
+            // Position correction observation consumes no AudioGraph quantum and
+            // therefore cannot drain the producer's existing pre-roll.
+            audioBufferQuanta++;
+            if (audioBufferQuanta == 0)
+                underruns++;
+            else
+                audioBufferQuanta--;
+        }
+
+        Assert(uiDispatches <= 185, "Lumia burst exceeded the 4 Hz UI update bound");
+        Assert(underruns == 0, "Lumia burst drained the simulated ring buffer");
+
+        now += PlaybackPositionSynchronizer.CorrectionBurstQuietPeriodMs;
+        PositionCorrectionBurstSummary summary;
+        Assert(synchronizer.TryTakeCorrectionBurstSummary(out summary), "Lumia burst summary was not emitted");
+        Assert(summary.Count == correctionCount, "Lumia burst summary count was incorrect");
+        Assert(summary.ActualSeeksIssued == 1, "Lumia burst issued more than the user seek");
+        Assert(summary.HardCorrections < correctionCount / 10,
+            "Lumia burst hard-corrected close to every packet");
     }
 
     private static AudioTransitionStateMachine ActiveMachine(ulong generation, ulong request)

@@ -68,14 +68,13 @@ namespace LibreSpotUWP.Services
         public event EventHandler<LibrespotTrackInfo> TrackChanged;
         public event EventHandler<LibrespotPlaybackState> PlaybackStateChanged;
         public event EventHandler<LibrespotPlaybackEvent> PlaybackEvent;
-        public event EventHandler<uint> PositionChanged;
+        public event EventHandler<LibrespotPositionUpdate> PositionChanged;
         public event EventHandler<ushort> VolumeChanged;
         public event EventHandler<string> EndOfTrack;
         public event EventHandler<string> LogMessage;
         public event EventHandler<string> Panic;
         public event EventHandler<bool> ShuffleChanged;
         public event EventHandler<uint> RepeatChanged;
-        public event EventHandler<uint> Seeked;
 
         public LibrespotService(AudioKeyCache keyCache)
         {
@@ -936,7 +935,10 @@ namespace LibreSpotUWP.Services
 
         private void HandleEvent(LibrespotEvent evt)
         {
-            string logPrefix = $"{ts} [LibreSpot Event:{evt.event_type}]";
+            string logPrefix = evt.event_type == EventType.PositionCorrection ||
+                evt.event_type == EventType.PositionChanged
+                    ? null
+                    : $"{ts} [LibreSpot Event:{evt.event_type}]";
 
             switch (evt.event_type)
             {
@@ -967,7 +969,7 @@ namespace LibreSpotUWP.Services
                         WasPreloaded = evt.data.was_preloaded
                     };
                     UpdateTrack(track);
-                    UpdatePosition(0);
+                    PublishPositionUpdate(0, LibrespotPositionUpdateOrigin.Progress);
                     break;
 
                 case EventType.PlaybackPaused:
@@ -1022,13 +1024,20 @@ namespace LibreSpotUWP.Services
                         PositionMs = evt.data.position_ms,
                         IsSeek = true
                     });
-                    goto case EventType.PositionCorrection;
+                    LogService.Info($"{logPrefix} Seek acknowledged at {evt.data.position_ms}ms");
+                    PublishPositionUpdate(
+                        evt.data.position_ms,
+                        LibrespotPositionUpdateOrigin.SeekAcknowledgement);
+                    break;
                 case EventType.PositionCorrection:
+                    PublishPositionUpdate(
+                        evt.data.position_ms,
+                        LibrespotPositionUpdateOrigin.PositionCorrection);
+                    break;
                 case EventType.PositionChanged:
-                    if (evt.event_type != EventType.PositionChanged)
-                        LogService.Info($"{logPrefix} Syncing position to {evt.data.position_ms}ms");
-
-                    UpdatePosition(evt.data.position_ms);
+                    PublishPositionUpdate(
+                        evt.data.position_ms,
+                        LibrespotPositionUpdateOrigin.Progress);
                     break;
 
                 case EventType.SessionConnected:
@@ -1165,10 +1174,23 @@ namespace LibreSpotUWP.Services
             LogService.Info($"[LibreSpot] Explicit Filter updated: {enabled}");
         }
 
-        private void UpdatePosition(uint positionMs)
+        private void PublishPositionUpdate(uint positionMs, LibrespotPositionUpdateOrigin origin)
         {
-            RaiseOnMainThread(() => PositionChanged?.Invoke(this, positionMs), nameof(PositionChanged));
-            RaiseOnMainThread(() => Seeked?.Invoke(this, positionMs), nameof(Seeked));
+            // This callback can be emitted by the decoder for every packet. Keep
+            // it off the UI dispatcher; MediaService coalesces it on its bounded
+            // display timer. No position update is ever translated into a seek.
+            try
+            {
+                PositionChanged?.Invoke(this, new LibrespotPositionUpdate
+                {
+                    PositionMs = positionMs,
+                    Origin = origin
+                });
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "Librespot position observer failed");
+            }
         }
 
         private void UpdateShuffle(bool enabled)

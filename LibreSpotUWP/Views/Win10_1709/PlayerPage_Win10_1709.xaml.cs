@@ -2,6 +2,7 @@ using LibreSpotUWP.Controls;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,7 +21,7 @@ namespace LibreSpotUWP.Views.Win10_1709
     {
         private IMediaService Media => App.Media;
 
-        private bool _dragging = false;
+        private readonly PositionSeekInteraction _positionSeekInteraction = new PositionSeekInteraction();
         private string _currentTrackUri = null;
         private string _currentArtworkUri = null;
         private uint _lastUpdateSec = uint.MaxValue;
@@ -128,20 +129,16 @@ namespace LibreSpotUWP.Views.Win10_1709
             UpdateSpotifyConnectSelection(state);
 
             uint currentSec = state.PositionMs / 1000;
-            if (currentSec != _lastUpdateSec || _dragging)
+            if (currentSec != _lastUpdateSec && !_positionSeekInteraction.IsDragging)
             {
                 _lastUpdateSec = currentSec;
 
-                if (!_dragging)
+                if (PositionSlider.Maximum != state.DurationMs)
                 {
-                    if (PositionSlider.Maximum != state.DurationMs)
-                    {
-                        PositionSlider.Maximum = state.DurationMs;
-                    }
-
-                    PositionSlider.Value = state.PositionMs;
+                    PositionSlider.Maximum = state.DurationMs;
                 }
 
+                PositionSlider.Value = state.PositionMs;
                 ElapsedTime.Text = Format(state.PositionMs);
             }
         }
@@ -156,7 +153,7 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         private void PositionSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            _dragging = true;
+            _positionSeekInteraction.BeginDrag();
         }
 
         private void PositionSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
@@ -171,7 +168,7 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         private void PositionSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            if (_dragging)
+            if (_positionSeekInteraction.IsDragging)
             {
                 ElapsedTime.Text = Format((uint)e.NewValue);
             }
@@ -182,8 +179,9 @@ namespace LibreSpotUWP.Views.Win10_1709
             if (PositionSlider == null)
                 return;
 
-            _dragging = false;
-            Media.Seek((uint)PositionSlider.Value);
+            uint positionMs;
+            if (_positionSeekInteraction.TryCommit((uint)PositionSlider.Value, out positionMs))
+                Media.Seek(positionMs);
         }
 
         private void PrevButton_Click(object sender, RoutedEventArgs e)

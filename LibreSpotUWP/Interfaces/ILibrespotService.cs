@@ -77,7 +77,7 @@ namespace LibreSpotUWP.Interfaces
         event EventHandler<LibrespotTrackInfo> TrackChanged;
         event EventHandler<LibrespotPlaybackState> PlaybackStateChanged;
         event EventHandler<LibrespotPlaybackEvent> PlaybackEvent;
-        event EventHandler<uint> PositionChanged;
+        event EventHandler<LibrespotPositionUpdate> PositionChanged;
         event EventHandler<ushort> VolumeChanged;
         event EventHandler<bool> ShuffleChanged;
         event EventHandler<uint> RepeatChanged;

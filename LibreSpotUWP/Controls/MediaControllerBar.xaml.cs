@@ -1,6 +1,7 @@
 ﻿using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Helpers;
+using LibreSpotUWP.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,7 +18,7 @@ namespace LibreSpotUWP.Controls
     public sealed partial class MediaControllerBar : UserControl
     {
         private IMediaService _media => App.Media;
-        private bool _draggingPosition = false;
+        private readonly PositionSeekInteraction _positionSeekInteraction = new PositionSeekInteraction();
         private bool _isReady = false;
         private string _currentArtworkUri = null;
         private bool _loadingOutputDevices;
@@ -81,13 +82,13 @@ namespace LibreSpotUWP.Controls
                 AlbumArt.Source = TryCreateBitmap(artworkUri);
             }
 
-            if (!_draggingPosition)
+            if (!_positionSeekInteraction.IsDragging)
             {
                 PositionSlider.Maximum = state.DurationMs;
                 PositionSlider.Value = state.PositionMs;
+                CurrentTime.Text = Format(state.PositionMs);
             }
 
-            CurrentTime.Text = Format(state.PositionMs);
             TotalTime.Text = Format(state.DurationMs);
 
             PlayPauseIcon.Glyph = state.IsPlaying ? "\uE769" : "\uE768";
@@ -167,7 +168,7 @@ namespace LibreSpotUWP.Controls
         }
 
         private void PositionSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
-            => _draggingPosition = true;
+            => _positionSeekInteraction.BeginDrag();
 
         private void PositionSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
@@ -181,17 +182,18 @@ namespace LibreSpotUWP.Controls
 
         private void PositionSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            if (_draggingPosition)
+            if (_positionSeekInteraction.IsDragging)
                 CurrentTime.Text = Format((uint)e.NewValue);
         }
 
         private void CommitPositionSeek()
         {
-            if (!_draggingPosition && PositionSlider == null)
+            if (PositionSlider == null)
                 return;
 
-            _draggingPosition = false;
-            _media?.Seek((uint)PositionSlider.Value);
+            uint positionMs;
+            if (_positionSeekInteraction.TryCommit((uint)PositionSlider.Value, out positionMs))
+                _media?.Seek(positionMs);
         }
 
         private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
