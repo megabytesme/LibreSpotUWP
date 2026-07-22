@@ -10,6 +10,9 @@ namespace LibreSpotUWP.Models
         public string Album { get; set; }
         public string CoverUrl { get; set; }
         public TimeSpan Duration { get; set; }
+        public ulong PlayRequestId { get; set; }
+        public ulong AudioGeneration { get; set; }
+        public bool WasPreloaded { get; set; }
 
         public LibrespotTrackInfo Clone()
         {
@@ -20,7 +23,10 @@ namespace LibreSpotUWP.Models
                 Artist = this.Artist,
                 Album = this.Album,
                 CoverUrl = this.CoverUrl,
-                Duration = this.Duration
+                Duration = this.Duration,
+                PlayRequestId = this.PlayRequestId,
+                AudioGeneration = this.AudioGeneration,
+                WasPreloaded = this.WasPreloaded
             };
         }
     }

@@ -67,6 +67,7 @@ namespace LibreSpotUWP.Services
         public event EventHandler<LibrespotSessionState> SessionStateChanged;
         public event EventHandler<LibrespotTrackInfo> TrackChanged;
         public event EventHandler<LibrespotPlaybackState> PlaybackStateChanged;
+        public event EventHandler<LibrespotPlaybackEvent> PlaybackEvent;
         public event EventHandler<uint> PositionChanged;
         public event EventHandler<ushort> VolumeChanged;
         public event EventHandler<string> EndOfTrack;
@@ -249,6 +250,7 @@ namespace LibreSpotUWP.Services
 
             RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, _session), nameof(SessionStateChanged));
             RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, _playbackState), nameof(PlaybackStateChanged));
+            PublishPlaybackEvent(new LibrespotPlaybackEvent { State = _playbackState });
             RaiseOnMainThread(() => TrackChanged?.Invoke(this, null), nameof(TrackChanged));
         }
 
@@ -959,7 +961,10 @@ namespace LibreSpotUWP.Services
                         Artist = artistName,
                         Album = ReadString(t.album),
                         CoverUrl = ReadString(t.cover_url),
-                        Duration = TimeSpan.FromMilliseconds(t.duration_ms)
+                        Duration = TimeSpan.FromMilliseconds(t.duration_ms),
+                        PlayRequestId = evt.data.play_request_id,
+                        AudioGeneration = evt.data.audio_generation,
+                        WasPreloaded = evt.data.was_preloaded
                     };
                     UpdateTrack(track);
                     UpdatePosition(0);
@@ -967,23 +972,23 @@ namespace LibreSpotUWP.Services
 
                 case EventType.PlaybackPaused:
                     LogService.Info($"{logPrefix} State -> Paused at {evt.data.position_ms}ms");
-                    UpdatePlaybackState(LibrespotPlaybackState.Paused);
+                    UpdatePlaybackState(LibrespotPlaybackState.Paused, evt.data);
                     break;
 
                 case EventType.PlaybackResumed:
                     LogService.Info($"{logPrefix} State -> Playing from {evt.data.position_ms}ms");
-                    UpdatePlaybackState(LibrespotPlaybackState.Playing);
+                    UpdatePlaybackState(LibrespotPlaybackState.Playing, evt.data);
                     break;
 
                 case EventType.PlaybackLoading:
                     LogService.Info($"{logPrefix} Buffering/Loading track...");
-                    UpdatePlaybackState(LibrespotPlaybackState.Loading);
+                    UpdatePlaybackState(LibrespotPlaybackState.Loading, evt.data);
                     break;
 
                 case EventType.PlaybackStopped:
                 case EventType.PlaybackUnavailable:
                     LogService.Info($"{logPrefix} Playback Stopped.");
-                    UpdatePlaybackState(LibrespotPlaybackState.Stopped);
+                    UpdatePlaybackState(LibrespotPlaybackState.Stopped, evt.data);
                     break;
 
                 case EventType.EndOfTrack:
@@ -1008,6 +1013,16 @@ namespace LibreSpotUWP.Services
                     break;
 
                 case EventType.Seeked:
+                    PublishPlaybackEvent(new LibrespotPlaybackEvent
+                    {
+                        State = _playbackState,
+                        PlayRequestId = evt.data.play_request_id,
+                        AudioGeneration = evt.data.audio_generation,
+                        TrackUri = ReadString(evt.data.track_uri),
+                        PositionMs = evt.data.position_ms,
+                        IsSeek = true
+                    });
+                    goto case EventType.PositionCorrection;
                 case EventType.PositionCorrection:
                 case EventType.PositionChanged:
                     if (evt.event_type != EventType.PositionChanged)
@@ -1077,11 +1092,30 @@ namespace LibreSpotUWP.Services
 
         private void UpdatePlaybackState(LibrespotPlaybackState state)
         {
+            UpdatePlaybackState(state, default(EventData));
+        }
+
+        private void UpdatePlaybackState(LibrespotPlaybackState state, EventData data)
+        {
             lock (_stateLock)
             {
                 _playbackState = state;
             }
+            var playbackEvent = new LibrespotPlaybackEvent
+            {
+                State = state,
+                PlayRequestId = data.play_request_id,
+                AudioGeneration = data.audio_generation,
+                TrackUri = ReadString(data.track_uri),
+                PositionMs = data.position_ms
+            };
             RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, state), nameof(PlaybackStateChanged));
+            PublishPlaybackEvent(playbackEvent);
+        }
+
+        private void PublishPlaybackEvent(LibrespotPlaybackEvent playbackEvent)
+        {
+            RaiseOnMainThread(() => PlaybackEvent?.Invoke(this, playbackEvent), nameof(PlaybackEvent));
         }
 
         private void UpdateTrack(LibrespotTrackInfo track)

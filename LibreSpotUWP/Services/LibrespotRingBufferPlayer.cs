@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Linq;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -35,11 +34,26 @@ namespace LibreSpotUWP.Services
 
         private IntPtr _bufferPtr;
         private int _capacityBytes;
-        private int _readPos;
         private int _frameSize;
-        private int _firstAudioFrameLogged = 1;
-        private string _firstAudioFrameTrackUri = "(unknown)";
+        private long _readSequence;
+        private long _activeGeneration;
+        private long _activeBoundarySequence = -1;
+        private int _consumerEnabled;
+        private int _inputNodeRunning;
+        private int _transitionPollRunning;
+        private int _disposed;
+        private string _audioHealthTrackUri = "(unknown)";
         private Timer _telemetryTimer;
+        private Timer _transitionTimer;
+        private readonly object _initializationLock = new object();
+        private readonly object _transitionLock = new object();
+        private readonly SemaphoreSlim _lifecycleGate = new SemaphoreSlim(1, 1);
+        private Task _initializationTask;
+        private AudioTransitionStateMachine _transitionState;
+        private TaskCompletionSource<bool> _playbackReady;
+        private TransitionTelemetry _transitionTelemetry;
+        private long _transitionMinimumAvailableBytes = long.MaxValue;
+        private long _transitionInsertedSilenceBytes;
         private long _lastQuantumTimestamp;
         private long _telemetryQuantumCount;
         private long _telemetryRequestedBytes;
@@ -55,9 +69,14 @@ namespace LibreSpotUWP.Services
         private int _telemetryMinAvailableBytes = int.MaxValue;
         private int _telemetryMaxAvailableBytes;
 
-        private readonly ConcurrentQueue<PooledFrame> _framePool = new ConcurrentQueue<PooledFrame>();
         private const int PoolSize = 6;
+        private readonly PooledFrame[] _framePool = new PooledFrame[PoolSize];
+        private int _nextFramePoolIndex = -1;
         private const int TelemetryIntervalMs = 10000;
+        private const int TransitionPollIntervalMs = 10;
+        // 200 ms is long enough to absorb scheduling jitter seen on Lumia 830
+        // class devices while leaving headroom in the ~495 ms native ring.
+        public const int PreRollMilliseconds = 200;
         private const int SignificantLateCallbackCount = 10;
         private const double SignificantLateCallbackGapMs = 40.0;
         private const int DefaultEqualizerBandCount = 5;
@@ -66,10 +85,23 @@ namespace LibreSpotUWP.Services
         private const double EqualizerDefaultLinearGain = 1.0;
         private uint _maxFrameBytes;
 
+        private sealed class TransitionTelemetry
+        {
+            public long Id;
+            public string OldTrackUri;
+            public string NewTrackUri;
+            public string Reason;
+            public long StartedTimestamp;
+            public long FirstPcmTimestamp;
+            public double PreRollMilliseconds;
+            public bool WasPreloaded;
+        }
+
         private class PooledFrame : IDisposable
         {
             public AudioFrame Frame { get; }
             public uint Capacity { get; }
+            public int InUse;
 
             public PooledFrame(uint capacity)
             {
@@ -86,18 +118,34 @@ namespace LibreSpotUWP.Services
             _outputDeviceId = outputDeviceId ?? string.Empty;
         }
 
-        public async Task InitializeAsync()
+        public Task InitializeAsync()
         {
+            lock (_initializationLock)
+            {
+                if (_initializationTask == null)
+                    _initializationTask = InitializeCoreAsync();
+
+                return _initializationTask;
+            }
+        }
+
+        private async Task InitializeCoreAsync()
+        {
+            await _lifecycleGate.WaitAsync();
+            try
+            {
             using (var process = Process.GetCurrentProcess())
                 process.PriorityClass = ProcessPriorityClass.High;
 
             await WaitForRingBufferAsync();
 
             _capacityBytes = (int)librespot_audio_get_capacity().ToUInt32();
-            var writeCursor = librespot_audio_get_write_cursor().ToUInt32();
-            _readPos = _capacityBytes > 0 ? (int)(writeCursor % (uint)_capacityBytes) : 0;
-            librespot_audio_set_read_cursor((UIntPtr)_readPos);
+            var producer = GetProducerState();
+            _readSequence = (long)producer.WriteSequence;
+            librespot_audio_set_read_sequence(producer.WriteSequence);
             _frameSize = (int)(_props.ChannelCount * (_props.BitsPerSample / 8));
+            var preRollBytes = MillisecondsToAlignedBytes(PreRollMilliseconds);
+            _transitionState = new AudioTransitionStateMachine((ulong)preRollBytes);
 
             var settings = new AudioGraphSettings(AudioRenderCategory.Media)
             {
@@ -124,7 +172,7 @@ namespace LibreSpotUWP.Services
             _maxFrameBytes = samplesPerQuantum * (uint)_frameSize;
 
             for (int i = 0; i < PoolSize; i++)
-                _framePool.Enqueue(new PooledFrame(_maxFrameBytes));
+                _framePool[i] = new PooledFrame(_maxFrameBytes);
 
             var outResult = await _graph.CreateDeviceOutputNodeAsync();
             _inputNode = _graph.CreateFrameInputNode(_props);
@@ -134,97 +182,539 @@ namespace LibreSpotUWP.Services
             _inputNode.QuantumStarted += OnQuantumStarted;
             _inputNode.AddOutgoingConnection(outResult.DeviceOutputNode);
 
+            _inputNode.Stop();
             _graph.Start();
             _telemetryTimer = new Timer(_ => FlushAudioTelemetry(), null, TelemetryIntervalMs, TelemetryIntervalMs);
-            LogService.Info($"[LibrespotRingBufferPlayer.InitializeAsync] AudioGraph started sampleRate={_props.SampleRate}, channels={_props.ChannelCount}, bits={_props.BitsPerSample}, samplesPerQuantum={_graph.SamplesPerQuantum}, frameBytes={_frameSize}, maxFrameBytes={_maxFrameBytes}, capacityBytes={_capacityBytes}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.");
+            _transitionTimer = new Timer(_ => QueueTransitionPoll(), null, TransitionPollIntervalMs, TransitionPollIntervalMs);
+            LogService.Info($"[LibrespotRingBufferPlayer.InitializeAsync] AudioGraph initialized and consumer gated sampleRate={_props.SampleRate}, channels={_props.ChannelCount}, bits={_props.BitsPerSample}, samplesPerQuantum={_graph.SamplesPerQuantum}, frameBytes={_frameSize}, maxFrameBytes={_maxFrameBytes}, capacityBytes={_capacityBytes}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}, preRollMs={PreRollMilliseconds}.");
+            }
+            finally
+            {
+                _lifecycleGate.Release();
+            }
         }
 
         private unsafe void OnQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
         {
             int samplesNeeded = args.RequiredSamples;
-            if (samplesNeeded <= 0) return;
+            if (samplesNeeded <= 0 || Volatile.Read(ref _consumerEnabled) == 0)
+                return;
 
             int bytesRequested = samplesNeeded * _frameSize;
-            uint writePos = librespot_audio_get_write_cursor().ToUInt32();
+            var producer = GetProducerState();
+            long readSequence = Volatile.Read(ref _readSequence);
+            long writeSequence = (long)producer.WriteSequence;
+            long availableLong = Math.Max(0L, Math.Min(_capacityBytes, writeSequence - readSequence));
+            bool generationBoundaryLimited = false;
 
-            int available = (int)(((long)_capacityBytes + (int)writePos - _readPos) % _capacityBytes);
+            long activeGeneration = Volatile.Read(ref _activeGeneration);
+            long boundarySequence = Volatile.Read(ref _activeBoundarySequence);
+            if (boundarySequence < 0 && producer.Generation > (ulong)Math.Max(0, activeGeneration))
+                boundarySequence = (long)producer.GenerationStartSequence;
+
+            if (boundarySequence >= 0)
+            {
+                if (readSequence >= boundarySequence)
+                {
+                    Interlocked.Exchange(ref _consumerEnabled, 0);
+                    return;
+                }
+
+                long bytesToBoundary = boundarySequence - readSequence;
+                generationBoundaryLimited = bytesToBoundary < bytesRequested;
+                if (availableLong > bytesToBoundary)
+                    availableLong = bytesToBoundary;
+            }
+
+            int available = (int)availableLong;
 
             int bytesToCopy = Math.Min(available, bytesRequested);
             bytesToCopy -= bytesToCopy % _frameSize;
 
-            RecordAudioTelemetry(samplesNeeded, bytesRequested, bytesToCopy, available);
+            RecordAudioTelemetry(samplesNeeded, bytesRequested, bytesToCopy, available, generationBoundaryLimited);
 
-            if (!_framePool.TryDequeue(out PooledFrame pooled) || pooled.Capacity < bytesRequested)
+            PooledFrame pooled = TryAcquirePooledFrame();
+            if (pooled == null || pooled.Capacity < bytesRequested)
             {
                 Interlocked.Increment(ref _telemetryFramePoolMissCount);
-                pooled?.Dispose();
-                pooled = new PooledFrame((uint)bytesRequested);
+                if (pooled != null)
+                    Volatile.Write(ref pooled.InUse, 0);
+                return;
             }
 
-            using (AudioBuffer buffer = pooled.Frame.LockBuffer(AudioBufferAccessMode.Write))
-            using (IMemoryBufferReference reference = buffer.CreateReference())
+            try
             {
-                if (reference is IMemoryBufferByteAccess byteAccess)
+                using (AudioBuffer buffer = pooled.Frame.LockBuffer(AudioBufferAccessMode.Write))
+                using (IMemoryBufferReference reference = buffer.CreateReference())
                 {
-                    byteAccess.GetBuffer(out IntPtr dataInPtr, out uint capacity);
-                    byte* dest = (byte*)dataInPtr;
-                    byte* srcBase = (byte*)_bufferPtr;
-
-                    if (bytesToCopy > 0)
+                    if (reference is IMemoryBufferByteAccess byteAccess)
                     {
-                        int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - _readPos);
-                        Buffer.MemoryCopy(srcBase + _readPos, dest, capacity, firstChunkSize);
+                        byteAccess.GetBuffer(out IntPtr dataInPtr, out uint capacity);
+                        byte* dest = (byte*)dataInPtr;
+                        byte* srcBase = (byte*)_bufferPtr;
 
-                        if (bytesToCopy > firstChunkSize)
+                        if (bytesToCopy > 0)
                         {
-                            Buffer.MemoryCopy(srcBase, dest + firstChunkSize, capacity - (uint)firstChunkSize, bytesToCopy - firstChunkSize);
+                            int readPos = (int)((ulong)readSequence % (ulong)_capacityBytes);
+                            int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - readPos);
+                            Buffer.MemoryCopy(srcBase + readPos, dest, capacity, firstChunkSize);
+
+                            if (bytesToCopy > firstChunkSize)
+                            {
+                                Buffer.MemoryCopy(srcBase, dest + firstChunkSize, capacity - (uint)firstChunkSize, bytesToCopy - firstChunkSize);
+                            }
                         }
+
+                        for (int i = bytesToCopy; i < bytesRequested; i++)
+                            dest[i] = 0;
+
+                        buffer.Length = (uint)bytesRequested;
                     }
-
-                    for (int i = bytesToCopy; i < bytesRequested; i++)
-                        dest[i] = 0;
-
-                    buffer.Length = (uint)bytesRequested;
                 }
-            }
 
-            sender.AddFrame(pooled.Frame);
-            if (Interlocked.CompareExchange(ref _firstAudioFrameLogged, 1, 0) == 0)
+                sender.AddFrame(pooled.Frame);
+            }
+            finally
             {
-                LogService.Info($"[LibrespotRingBufferPlayer.OnQuantumStarted] First audio frame submitted to AudioGraph track={_firstAudioFrameTrackUri}, bytes={bytesToCopy}, submitted={bytesRequested}, available={available}, requested={bytesRequested}, writePos={writePos}, readPos={_readPos}.");
+                Volatile.Write(ref pooled.InUse, 0);
             }
-
-            if (pooled.Capacity <= _maxFrameBytes)
-                _framePool.Enqueue(pooled);
-            else
-                pooled.Dispose();
 
             if (bytesToCopy > 0)
             {
-                _readPos = (_readPos + bytesToCopy) % _capacityBytes;
-                librespot_audio_set_read_cursor((UIntPtr)_readPos);
+                long nextReadSequence = readSequence + bytesToCopy;
+                Interlocked.Exchange(ref _readSequence, nextReadSequence);
+                librespot_audio_set_read_sequence((ulong)nextReadSequence);
+                UpdateMin(ref _transitionMinimumAvailableBytes, available);
+
+                if (boundarySequence >= 0 && nextReadSequence >= boundarySequence)
+                    Interlocked.Exchange(ref _consumerEnabled, 0);
             }
         }
 
-        public void PrepareForPlaybackStartLog(string trackUri)
+        public long BeginTransition(string reason, string oldTrackUri, string newTrackUri, bool preserveCurrent, bool shouldPlay)
         {
             FlushAudioTelemetry(force: true);
-            _firstAudioFrameTrackUri = string.IsNullOrWhiteSpace(trackUri) ? "(unknown)" : trackUri;
-            Interlocked.Exchange(ref _firstAudioFrameLogged, 0);
+            FlushTransitionTelemetry();
+
+            long id;
+            lock (_transitionLock)
+            {
+                id = _transitionState.BeginTransition(preserveCurrent, shouldPlay);
+                ReplacePlaybackReadyLocked();
+                _transitionTelemetry = new TransitionTelemetry
+                {
+                    Id = id,
+                    OldTrackUri = NormalizeTrackUri(oldTrackUri),
+                    NewTrackUri = NormalizeTrackUri(newTrackUri),
+                    Reason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason,
+                    StartedTimestamp = Stopwatch.GetTimestamp()
+                };
+                Interlocked.Exchange(ref _transitionMinimumAvailableBytes, long.MaxValue);
+                Interlocked.Exchange(ref _transitionInsertedSilenceBytes, 0);
+            }
+
             Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
+            if (!preserveCurrent)
+            {
+                Interlocked.Exchange(ref _consumerEnabled, 0);
+                _ = SetInputNodeRunningAsync(false, id);
+            }
+
+            QueueTransitionPoll();
+            return id;
         }
 
-        public void Start()
+        public long BeginAutomaticTransition(string oldTrackUri, bool shouldPlay)
         {
-            Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
-            _graph?.Start();
+            lock (_transitionLock)
+            {
+                if (_transitionState.HasPendingTransition)
+                    return _transitionState.CurrentTransitionId;
+            }
+
+            return BeginTransition("end-of-track", oldTrackUri, null, true, shouldPlay);
+        }
+
+        public bool ObserveLoading(ulong playRequestId)
+        {
+            bool hadPendingTransition;
+            bool accepted;
+            long transitionId;
+            lock (_transitionLock)
+            {
+                hadPendingTransition = _transitionState.HasPendingTransition;
+                accepted = _transitionState.ObserveLoading(playRequestId);
+                transitionId = _transitionState.CurrentTransitionId;
+                if (accepted && !hadPendingTransition)
+                {
+                    ReplacePlaybackReadyLocked();
+                    _transitionTelemetry = new TransitionTelemetry
+                    {
+                        Id = transitionId,
+                        OldTrackUri = NormalizeTrackUri(_audioHealthTrackUri),
+                        NewTrackUri = "(unknown)",
+                        Reason = "external-load",
+                        StartedTimestamp = Stopwatch.GetTimestamp()
+                    };
+                    Interlocked.Exchange(ref _transitionMinimumAvailableBytes, long.MaxValue);
+                    Interlocked.Exchange(ref _transitionInsertedSilenceBytes, 0);
+                }
+            }
+
+            if (accepted && !hadPendingTransition)
+            {
+                Interlocked.Exchange(ref _consumerEnabled, 0);
+                Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
+                _ = SetInputNodeRunningAsync(false, transitionId);
+                QueueTransitionPoll();
+            }
+
+            return accepted;
+        }
+
+        public bool ObserveTrackChanged(string trackUri, ulong playRequestId, ulong audioGeneration, bool wasPreloaded)
+        {
+            var producer = GetProducerState();
+            if (producer.Generation != audioGeneration)
+                return false;
+
+            bool needsImplicitTransition;
+            lock (_transitionLock)
+                needsImplicitTransition = !_transitionState.HasPendingTransition;
+            if (needsImplicitTransition)
+            {
+                BeginTransition(
+                    "automatic-track-change",
+                    _audioHealthTrackUri,
+                    trackUri,
+                    preserveCurrent: true,
+                    shouldPlay: true);
+            }
+
+            bool accepted;
+            lock (_transitionLock)
+            {
+                accepted = _transitionState.ObserveTrack(
+                    playRequestId,
+                    audioGeneration,
+                    producer.GenerationStartSequence);
+                if (accepted && _transitionTelemetry != null)
+                {
+                    _transitionTelemetry.NewTrackUri = NormalizeTrackUri(trackUri);
+                    _transitionTelemetry.WasPreloaded = wasPreloaded;
+                }
+            }
+
+            if (accepted)
+            {
+                _audioHealthTrackUri = NormalizeTrackUri(trackUri);
+                QueueTransitionPoll();
+            }
+            return accepted;
+        }
+
+        public bool ObserveSeek(ulong playRequestId, ulong audioGeneration)
+        {
+            var producer = GetProducerState();
+            if (producer.Generation != audioGeneration)
+                return false;
+
+            bool accepted;
+            lock (_transitionLock)
+                accepted = _transitionState.ObserveSeek(playRequestId, audioGeneration, producer.GenerationStartSequence);
+
+            if (accepted)
+                QueueTransitionPoll();
+            return accepted;
+        }
+
+        public Task<bool> RequestPlaybackAsync(ulong playRequestId, ulong audioGeneration)
+        {
+            Task<bool> task;
+            lock (_transitionLock)
+            {
+                if (!_transitionState.RequestPlayback(playRequestId, audioGeneration))
+                    return Task.FromResult(false);
+
+                if (!_transitionState.HasPendingTransition &&
+                    audioGeneration != 0 &&
+                    audioGeneration == _transitionState.ActiveGeneration &&
+                    Volatile.Read(ref _consumerEnabled) != 0)
+                {
+                    return Task.FromResult(true);
+                }
+
+                if (_playbackReady == null || _playbackReady.Task.IsCompleted)
+                    _playbackReady = new TaskCompletionSource<bool>();
+                task = _playbackReady.Task;
+            }
+
+            QueueTransitionPoll();
+            return task;
+        }
+
+        public bool HasPendingTransition
+        {
+            get
+            {
+                lock (_transitionLock)
+                    return _transitionState != null && _transitionState.HasPendingTransition;
+            }
+        }
+
+        public bool IsEventForPendingTransition(ulong playRequestId, ulong audioGeneration)
+        {
+            lock (_transitionLock)
+            {
+                return _transitionState != null &&
+                    _transitionState.IsPendingEvent(playRequestId, audioGeneration);
+            }
+        }
+
+        public bool IsEventForActiveGeneration(ulong playRequestId, ulong audioGeneration)
+        {
+            lock (_transitionLock)
+            {
+                return _transitionState != null &&
+                    _transitionState.IsActiveEvent(playRequestId, audioGeneration);
+            }
+        }
+
+        public Task PauseAsync()
+        {
+            lock (_transitionLock)
+            {
+                _transitionState.Pause();
+                CompletePlaybackReadyLocked(false);
+            }
+            Interlocked.Exchange(ref _consumerEnabled, 0);
+            return SetInputNodeRunningAsync(false, 0);
         }
 
         public void Stop()
         {
-            _graph?.Stop();
+            lock (_transitionLock)
+            {
+                _transitionState?.Cancel();
+                CompletePlaybackReadyLocked(false);
+            }
+            Interlocked.Exchange(ref _consumerEnabled, 0);
+            _ = SetInputNodeRunningAsync(false, 0);
             Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
             FlushAudioTelemetry(force: true);
+            FlushTransitionTelemetry();
+        }
+
+        private void QueueTransitionPoll()
+        {
+            if (Volatile.Read(ref _disposed) != 0 ||
+                _transitionState == null ||
+                Interlocked.CompareExchange(ref _transitionPollRunning, 1, 0) != 0)
+            {
+                return;
+            }
+
+            _ = PollTransitionAsync();
+        }
+
+        private async Task PollTransitionAsync()
+        {
+            try
+            {
+                var producer = GetProducerState();
+                var readSequence = (ulong)Math.Max(0, Volatile.Read(ref _readSequence));
+                AudioTransitionEvaluation evaluation;
+
+                lock (_transitionLock)
+                {
+                    if (_transitionTelemetry != null &&
+                        _transitionTelemetry.FirstPcmTimestamp == 0 &&
+                        _transitionState.PendingGeneration != 0 &&
+                        producer.Generation == _transitionState.PendingGeneration &&
+                        producer.WriteSequence > producer.GenerationStartSequence)
+                    {
+                        _transitionTelemetry.FirstPcmTimestamp = Stopwatch.GetTimestamp();
+                    }
+
+                    evaluation = _transitionState.Evaluate(producer, readSequence);
+                    if (evaluation.ShouldResume && _transitionTelemetry != null)
+                    {
+                        _transitionTelemetry.PreRollMilliseconds = BytesToMilliseconds((long)evaluation.AvailableBytes);
+                    }
+                }
+
+                if (evaluation.ShouldDiscard)
+                {
+                    Interlocked.Exchange(ref _readSequence, (long)evaluation.DiscardSequence);
+                    librespot_audio_set_read_sequence(evaluation.DiscardSequence);
+                    readSequence = evaluation.DiscardSequence;
+                }
+
+                Interlocked.Exchange(
+                    ref _activeBoundarySequence,
+                    evaluation.ActiveBoundarySequence == AudioTransitionStateMachine.NoBoundary
+                        ? -1
+                        : (long)evaluation.ActiveBoundarySequence);
+
+                if (evaluation.ShouldResume && Volatile.Read(ref _consumerEnabled) == 0)
+                {
+                    if (evaluation.ActiveStartSequence != 0 || readSequence == 0)
+                    {
+                        Interlocked.Exchange(ref _readSequence, (long)evaluation.ActiveStartSequence);
+                        librespot_audio_set_read_sequence(evaluation.ActiveStartSequence);
+                    }
+
+                    Interlocked.Exchange(ref _activeGeneration, (long)evaluation.ActiveGeneration);
+                    Interlocked.Exchange(ref _activeBoundarySequence, -1);
+                    UpdateMin(ref _transitionMinimumAvailableBytes, (long)evaluation.AvailableBytes);
+
+                    if (await SetInputNodeRunningAsync(true, evaluation.TransitionId))
+                    {
+                        bool completedTransition = false;
+                        lock (_transitionLock)
+                        {
+                            if (_transitionState.CurrentTransitionId == evaluation.TransitionId)
+                            {
+                                CompletePlaybackReadyLocked(true);
+                                completedTransition = true;
+                            }
+                        }
+
+                        if (completedTransition)
+                            FlushTransitionTelemetry(evaluation.TransitionId);
+                    }
+                }
+                else if (evaluation.ShouldGate || Volatile.Read(ref _consumerEnabled) == 0)
+                {
+                    await SetInputNodeRunningAsync(false, 0);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[LibrespotRingBufferPlayer.PollTransitionAsync] Unable to update transition state: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _transitionPollRunning, 0);
+            }
+        }
+
+        private async Task<bool> SetInputNodeRunningAsync(bool running, long expectedTransitionId)
+        {
+            await _lifecycleGate.WaitAsync();
+            try
+            {
+                if (Volatile.Read(ref _disposed) != 0 || _inputNode == null)
+                    return false;
+
+                if (running)
+                {
+                    lock (_transitionLock)
+                    {
+                        if (expectedTransitionId != 0 &&
+                            _transitionState.CurrentTransitionId != expectedTransitionId)
+                        {
+                            return false;
+                        }
+                    }
+
+                    Interlocked.Exchange(ref _consumerEnabled, 1);
+                    if (Interlocked.CompareExchange(ref _inputNodeRunning, 1, 0) == 0)
+                        _inputNode.Start();
+                }
+                else
+                {
+                    Interlocked.Exchange(ref _consumerEnabled, 0);
+                    if (Interlocked.CompareExchange(ref _inputNodeRunning, 0, 1) == 1)
+                        _inputNode.Stop();
+                }
+
+                Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
+                return true;
+            }
+            finally
+            {
+                _lifecycleGate.Release();
+            }
+        }
+
+        private void ReplacePlaybackReadyLocked()
+        {
+            CompletePlaybackReadyLocked(false);
+            _playbackReady = new TaskCompletionSource<bool>();
+        }
+
+        private void CompletePlaybackReadyLocked(bool result)
+        {
+            var ready = _playbackReady;
+            if (ready != null && !ready.Task.IsCompleted)
+                ready.TrySetResult(result);
+        }
+
+        private AudioProducerState GetProducerState()
+        {
+            librespot_audio_get_state(out ulong generation, out ulong generationStart, out ulong writeSequence);
+            return new AudioProducerState
+            {
+                Generation = generation,
+                GenerationStartSequence = generationStart,
+                WriteSequence = writeSequence
+            };
+        }
+
+        private int MillisecondsToAlignedBytes(int milliseconds)
+        {
+            long bytes = (long)_props.SampleRate * _frameSize * milliseconds / 1000;
+            bytes -= bytes % _frameSize;
+            return (int)Math.Max(_frameSize, bytes);
+        }
+
+        private PooledFrame TryAcquirePooledFrame()
+        {
+            int first = Interlocked.Increment(ref _nextFramePoolIndex) & int.MaxValue;
+            for (int offset = 0; offset < PoolSize; offset++)
+            {
+                var frame = _framePool[((first % PoolSize) + offset) % PoolSize];
+                if (frame != null && Interlocked.CompareExchange(ref frame.InUse, 1, 0) == 0)
+                    return frame;
+            }
+
+            return null;
+        }
+
+        private static string NormalizeTrackUri(string trackUri)
+        {
+            return string.IsNullOrWhiteSpace(trackUri) ? "(unknown)" : trackUri;
+        }
+
+        private void FlushTransitionTelemetry(long expectedTransitionId = 0)
+        {
+            TransitionTelemetry telemetry;
+            long minimumBytes;
+            long insertedSilenceBytes;
+            lock (_transitionLock)
+            {
+                telemetry = _transitionTelemetry;
+                if (expectedTransitionId != 0 &&
+                    (telemetry == null || telemetry.Id != expectedTransitionId))
+                {
+                    return;
+                }
+                _transitionTelemetry = null;
+                minimumBytes = Interlocked.Exchange(ref _transitionMinimumAvailableBytes, long.MaxValue);
+                insertedSilenceBytes = Interlocked.Exchange(ref _transitionInsertedSilenceBytes, 0);
+            }
+
+            if (telemetry == null)
+                return;
+
+            if (minimumBytes == long.MaxValue)
+                minimumBytes = 0;
+            double firstPcmMs = telemetry.FirstPcmTimestamp > 0
+                ? TicksToMilliseconds(telemetry.FirstPcmTimestamp - telemetry.StartedTimestamp)
+                : -1.0;
+
+            LogService.Info($"[LibrespotRingBufferPlayer.Transition] transitionId={telemetry.Id}, oldTrack={telemetry.OldTrackUri}, newTrack={telemetry.NewTrackUri}, reason={telemetry.Reason}, timeToFirstPcmMs={firstPcmMs:F1}, preRollMs={telemetry.PreRollMilliseconds:F1}, minimumBufferFillMs={BytesToMilliseconds(minimumBytes):F1}, insertedSilenceMs={BytesToMilliseconds(insertedSilenceBytes):F1}, preloaded={telemetry.WasPreloaded}.");
         }
 
         public void SetOutgoingGain(double gain)
@@ -257,14 +747,33 @@ namespace LibreSpotUWP.Services
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            _transitionTimer?.Dispose();
+            _transitionTimer = null;
             _telemetryTimer?.Dispose();
             _telemetryTimer = null;
             FlushAudioTelemetry(force: true);
-            _inputNode?.Stop();
-            _graph?.Stop();
-            _inputNode?.Dispose();
-            _graph?.Dispose();
-            while (_framePool.TryDequeue(out var frame)) frame.Dispose();
+            FlushTransitionTelemetry();
+
+            _lifecycleGate.Wait();
+            try
+            {
+                Interlocked.Exchange(ref _consumerEnabled, 0);
+                _inputNode?.Stop();
+                _graph?.Stop();
+                _inputNode?.Dispose();
+                _graph?.Dispose();
+                _inputNode = null;
+                _graph = null;
+                foreach (var frame in _framePool)
+                    frame?.Dispose();
+            }
+            finally
+            {
+                _lifecycleGate.Release();
+            }
         }
 
         private void ApplyAudioEffectsPreset(string preset)
@@ -566,24 +1075,38 @@ namespace LibreSpotUWP.Services
             return Math.Max(0.0, Math.Min(1.0, value));
         }
 
-        private void RecordAudioTelemetry(int samplesNeeded, int bytesRequested, int bytesCopied, int availableBytes)
+        private void RecordAudioTelemetry(
+            int samplesNeeded,
+            int bytesRequested,
+            int bytesCopied,
+            int availableBytes,
+            bool generationBoundaryLimited)
         {
             Interlocked.Increment(ref _telemetryQuantumCount);
-            Interlocked.Add(ref _telemetryRequestedBytes, bytesRequested);
+            Interlocked.Add(
+                ref _telemetryRequestedBytes,
+                generationBoundaryLimited ? bytesCopied : bytesRequested);
             Interlocked.Add(ref _telemetryCopiedBytes, bytesCopied);
             Interlocked.Add(ref _telemetryAvailableBytes, availableBytes);
             UpdateMin(ref _telemetryMinAvailableBytes, availableBytes);
             UpdateMax(ref _telemetryMaxAvailableBytes, availableBytes);
 
-            if (availableBytes == 0)
+            if (availableBytes == 0 && !generationBoundaryLimited)
                 Interlocked.Increment(ref _telemetryZeroAvailableQuantumCount);
 
             int silenceBytes = bytesRequested - bytesCopied;
             if (silenceBytes > 0)
             {
-                Interlocked.Increment(ref _telemetrySilenceFillQuantumCount);
-                Interlocked.Add(ref _telemetrySilenceFillBytes, silenceBytes);
-                UpdateMax(ref _telemetryMaxSilenceFillBytes, silenceBytes);
+                if (generationBoundaryLimited)
+                {
+                    Interlocked.Add(ref _transitionInsertedSilenceBytes, silenceBytes);
+                }
+                else
+                {
+                    Interlocked.Increment(ref _telemetrySilenceFillQuantumCount);
+                    Interlocked.Add(ref _telemetrySilenceFillBytes, silenceBytes);
+                    UpdateMax(ref _telemetryMaxSilenceFillBytes, silenceBytes);
+                }
             }
 
             RecordQuantumTiming(samplesNeeded);
@@ -646,7 +1169,11 @@ namespace LibreSpotUWP.Services
 
             string reason = BuildAudioHealthReason(hasUnderrun, hasSignificantLateCallbacks, hasPoolPressure);
 
-            LogService.Warn($"[LibrespotRingBufferPlayer.AudioHealth] reason={reason}, track={_firstAudioFrameTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={maxCallbackGapMs:F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.");
+            string message = $"[LibrespotRingBufferPlayer.AudioHealth] reason={reason}, track={_audioHealthTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={maxCallbackGapMs:F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.";
+            if (hasUnderrun || hasPoolPressure)
+                LogService.Warn(message);
+            else
+                LogService.Info(message);
         }
 
         private double BytesToMilliseconds(long byteCount)
@@ -685,6 +1212,15 @@ namespace LibreSpotUWP.Services
         {
             int current;
             while (value < (current = Volatile.Read(ref target)) &&
+                   Interlocked.CompareExchange(ref target, value, current) != current)
+            {
+            }
+        }
+
+        private static void UpdateMin(ref long target, long value)
+        {
+            long current;
+            while (value < (current = Interlocked.Read(ref target)) &&
                    Interlocked.CompareExchange(ref target, value, current) != current)
             {
             }

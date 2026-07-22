@@ -140,6 +140,10 @@ namespace LibreSpotUWP.Interop
             public IntPtr session_user;
             public IntPtr client_name;
             public IntPtr log_msg;
+            public ulong audio_generation;
+
+            [MarshalAs(UnmanagedType.U1)]
+            public bool was_preloaded;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -368,6 +372,15 @@ namespace LibreSpotUWP.Interop
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_audio_set_read_cursor(UIntPtr pos);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_audio_set_read_sequence(ulong sequence);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_audio_get_state(
+            out ulong generation,
+            out ulong generationStartSequence,
+            out ulong writeSequence);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.U1)]

@@ -209,6 +209,7 @@
     <Compile Include="Models\DownloadModels.cs" />
     <Compile Include="Models\OfflineCatalogModels.cs" />
     <Compile Include="Models\LibrespotPlaybackState.cs" />
+    <Compile Include="Models\LibrespotPlaybackEvent.cs" />
     <Compile Include="Models\LibrespotTrackInfo.cs" />
     <Compile Include="Models\LibrespotSessionState.cs" />
     <Compile Include="Models\AuthState.cs" />
@@ -232,6 +233,7 @@
     <Compile Include="Services\MediaService.cs" />
     <Compile Include="Services\LibrespotService.cs" />
     <Compile Include="Services\LibrespotRingBufferPlayer.cs" />
+    <Compile Include="Services\AudioTransitionStateMachine.cs" />
     <Compile Include="Interop\LibreSpot.cs" />
     <Compile Include="Interop\NativeProbe.cs" />
     <Compile Include="OobePage.xaml.cs">
