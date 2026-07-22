@@ -58,6 +58,7 @@ namespace LibreSpotUWP
         {
             InitializeComponent();
             Suspending += OnSuspending;
+            Resuming += OnResuming;
             UnhandledException += App_UnhandledException;
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
         }
@@ -447,6 +448,8 @@ namespace LibreSpotUWP
             var deferral = e.SuspendingOperation.GetDeferral();
             try
             {
+                if (Media != null)
+                    await Media.PrepareForSuspendingAsync();
                 if (LiveTiles != null)
                     await LiveTiles.PrepareForSuspendingAsync();
             }
@@ -457,6 +460,19 @@ namespace LibreSpotUWP
             finally
             {
                 deferral.Complete();
+            }
+        }
+
+        private async void OnResuming(object sender, object e)
+        {
+            try
+            {
+                if (Media != null)
+                    await Media.ResumeAfterSuspendingAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Unable to resume media services: {ex.Message}");
             }
         }
 

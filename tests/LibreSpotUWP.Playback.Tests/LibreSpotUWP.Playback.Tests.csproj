@@ -10,5 +10,6 @@
     <Compile Include="..\..\LibreSpotUWP\Services\AudioTransitionStateMachine.cs" Link="AudioTransitionStateMachine.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\PlaybackPositionSynchronizer.cs" Link="PlaybackPositionSynchronizer.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\PositionSeekInteraction.cs" Link="PositionSeekInteraction.cs" />
+    <Compile Include="..\..\LibreSpotUWP\Services\PlaybackLifecycleCoordinator.cs" Link="PlaybackLifecycleCoordinator.cs" />
   </ItemGroup>
 </Project>

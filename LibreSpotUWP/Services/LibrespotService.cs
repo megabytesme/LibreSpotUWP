@@ -27,6 +27,7 @@ namespace LibreSpotUWP.Services
         private IntPtr _dllHandle = IntPtr.Zero;
         private IntPtr _instance = IntPtr.Zero;
         private LibrespotCallback _callbackDelegate;
+        private readonly List<LibrespotCallback> _sessionCallbacks = new List<LibrespotCallback>();
         private readonly Librespot.LibrespotKeyCallback _keyCallbackDelegate;
         private readonly Librespot.LibrespotKeySaveCallback _keySaveDelegate;
         private readonly Librespot.LibrespotKeyRemoveCallback _keyRemoveDelegate;
@@ -46,6 +47,7 @@ namespace LibreSpotUWP.Services
         private bool _shuffle;
         private uint _repeatMode;
         private string _activeAccessToken;
+        private long _sessionGeneration;
 
         private string ts = DateTime.Now.ToString("HH:mm:ss");
 
@@ -54,6 +56,7 @@ namespace LibreSpotUWP.Services
         public string DeviceName => Environment.MachineName;
         public string DeviceId => ComputeDeviceId(DeviceName);
         public LibrespotSessionState Session => _session;
+        public long SessionGeneration => Interlocked.Read(ref _sessionGeneration);
         public LibrespotPlaybackState PlaybackState => _playbackState;
         public LibrespotTrackInfo CurrentTrack => _currentTrack;
         public ushort Volume => _volume;
@@ -97,8 +100,6 @@ namespace LibreSpotUWP.Services
             await _audioKeyCache.InitializeAsync().ConfigureAwait(false);
 
             _audioFormat = await AudioFormatProbe.ProbeAsync().ConfigureAwait(false);
-
-            _callbackDelegate = OnLibrespotEvent;
 
             _initialized = true;
         }
@@ -167,7 +168,7 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token.");
+                LogService.Info($"[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token. activeSessionGeneration={SessionGeneration}.");
                 try
                 {
                     await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
@@ -197,7 +198,7 @@ namespace LibreSpotUWP.Services
             await _connectGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                LogService.Info("[LibrespotService.ReconnectWithAccessTokenAsync] Recreating librespot instance.");
+                LogService.Info($"[LibrespotService.ReconnectWithAccessTokenAsync] Recreating librespot instance. activeSessionGeneration={SessionGeneration}.");
                 try
                 {
                     await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
@@ -219,9 +220,12 @@ namespace LibreSpotUWP.Services
         {
             ThrowIfDisposed();
 
+            long disconnectedGeneration;
+            LibrespotSessionState disconnectedSession;
             await _connectGate.WaitAsync().ConfigureAwait(false);
             try
             {
+                disconnectedGeneration = Interlocked.Increment(ref _sessionGeneration);
                 if (_instance != IntPtr.Zero)
                 {
                     Librespot.librespot_free(_instance);
@@ -229,28 +233,33 @@ namespace LibreSpotUWP.Services
                 }
 
                 _activeAccessToken = null;
+                lock (_stateLock)
+                {
+                    _session = new LibrespotSessionState
+                    {
+                        IsConnected = false,
+                        SessionGeneration = disconnectedGeneration,
+                        UserName = null,
+                        AuthNeeded = false
+                    };
+                    _playbackState = LibrespotPlaybackState.Stopped;
+                    _currentTrack = null;
+                    ActiveClientName = null;
+                    IsAutoPlayEnabled = false;
+                    IsExplicitFilterEnabled = false;
+                    disconnectedSession = _session;
+                }
+                LogService.Info($"[LibrespotService.DisconnectAsync] Native session disposed. sessionGeneration={disconnectedGeneration}.");
             }
             finally
             {
                 _connectGate.Release();
             }
 
-            lock (_stateLock)
-            {
-                _session = new LibrespotSessionState
-                {
-                    IsConnected = false,
-                    UserName = null,
-                    AuthNeeded = false
-                };
-                _playbackState = LibrespotPlaybackState.Stopped;
-                _currentTrack = null;
-            }
-
-            RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, _session), nameof(SessionStateChanged));
-            RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, _playbackState), nameof(PlaybackStateChanged));
-            PublishPlaybackEvent(new LibrespotPlaybackEvent { State = _playbackState });
-            RaiseOnMainThread(() => TrackChanged?.Invoke(this, null), nameof(TrackChanged));
+            RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, disconnectedSession), nameof(SessionStateChanged), disconnectedGeneration);
+            RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, LibrespotPlaybackState.Stopped), nameof(PlaybackStateChanged), disconnectedGeneration);
+            PublishPlaybackEvent(new LibrespotPlaybackEvent { State = LibrespotPlaybackState.Stopped, SessionGeneration = disconnectedGeneration }, disconnectedGeneration);
+            RaiseOnMainThread(() => TrackChanged?.Invoke(this, null), nameof(TrackChanged), disconnectedGeneration);
         }
 
         public Task<LibrespotTrackData> GetTrackAsync(string trackUri)
@@ -908,12 +917,22 @@ namespace LibreSpotUWP.Services
             if (_disposed) return;
             _disposed = true;
 
-            if (_instance != IntPtr.Zero)
+            long disposedGeneration = Interlocked.Increment(ref _sessionGeneration);
+            _connectGate.Wait();
+            try
             {
-                Librespot.librespot_free(_instance);
-                _instance = IntPtr.Zero;
+                if (_instance != IntPtr.Zero)
+                {
+                    Librespot.librespot_free(_instance);
+                    _instance = IntPtr.Zero;
+                }
+                _activeAccessToken = null;
             }
-            _activeAccessToken = null;
+            finally
+            {
+                _connectGate.Release();
+            }
+            LogService.Info($"[LibrespotService.Dispose] Native service disposed. sessionGeneration={disposedGeneration}.");
 
             if (_dllHandle != IntPtr.Zero)
             {
@@ -927,25 +946,31 @@ namespace LibreSpotUWP.Services
             if (_disposed) throw new ObjectDisposedException(nameof(LibrespotService));
         }
 
-        private void OnLibrespotEvent(IntPtr evtPtr, IntPtr userData)
+        private void OnLibrespotEvent(IntPtr evtPtr, IntPtr userData, long sessionGeneration)
         {
+            if (sessionGeneration != SessionGeneration || _disposed)
+            {
+                LogService.Info($"[LibrespotService.OnLibrespotEvent] Ignoring stale native event. eventSessionGeneration={sessionGeneration}, activeSessionGeneration={SessionGeneration}.");
+                return;
+            }
+
             var evt = Marshal.PtrToStructure<LibrespotEvent>(evtPtr);
-            HandleEvent(evt);
+            HandleEvent(evt, sessionGeneration);
         }
 
-        private void HandleEvent(LibrespotEvent evt)
+        private void HandleEvent(LibrespotEvent evt, long sessionGeneration)
         {
             string logPrefix = evt.event_type == EventType.PositionCorrection ||
                 evt.event_type == EventType.PositionChanged
                     ? null
-                    : $"{ts} [LibreSpot Event:{evt.event_type}]";
+                    : $"{ts} [LibreSpot Event:{evt.event_type}] sessionGeneration={sessionGeneration}";
 
             switch (evt.event_type)
             {
                 case EventType.LogMessage:
                     string msg = ReadString(evt.data.log_msg);
-                    LogService.Info($"{ts} [LibreSpot Internal] {msg}");
-                    RaiseOnMainThread(() => LogMessage?.Invoke(this, msg), nameof(LogMessage));
+                    LogService.Info($"{ts} [LibreSpot Internal] sessionGeneration={sessionGeneration} {msg}");
+                    RaiseOnMainThread(() => LogMessage?.Invoke(this, msg), nameof(LogMessage), sessionGeneration);
                     break;
 
                 case EventType.TrackChanged:
@@ -966,52 +991,53 @@ namespace LibreSpotUWP.Services
                         Duration = TimeSpan.FromMilliseconds(t.duration_ms),
                         PlayRequestId = evt.data.play_request_id,
                         AudioGeneration = evt.data.audio_generation,
+                        SessionGeneration = sessionGeneration,
                         WasPreloaded = evt.data.was_preloaded
                     };
-                    UpdateTrack(track);
-                    PublishPositionUpdate(0, LibrespotPositionUpdateOrigin.Progress);
+                    UpdateTrack(track, sessionGeneration);
+                    PublishPositionUpdate(0, LibrespotPositionUpdateOrigin.Progress, sessionGeneration);
                     break;
 
                 case EventType.PlaybackPaused:
                     LogService.Info($"{logPrefix} State -> Paused at {evt.data.position_ms}ms");
-                    UpdatePlaybackState(LibrespotPlaybackState.Paused, evt.data);
+                    UpdatePlaybackState(LibrespotPlaybackState.Paused, evt.data, sessionGeneration);
                     break;
 
                 case EventType.PlaybackResumed:
                     LogService.Info($"{logPrefix} State -> Playing from {evt.data.position_ms}ms");
-                    UpdatePlaybackState(LibrespotPlaybackState.Playing, evt.data);
+                    UpdatePlaybackState(LibrespotPlaybackState.Playing, evt.data, sessionGeneration);
                     break;
 
                 case EventType.PlaybackLoading:
                     LogService.Info($"{logPrefix} Buffering/Loading track...");
-                    UpdatePlaybackState(LibrespotPlaybackState.Loading, evt.data);
+                    UpdatePlaybackState(LibrespotPlaybackState.Loading, evt.data, sessionGeneration);
                     break;
 
                 case EventType.PlaybackStopped:
                 case EventType.PlaybackUnavailable:
                     LogService.Info($"{logPrefix} Playback Stopped.");
-                    UpdatePlaybackState(LibrespotPlaybackState.Stopped, evt.data);
+                    UpdatePlaybackState(LibrespotPlaybackState.Stopped, evt.data, sessionGeneration);
                     break;
 
                 case EventType.EndOfTrack:
                     var endedTrackUri = ReadString(evt.data.track_uri);
                     LogService.Info($"{logPrefix} Reached end of track URI: {endedTrackUri}");
-                    OnEndOfTrack(endedTrackUri);
+                    OnEndOfTrack(endedTrackUri, sessionGeneration);
                     break;
 
                 case EventType.VolumeChanged:
                     LogService.Info($"{logPrefix} Volume: {evt.data.volume}");
-                    UpdateVolume(evt.data.volume);
+                    UpdateVolume(evt.data.volume, sessionGeneration);
                     break;
 
                 case EventType.ShuffleChanged:
                     LogService.Info($"{logPrefix} Shuffle: {evt.data.shuffle}");
-                    UpdateShuffle(evt.data.shuffle);
+                    UpdateShuffle(evt.data.shuffle, sessionGeneration);
                     break;
 
                 case EventType.RepeatChanged:
                     LogService.Info($"{logPrefix} Repeat Mode: {evt.data.repeat_mode}");
-                    UpdateRepeat(evt.data.repeat_mode);
+                    UpdateRepeat(evt.data.repeat_mode, sessionGeneration);
                     break;
 
                 case EventType.Seeked:
@@ -1020,51 +1046,55 @@ namespace LibreSpotUWP.Services
                         State = _playbackState,
                         PlayRequestId = evt.data.play_request_id,
                         AudioGeneration = evt.data.audio_generation,
+                        SessionGeneration = sessionGeneration,
                         TrackUri = ReadString(evt.data.track_uri),
                         PositionMs = evt.data.position_ms,
                         IsSeek = true
-                    });
+                    }, sessionGeneration);
                     LogService.Info($"{logPrefix} Seek acknowledged at {evt.data.position_ms}ms");
                     PublishPositionUpdate(
                         evt.data.position_ms,
-                        LibrespotPositionUpdateOrigin.SeekAcknowledgement);
+                        LibrespotPositionUpdateOrigin.SeekAcknowledgement,
+                        sessionGeneration);
                     break;
                 case EventType.PositionCorrection:
                     PublishPositionUpdate(
                         evt.data.position_ms,
-                        LibrespotPositionUpdateOrigin.PositionCorrection);
+                        LibrespotPositionUpdateOrigin.PositionCorrection,
+                        sessionGeneration);
                     break;
                 case EventType.PositionChanged:
                     PublishPositionUpdate(
                         evt.data.position_ms,
-                        LibrespotPositionUpdateOrigin.Progress);
+                        LibrespotPositionUpdateOrigin.Progress,
+                        sessionGeneration);
                     break;
 
                 case EventType.SessionConnected:
                     string user = ReadString(evt.data.session_user);
                     LogService.Info($"{logPrefix} Connected as user: {user}");
-                    OnSessionChanged(true, user);
+                    OnSessionChanged(true, user, sessionGeneration);
                     break;
 
                 case EventType.SessionDisconnected:
                     LogService.Info($"{logPrefix} Session Disconnected");
-                    OnSessionChanged(false, null);
+                    OnSessionChanged(false, null, sessionGeneration);
                     break;
 
                 case EventType.ClientChanged:
                     string client = ReadString(evt.data.client_name);
                     LogService.Info($"{logPrefix} Active Client switched to: {client}");
-                    UpdateClientInfo(client);
+                    UpdateClientInfo(client, sessionGeneration);
                     break;
 
                 case EventType.AutoPlayChanged:
                     LogService.Info($"{logPrefix} AutoPlay: {evt.data.auto_play}");
-                    UpdateAutoPlay(evt.data.auto_play);
+                    UpdateAutoPlay(evt.data.auto_play, sessionGeneration);
                     break;
 
                 case EventType.ExplicitFilterChanged:
                     LogService.Info($"{logPrefix} Explicit Filter: {evt.data.filter_explicit}");
-                    UpdateExplicitFilter(evt.data.filter_explicit);
+                    UpdateExplicitFilter(evt.data.filter_explicit, sessionGeneration);
                     break;
 
                 case EventType.AddedToQueue:
@@ -1074,7 +1104,7 @@ namespace LibreSpotUWP.Services
                 case EventType.Panic:
                     string panicMsg = ReadString(evt.data.log_msg);
                     LogService.Error($"{ts} [CRITICAL PANIC] {panicMsg}");
-                    RaisePanic(panicMsg);
+                    RaisePanic(panicMsg, sessionGeneration);
                     break;
 
                 default:
@@ -1083,31 +1113,38 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private void OnSessionChanged(bool connected, string username)
+        private void OnSessionChanged(bool connected, string username, long sessionGeneration)
         {
             LibrespotSessionState snapshot;
             lock (_stateLock)
             {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+
                 _session = new LibrespotSessionState
                 {
                     IsConnected = connected,
+                    SessionGeneration = sessionGeneration,
                     UserName = username,
                     AuthNeeded = !connected
                 };
                 snapshot = _session;
             }
-            RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, snapshot), nameof(SessionStateChanged));
+            RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, snapshot), nameof(SessionStateChanged), sessionGeneration);
         }
 
         private void UpdatePlaybackState(LibrespotPlaybackState state)
         {
-            UpdatePlaybackState(state, default(EventData));
+            UpdatePlaybackState(state, default(EventData), SessionGeneration);
         }
 
-        private void UpdatePlaybackState(LibrespotPlaybackState state, EventData data)
+        private void UpdatePlaybackState(LibrespotPlaybackState state, EventData data, long sessionGeneration)
         {
             lock (_stateLock)
             {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+
                 _playbackState = state;
             }
             var playbackEvent = new LibrespotPlaybackEvent
@@ -1115,76 +1152,102 @@ namespace LibreSpotUWP.Services
                 State = state,
                 PlayRequestId = data.play_request_id,
                 AudioGeneration = data.audio_generation,
+                SessionGeneration = sessionGeneration,
                 TrackUri = ReadString(data.track_uri),
                 PositionMs = data.position_ms
             };
-            RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, state), nameof(PlaybackStateChanged));
-            PublishPlaybackEvent(playbackEvent);
+            RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, state), nameof(PlaybackStateChanged), sessionGeneration);
+            PublishPlaybackEvent(playbackEvent, sessionGeneration);
         }
 
-        private void PublishPlaybackEvent(LibrespotPlaybackEvent playbackEvent)
+        private void PublishPlaybackEvent(LibrespotPlaybackEvent playbackEvent, long sessionGeneration)
         {
-            RaiseOnMainThread(() => PlaybackEvent?.Invoke(this, playbackEvent), nameof(PlaybackEvent));
+            RaiseOnMainThread(() => PlaybackEvent?.Invoke(this, playbackEvent), nameof(PlaybackEvent), sessionGeneration);
         }
 
-        private void UpdateTrack(LibrespotTrackInfo track)
+        private void UpdateTrack(LibrespotTrackInfo track, long sessionGeneration)
         {
             lock (_stateLock)
             {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+
                 _currentTrack = track;
             }
-            RaiseOnMainThread(() => TrackChanged?.Invoke(this, track), nameof(TrackChanged));
+            RaiseOnMainThread(() => TrackChanged?.Invoke(this, track), nameof(TrackChanged), sessionGeneration);
         }
 
-        private void UpdateVolume(ushort volume)
+        private void UpdateVolume(ushort volume, long sessionGeneration)
         {
             lock (_stateLock)
             {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+
                 _volume = volume;
             }
-            RaiseOnMainThread(() => VolumeChanged?.Invoke(this, volume), nameof(VolumeChanged));
+            RaiseOnMainThread(() => VolumeChanged?.Invoke(this, volume), nameof(VolumeChanged), sessionGeneration);
         }
 
         private void OnEndOfTrack()
         {
-            OnEndOfTrack(null);
+            OnEndOfTrack(null, SessionGeneration);
         }
 
-        private void OnEndOfTrack(string trackUri)
+        private void OnEndOfTrack(string trackUri, long sessionGeneration)
         {
             LogService.Info($"[LibreSpot] End of track reached. {trackUri}");
-            RaiseOnMainThread(() => EndOfTrack?.Invoke(this, trackUri), nameof(EndOfTrack));
+            RaiseOnMainThread(() => EndOfTrack?.Invoke(this, trackUri), nameof(EndOfTrack), sessionGeneration);
         }
 
-        private void UpdateClientInfo(string clientName)
+        private void UpdateClientInfo(string clientName, long sessionGeneration)
         {
-            ActiveClientName = clientName;
+            lock (_stateLock)
+            {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+                ActiveClientName = clientName;
+            }
             LogService.Info($"[LibreSpot] Active Client: {clientName}");
         }
 
-        private void UpdateAutoPlay(bool enabled)
+        private void UpdateAutoPlay(bool enabled, long sessionGeneration)
         {
-            IsAutoPlayEnabled = enabled;
+            lock (_stateLock)
+            {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+                IsAutoPlayEnabled = enabled;
+            }
             LogService.Info($"[LibreSpot] AutoPlay updated: {enabled}");
         }
 
-        private void UpdateExplicitFilter(bool enabled)
+        private void UpdateExplicitFilter(bool enabled, long sessionGeneration)
         {
-            IsExplicitFilterEnabled = enabled;
+            lock (_stateLock)
+            {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+                IsExplicitFilterEnabled = enabled;
+            }
             LogService.Info($"[LibreSpot] Explicit Filter updated: {enabled}");
         }
 
-        private void PublishPositionUpdate(uint positionMs, LibrespotPositionUpdateOrigin origin)
+        private void PublishPositionUpdate(uint positionMs, LibrespotPositionUpdateOrigin origin, long sessionGeneration)
         {
             // This callback can be emitted by the decoder for every packet. Keep
             // it off the UI dispatcher; MediaService coalesces it on its bounded
             // display timer. No position update is ever translated into a seek.
             try
             {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+
                 PositionChanged?.Invoke(this, new LibrespotPositionUpdate
                 {
                     PositionMs = positionMs,
-                    Origin = origin
+                    Origin = origin,
+                    SessionGeneration = sessionGeneration
                 });
             }
             catch (Exception ex)
@@ -1193,27 +1256,37 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private void UpdateShuffle(bool enabled)
+        private void UpdateShuffle(bool enabled, long sessionGeneration)
         {
             LogService.Info($"[LibreSpot] Shuffle updated: {enabled}");
-            lock (_stateLock) { _shuffle = enabled; }
-            RaiseOnMainThread(() => ShuffleChanged?.Invoke(this, enabled), nameof(ShuffleChanged));
+            lock (_stateLock)
+            {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+                _shuffle = enabled;
+            }
+            RaiseOnMainThread(() => ShuffleChanged?.Invoke(this, enabled), nameof(ShuffleChanged), sessionGeneration);
         }
 
-        private void UpdateRepeat(uint mode)
+        private void UpdateRepeat(uint mode, long sessionGeneration)
         {
             LogService.Info($"[LibreSpot] Repeat mode updated: {mode}");
-            lock (_stateLock) { _repeatMode = mode; }
-            RaiseOnMainThread(() => RepeatChanged?.Invoke(this, mode), nameof(RepeatChanged));
+            lock (_stateLock)
+            {
+                if (sessionGeneration != SessionGeneration || _disposed)
+                    return;
+                _repeatMode = mode;
+            }
+            RaiseOnMainThread(() => RepeatChanged?.Invoke(this, mode), nameof(RepeatChanged), sessionGeneration);
         }
 
-        private void RaisePanic(string message)
+        private void RaisePanic(string message, long sessionGeneration)
         {
             if (message == null) return;
-            RaiseOnMainThread(() => Panic?.Invoke(this, message), nameof(Panic));
+            RaiseOnMainThread(() => Panic?.Invoke(this, message), nameof(Panic), sessionGeneration);
         }
 
-        private static void RaiseOnMainThread(Action action, string eventName)
+        private void RaiseOnMainThread(Action action, string eventName, long sessionGeneration)
         {
             try
             {
@@ -1224,6 +1297,8 @@ namespace LibreSpotUWP.Services
                     {
                         try
                         {
+                            if (sessionGeneration != SessionGeneration || _disposed)
+                                return;
                             action();
                         }
                         catch (Exception ex)
@@ -1234,7 +1309,8 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                action();
+                if (sessionGeneration == SessionGeneration && !_disposed)
+                    action();
             }
             catch (Exception ex)
             {
@@ -1244,11 +1320,31 @@ namespace LibreSpotUWP.Services
 
         private async Task RecreateInstanceWithAccessTokenAsync(string accessToken)
         {
+            long generation = Interlocked.Increment(ref _sessionGeneration);
             if (_instance != IntPtr.Zero)
             {
                 Librespot.librespot_free(_instance);
                 _instance = IntPtr.Zero;
             }
+
+            lock (_stateLock)
+            {
+                _session = new LibrespotSessionState
+                {
+                    IsConnected = false,
+                    SessionGeneration = generation,
+                    AuthNeeded = false
+                };
+                _playbackState = LibrespotPlaybackState.Stopped;
+                _currentTrack = null;
+                ActiveClientName = null;
+                IsAutoPlayEnabled = false;
+                IsExplicitFilterEnabled = false;
+            }
+
+            LibrespotCallback callback = (evt, userData) => OnLibrespotEvent(evt, userData, generation);
+            _callbackDelegate = callback;
+            _sessionCallbacks.Add(callback);
 
             var cfg = BuildConfig(accessToken);
             try
@@ -1262,6 +1358,7 @@ namespace LibreSpotUWP.Services
                 FreeConfig(cfg);
             }
 
+            LogService.Info($"[LibrespotService.RecreateInstanceWithAccessTokenAsync] Native session created. sessionGeneration={generation}.");
             await Task.CompletedTask;
         }
 

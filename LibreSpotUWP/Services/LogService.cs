@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +13,20 @@ namespace LibreSpotUWP.Services
 {
     public static class LogService
     {
-        private static readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
+        private sealed class LogEntry
+        {
+            public string Level;
+            public string ClassName;
+            public string Member;
+            public string Message;
+            public DateTimeOffset Timestamp;
+        }
+
+        private const int MaximumQueuedEntries = 512;
+        private const int MaximumBatchEntries = 64;
+        private static readonly ConcurrentQueue<LogEntry> _queue = new ConcurrentQueue<LogEntry>();
+        private static readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
+        private static readonly object _writerLock = new object();
         private static readonly Regex JsonSecretRegex = new Regex("(\"(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|authorization|auth[_-]?blob|audio[_-]?key|private[_-]?key|code)\"\\s*:\\s*\")[^\"]*(\")", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex KeyValueSecretRegex = new Regex("\\b((?:access[_-]?token|refresh[_-]?token|client[_-]?secret|authorization|auth[_-]?blob|audio[_-]?key|private[_-]?key|code)\\s*[:=]\\s*)[^&\\s,;}\\]]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex BearerTokenRegex = new Regex("\\bBearer\\s+[A-Za-z0-9._~+/-]+=*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -20,50 +35,102 @@ namespace LibreSpotUWP.Services
         private static readonly Regex SpotifyConnectedUserRegex = new Regex("(Connected as user:\\s*)\\S+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex LeadingBracketPrefixRegex = new Regex("^\\[([^\\]]+)\\]\\s*", RegexOptions.CultureInvariant);
         private static string _logPath;
+        private static Task _writerTask;
+        private static int _queuedEntries;
+        private static long _droppedEntries;
 
         public static string LogPath => _logPath;
 
-        public static async Task InitializeAsync()
+        public static Task InitializeAsync()
         {
             _logPath = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "log.txt");
-            await WriteAsync("INFO", "LogService", nameof(InitializeAsync), $"Logging initialized at {_logPath}");
+            EnsureWriterStarted();
+            Enqueue("INFO", "LogService", nameof(InitializeAsync), $"Logging initialized at {_logPath}");
+            return Task.CompletedTask;
         }
 
         public static void Info(string message, [CallerFilePath] string file = null, [CallerMemberName] string member = null)
-            => _ = WriteAsync("INFO", GetClassName(file), member, message);
+            => Enqueue("INFO", GetClassName(file), member, message);
 
         public static void Warn(string message, [CallerFilePath] string file = null, [CallerMemberName] string member = null)
-            => _ = WriteAsync("WARN", GetClassName(file), member, message);
+            => Enqueue("WARN", GetClassName(file), member, message);
 
         public static void Error(Exception ex, string message = null, [CallerFilePath] string file = null, [CallerMemberName] string member = null)
-            => _ = WriteAsync("ERROR", GetClassName(file), member, $"{message ?? "Exception"} | {ex}");
+            => Enqueue("ERROR", GetClassName(file), member, $"{message ?? "Exception"} | {ex}");
 
         public static void Error(string message, [CallerFilePath] string file = null, [CallerMemberName] string member = null)
-            => _ = WriteAsync("ERROR", GetClassName(file), member, message);
+            => Enqueue("ERROR", GetClassName(file), member, message);
 
-        private static async Task WriteAsync(string level, string className, string member, string message)
+        private static void Enqueue(string level, string className, string member, string message)
         {
-            try
+            EnsureWriterStarted();
+            if (Interlocked.Increment(ref _queuedEntries) > MaximumQueuedEntries)
             {
-                if (string.IsNullOrWhiteSpace(_logPath))
-                    _logPath = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "log.txt");
+                Interlocked.Decrement(ref _queuedEntries);
+                Interlocked.Increment(ref _droppedEntries);
+                return;
+            }
 
-                string sanitizedMessage = EnsureSourcePrefix(className, member, Sanitize(message));
-                string line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{level}] {sanitizedMessage}";
-                Trace.WriteLine(line);
+            _queue.Enqueue(new LogEntry
+            {
+                Level = level,
+                ClassName = className,
+                Member = member,
+                Message = message,
+                Timestamp = DateTimeOffset.Now
+            });
+            _queueSignal.Release();
+        }
 
-                await _gate.WaitAsync().ConfigureAwait(false);
+        private static void EnsureWriterStarted()
+        {
+            lock (_writerLock)
+            {
+                if (_writerTask == null)
+                    _writerTask = Task.Run(ProcessQueueAsync);
+            }
+        }
+
+        private static async Task ProcessQueueAsync()
+        {
+            while (true)
+            {
+                await _queueSignal.WaitAsync().ConfigureAwait(false);
+
                 try
                 {
-                    await File.AppendAllTextAsync(_logPath, line + Environment.NewLine).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(_logPath))
+                        _logPath = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "log.txt");
+
+                    var batch = new StringBuilder();
+                    int count = 0;
+                    while (count < MaximumBatchEntries && _queue.TryDequeue(out LogEntry entry))
+                    {
+                        Interlocked.Decrement(ref _queuedEntries);
+                        string sanitizedMessage = EnsureSourcePrefix(
+                            entry.ClassName,
+                            entry.Member,
+                            Sanitize(entry.Message));
+                        string line = $"{entry.Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{entry.Level}] {sanitizedMessage}";
+                        Trace.WriteLine(line);
+                        batch.AppendLine(line);
+                        count++;
+                    }
+
+                    long dropped = Interlocked.Exchange(ref _droppedEntries, 0);
+                    if (dropped > 0)
+                    {
+                        string droppedLine = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [WARN] [LogService.ProcessQueueAsync] Dropped {dropped} log entries because the bounded queue was full.";
+                        Trace.WriteLine(droppedLine);
+                        batch.AppendLine(droppedLine);
+                    }
+
+                    if (batch.Length > 0)
+                        await File.AppendAllTextAsync(_logPath, batch.ToString()).ConfigureAwait(false);
                 }
-                finally
+                catch
                 {
-                    _gate.Release();
                 }
-            }
-            catch
-            {
             }
         }
 

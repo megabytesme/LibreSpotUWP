@@ -46,7 +46,10 @@ namespace LibreSpotUWP.Helpers
 
                 var result = await AudioGraph.CreateAsync(settings);
                 if (result.Status != AudioGraphCreationStatus.Success)
+                {
+                    result.Graph?.Dispose();
                     continue;
+                }
 
                 result.Graph.Dispose();
 

@@ -17,10 +17,28 @@ using static LibreSpotUWP.Interop.Librespot;
 
 namespace LibreSpotUWP.Services
 {
+    public sealed class ProducerStalledEventArgs : EventArgs
+    {
+        public long GraphInstanceId { get; set; }
+        public long SessionGeneration { get; set; }
+        public ulong TrackGeneration { get; set; }
+        public string Reason { get; set; }
+        public ulong AvailableBytes { get; set; }
+        public long LastPcmWriteMs { get; set; }
+        public long LastSuccessfulStreamReadMs { get; set; }
+    }
+
     public sealed class LibrespotRingBufferPlayer : IDisposable
     {
+        private static long _nextGraphInstanceId;
+        private static int _liveGraphCount;
+
         private readonly AudioEncodingProperties _props;
         private readonly string _outputDeviceId;
+        private readonly long _graphInstanceId;
+        private readonly AsyncOperationOnce _initialization = new AsyncOperationOnce();
+        private readonly CallbackLifetimeGate _callbackLifetime = new CallbackLifetimeGate();
+        private readonly ProducerHealthMonitor _producerHealth = new ProducerHealthMonitor();
         private AudioGraph _graph;
         private AudioFrameInputNode _inputNode;
         private EchoEffectDefinition _echoEffect;
@@ -40,15 +58,17 @@ namespace LibreSpotUWP.Services
         private long _activeBoundarySequence = -1;
         private int _consumerEnabled;
         private int _inputNodeRunning;
+        private int _graphRunning;
         private int _transitionPollRunning;
+        private int _watchdogRunning;
+        private int _graphCounted;
         private int _disposed;
         private string _audioHealthTrackUri = "(unknown)";
         private Timer _telemetryTimer;
         private Timer _transitionTimer;
-        private readonly object _initializationLock = new object();
+        private Timer _producerWatchdogTimer;
         private readonly object _transitionLock = new object();
         private readonly SemaphoreSlim _lifecycleGate = new SemaphoreSlim(1, 1);
-        private Task _initializationTask;
         private AudioTransitionStateMachine _transitionState;
         private TaskCompletionSource<bool> _playbackReady;
         private TransitionTelemetry _transitionTelemetry;
@@ -73,6 +93,9 @@ namespace LibreSpotUWP.Services
         private readonly PooledFrame[] _framePool = new PooledFrame[PoolSize];
         private int _nextFramePoolIndex = -1;
         private const int TelemetryIntervalMs = 10000;
+        private const int ProducerWatchdogIntervalMs = 500;
+        internal const int ProducerStallIntervalMs = 6000;
+        internal const int ProducerLowBufferMilliseconds = 120;
         private const int TransitionPollIntervalMs = 10;
         // 200 ms is long enough to absorb scheduling jitter seen on Lumia 830
         // class devices while leaving headroom in the ~495 ms native ring.
@@ -84,6 +107,11 @@ namespace LibreSpotUWP.Services
         private const double EqualizerMaxLinearGain = 7.94;
         private const double EqualizerDefaultLinearGain = 1.0;
         private uint _maxFrameBytes;
+
+        public long GraphInstanceId => _graphInstanceId;
+        internal static int LiveGraphCount => Volatile.Read(ref _liveGraphCount);
+
+        public event EventHandler<ProducerStalledEventArgs> ProducerStalled;
 
         private sealed class TransitionTelemetry
         {
@@ -116,77 +144,111 @@ namespace LibreSpotUWP.Services
         {
             _props = props;
             _outputDeviceId = outputDeviceId ?? string.Empty;
+            _graphInstanceId = Interlocked.Increment(ref _nextGraphInstanceId);
         }
 
         public Task InitializeAsync()
         {
-            lock (_initializationLock)
-            {
-                if (_initializationTask == null)
-                    _initializationTask = InitializeCoreAsync();
+            if (Volatile.Read(ref _disposed) != 0)
+                throw new ObjectDisposedException(nameof(LibrespotRingBufferPlayer));
 
-                return _initializationTask;
-            }
+            return _initialization.Run(InitializeCoreAsync);
         }
 
         private async Task InitializeCoreAsync()
         {
             await _lifecycleGate.WaitAsync();
+            AudioGraph candidateGraph = null;
+            AudioFrameInputNode candidateInputNode = null;
+            PooledFrame[] candidateFrames = null;
             try
             {
-            using (var process = Process.GetCurrentProcess())
-                process.PriorityClass = ProcessPriorityClass.High;
+                ThrowIfDisposed();
+                using (var process = Process.GetCurrentProcess())
+                    process.PriorityClass = ProcessPriorityClass.High;
 
-            await WaitForRingBufferAsync();
+                await WaitForRingBufferAsync();
+                ThrowIfDisposed();
 
-            _capacityBytes = (int)librespot_audio_get_capacity().ToUInt32();
-            var producer = GetProducerState();
-            _readSequence = (long)producer.WriteSequence;
-            librespot_audio_set_read_sequence(producer.WriteSequence);
-            _frameSize = (int)(_props.ChannelCount * (_props.BitsPerSample / 8));
-            var preRollBytes = MillisecondsToAlignedBytes(PreRollMilliseconds);
-            _transitionState = new AudioTransitionStateMachine((ulong)preRollBytes);
+                _capacityBytes = (int)librespot_audio_get_capacity().ToUInt32();
+                var producer = GetProducerState();
+                _readSequence = (long)producer.WriteSequence;
+                librespot_audio_set_read_sequence(producer.WriteSequence);
+                _frameSize = (int)(_props.ChannelCount * (_props.BitsPerSample / 8));
+                var preRollBytes = MillisecondsToAlignedBytes(PreRollMilliseconds);
+                _transitionState = new AudioTransitionStateMachine((ulong)preRollBytes);
 
-            var settings = new AudioGraphSettings(AudioRenderCategory.Media)
-            {
-                EncodingProperties = _props,
-                QuantumSizeSelectionMode = QuantumSizeSelectionMode.SystemDefault
-            };
-            var outputDevice = await TryGetOutputDeviceAsync(_outputDeviceId);
-            if (outputDevice != null)
-                settings.PrimaryRenderDevice = outputDevice;
+                var settings = new AudioGraphSettings(AudioRenderCategory.Media)
+                {
+                    EncodingProperties = _props,
+                    QuantumSizeSelectionMode = QuantumSizeSelectionMode.SystemDefault
+                };
+                var outputDevice = await TryGetOutputDeviceAsync(_outputDeviceId);
+                ThrowIfDisposed();
+                if (outputDevice != null)
+                    settings.PrimaryRenderDevice = outputDevice;
 
-            var result = await AudioGraph.CreateAsync(settings);
-            if (result.Status != AudioGraphCreationStatus.Success && outputDevice != null)
-            {
-                LogService.Warn($"AudioGraph creation failed for selected output '{_outputDeviceId}' ({result.Status}); retrying default output.");
-                settings.PrimaryRenderDevice = null;
-                result = await AudioGraph.CreateAsync(settings);
+                var result = await AudioGraph.CreateAsync(settings);
+                if (result.Status != AudioGraphCreationStatus.Success && outputDevice != null)
+                {
+                    result.Graph?.Dispose();
+                    LogService.Warn($"[LibrespotRingBufferPlayer.InitializeAsync] graphId={_graphInstanceId}, selected output '{_outputDeviceId}' failed ({result.Status}); retrying default output.");
+                    settings.PrimaryRenderDevice = null;
+                    result = await AudioGraph.CreateAsync(settings);
+                }
+
+                ThrowIfDisposed();
+                if (result.Status != AudioGraphCreationStatus.Success || result.Graph == null)
+                {
+                    result.Graph?.Dispose();
+                    throw new InvalidOperationException($"AudioGraph creation failed: {result.Status}");
+                }
+
+                candidateGraph = result.Graph;
+                uint samplesPerQuantum = (uint)Math.Max(1, candidateGraph.SamplesPerQuantum);
+                _maxFrameBytes = samplesPerQuantum * (uint)_frameSize;
+                candidateFrames = new PooledFrame[PoolSize];
+                for (int i = 0; i < PoolSize; i++)
+                    candidateFrames[i] = new PooledFrame(_maxFrameBytes);
+
+                var outResult = await candidateGraph.CreateDeviceOutputNodeAsync();
+                ThrowIfDisposed();
+                if (outResult.Status != AudioDeviceNodeCreationStatus.Success || outResult.DeviceOutputNode == null)
+                    throw new InvalidOperationException($"Audio output node creation failed: {outResult.Status}");
+
+                candidateInputNode = candidateGraph.CreateFrameInputNode(_props);
+                candidateInputNode.OutgoingGain = _outgoingGain;
+                candidateInputNode.AddOutgoingConnection(outResult.DeviceOutputNode);
+                candidateInputNode.Stop();
+                candidateGraph.Stop();
+                candidateInputNode.QuantumStarted += OnQuantumStarted;
+
+                _graph = candidateGraph;
+                _inputNode = candidateInputNode;
+                for (int i = 0; i < PoolSize; i++)
+                    _framePool[i] = candidateFrames[i];
+                candidateGraph = null;
+                candidateInputNode = null;
+                candidateFrames = null;
+
+                ApplyAudioEffectsPreset(_audioEffectsPreset);
+                _telemetryTimer = new Timer(_ => FlushAudioTelemetry(), null, Timeout.Infinite, Timeout.Infinite);
+                _transitionTimer = new Timer(_ => RunTransitionPoll(), null, Timeout.Infinite, Timeout.Infinite);
+                _producerWatchdogTimer = new Timer(_ => CheckProducerHealth(), null, Timeout.Infinite, Timeout.Infinite);
+                Interlocked.Exchange(ref _graphCounted, 1);
+                int liveGraphs = Interlocked.Increment(ref _liveGraphCount);
+                LogService.Info($"[LibrespotRingBufferPlayer.InitializeAsync] graphId={_graphInstanceId}, liveGraphs={liveGraphs}, AudioGraph initialized stopped and consumer gated, sampleRate={_props.SampleRate}, channels={_props.ChannelCount}, bits={_props.BitsPerSample}, samplesPerQuantum={_graph.SamplesPerQuantum}, frameBytes={_frameSize}, maxFrameBytes={_maxFrameBytes}, capacityBytes={_capacityBytes}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}, preRollMs={PreRollMilliseconds}.");
             }
-
-            if (result.Status != AudioGraphCreationStatus.Success)
-                throw new InvalidOperationException($"AudioGraph creation failed: {result.Status}");
-
-            _graph = result.Graph;
-            uint samplesPerQuantum = (uint)Math.Max(1, _graph.SamplesPerQuantum);
-            _maxFrameBytes = samplesPerQuantum * (uint)_frameSize;
-
-            for (int i = 0; i < PoolSize; i++)
-                _framePool[i] = new PooledFrame(_maxFrameBytes);
-
-            var outResult = await _graph.CreateDeviceOutputNodeAsync();
-            _inputNode = _graph.CreateFrameInputNode(_props);
-            _inputNode.OutgoingGain = _outgoingGain;
-            ApplyAudioEffectsPreset(_audioEffectsPreset);
-
-            _inputNode.QuantumStarted += OnQuantumStarted;
-            _inputNode.AddOutgoingConnection(outResult.DeviceOutputNode);
-
-            _inputNode.Stop();
-            _graph.Start();
-            _telemetryTimer = new Timer(_ => FlushAudioTelemetry(), null, TelemetryIntervalMs, TelemetryIntervalMs);
-            _transitionTimer = new Timer(_ => QueueTransitionPoll(), null, TransitionPollIntervalMs, TransitionPollIntervalMs);
-            LogService.Info($"[LibrespotRingBufferPlayer.InitializeAsync] AudioGraph initialized and consumer gated sampleRate={_props.SampleRate}, channels={_props.ChannelCount}, bits={_props.BitsPerSample}, samplesPerQuantum={_graph.SamplesPerQuantum}, frameBytes={_frameSize}, maxFrameBytes={_maxFrameBytes}, capacityBytes={_capacityBytes}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}, preRollMs={PreRollMilliseconds}.");
+            catch
+            {
+                candidateInputNode?.Dispose();
+                candidateGraph?.Dispose();
+                if (candidateFrames != null)
+                {
+                    foreach (var frame in candidateFrames)
+                        frame?.Dispose();
+                }
+                throw;
             }
             finally
             {
@@ -196,98 +258,108 @@ namespace LibreSpotUWP.Services
 
         private unsafe void OnQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
         {
-            int samplesNeeded = args.RequiredSamples;
-            if (samplesNeeded <= 0 || Volatile.Read(ref _consumerEnabled) == 0)
+            if (!_callbackLifetime.TryEnter())
                 return;
-
-            int bytesRequested = samplesNeeded * _frameSize;
-            var producer = GetProducerState();
-            long readSequence = Volatile.Read(ref _readSequence);
-            long writeSequence = (long)producer.WriteSequence;
-            long availableLong = Math.Max(0L, Math.Min(_capacityBytes, writeSequence - readSequence));
-            bool generationBoundaryLimited = false;
-
-            long activeGeneration = Volatile.Read(ref _activeGeneration);
-            long boundarySequence = Volatile.Read(ref _activeBoundarySequence);
-            if (boundarySequence < 0 && producer.Generation > (ulong)Math.Max(0, activeGeneration))
-                boundarySequence = (long)producer.GenerationStartSequence;
-
-            if (boundarySequence >= 0)
-            {
-                if (readSequence >= boundarySequence)
-                {
-                    Interlocked.Exchange(ref _consumerEnabled, 0);
-                    return;
-                }
-
-                long bytesToBoundary = boundarySequence - readSequence;
-                generationBoundaryLimited = bytesToBoundary < bytesRequested;
-                if (availableLong > bytesToBoundary)
-                    availableLong = bytesToBoundary;
-            }
-
-            int available = (int)availableLong;
-
-            int bytesToCopy = Math.Min(available, bytesRequested);
-            bytesToCopy -= bytesToCopy % _frameSize;
-
-            RecordAudioTelemetry(samplesNeeded, bytesRequested, bytesToCopy, available, generationBoundaryLimited);
-
-            PooledFrame pooled = TryAcquirePooledFrame();
-            if (pooled == null || pooled.Capacity < bytesRequested)
-            {
-                Interlocked.Increment(ref _telemetryFramePoolMissCount);
-                if (pooled != null)
-                    Volatile.Write(ref pooled.InUse, 0);
-                return;
-            }
 
             try
             {
-                using (AudioBuffer buffer = pooled.Frame.LockBuffer(AudioBufferAccessMode.Write))
-                using (IMemoryBufferReference reference = buffer.CreateReference())
+                int samplesNeeded = args.RequiredSamples;
+                if (samplesNeeded <= 0 || Volatile.Read(ref _consumerEnabled) == 0)
+                    return;
+
+                int bytesRequested = samplesNeeded * _frameSize;
+                var producer = GetProducerState();
+                long readSequence = Volatile.Read(ref _readSequence);
+                long writeSequence = (long)producer.WriteSequence;
+                long availableLong = Math.Max(0L, Math.Min(_capacityBytes, writeSequence - readSequence));
+                bool generationBoundaryLimited = false;
+
+                long activeGeneration = Volatile.Read(ref _activeGeneration);
+                long boundarySequence = Volatile.Read(ref _activeBoundarySequence);
+                if (boundarySequence < 0 && producer.Generation > (ulong)Math.Max(0, activeGeneration))
+                    boundarySequence = (long)producer.GenerationStartSequence;
+
+                if (boundarySequence >= 0)
                 {
-                    if (reference is IMemoryBufferByteAccess byteAccess)
+                    if (readSequence >= boundarySequence)
                     {
-                        byteAccess.GetBuffer(out IntPtr dataInPtr, out uint capacity);
-                        byte* dest = (byte*)dataInPtr;
-                        byte* srcBase = (byte*)_bufferPtr;
-
-                        if (bytesToCopy > 0)
-                        {
-                            int readPos = (int)((ulong)readSequence % (ulong)_capacityBytes);
-                            int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - readPos);
-                            Buffer.MemoryCopy(srcBase + readPos, dest, capacity, firstChunkSize);
-
-                            if (bytesToCopy > firstChunkSize)
-                            {
-                                Buffer.MemoryCopy(srcBase, dest + firstChunkSize, capacity - (uint)firstChunkSize, bytesToCopy - firstChunkSize);
-                            }
-                        }
-
-                        for (int i = bytesToCopy; i < bytesRequested; i++)
-                            dest[i] = 0;
-
-                        buffer.Length = (uint)bytesRequested;
+                        Interlocked.Exchange(ref _consumerEnabled, 0);
+                        return;
                     }
+
+                    long bytesToBoundary = boundarySequence - readSequence;
+                    generationBoundaryLimited = bytesToBoundary < bytesRequested;
+                    if (availableLong > bytesToBoundary)
+                        availableLong = bytesToBoundary;
                 }
 
-                sender.AddFrame(pooled.Frame);
+                int available = (int)availableLong;
+
+                int bytesToCopy = Math.Min(available, bytesRequested);
+                bytesToCopy -= bytesToCopy % _frameSize;
+
+                RecordAudioTelemetry(samplesNeeded, bytesRequested, bytesToCopy, available, generationBoundaryLimited);
+
+                PooledFrame pooled = TryAcquirePooledFrame();
+                if (pooled == null || pooled.Capacity < bytesRequested)
+                {
+                    Interlocked.Increment(ref _telemetryFramePoolMissCount);
+                    if (pooled != null)
+                        Volatile.Write(ref pooled.InUse, 0);
+                    return;
+                }
+
+                try
+                {
+                    using (AudioBuffer buffer = pooled.Frame.LockBuffer(AudioBufferAccessMode.Write))
+                    using (IMemoryBufferReference reference = buffer.CreateReference())
+                    {
+                        if (reference is IMemoryBufferByteAccess byteAccess)
+                        {
+                            byteAccess.GetBuffer(out IntPtr dataInPtr, out uint capacity);
+                            byte* dest = (byte*)dataInPtr;
+                            byte* srcBase = (byte*)_bufferPtr;
+
+                            if (bytesToCopy > 0)
+                            {
+                                int readPos = (int)((ulong)readSequence % (ulong)_capacityBytes);
+                                int firstChunkSize = Math.Min(bytesToCopy, _capacityBytes - readPos);
+                                Buffer.MemoryCopy(srcBase + readPos, dest, capacity, firstChunkSize);
+
+                                if (bytesToCopy > firstChunkSize)
+                                {
+                                    Buffer.MemoryCopy(srcBase, dest + firstChunkSize, capacity - (uint)firstChunkSize, bytesToCopy - firstChunkSize);
+                                }
+                            }
+
+                            for (int i = bytesToCopy; i < bytesRequested; i++)
+                                dest[i] = 0;
+
+                            buffer.Length = (uint)bytesRequested;
+                        }
+                    }
+
+                    sender.AddFrame(pooled.Frame);
+                }
+                finally
+                {
+                    Volatile.Write(ref pooled.InUse, 0);
+                }
+
+                if (bytesToCopy > 0)
+                {
+                    long nextReadSequence = readSequence + bytesToCopy;
+                    Interlocked.Exchange(ref _readSequence, nextReadSequence);
+                    librespot_audio_set_read_sequence((ulong)nextReadSequence);
+                    UpdateMin(ref _transitionMinimumAvailableBytes, available);
+
+                    if (boundarySequence >= 0 && nextReadSequence >= boundarySequence)
+                        Interlocked.Exchange(ref _consumerEnabled, 0);
+                }
             }
             finally
             {
-                Volatile.Write(ref pooled.InUse, 0);
-            }
-
-            if (bytesToCopy > 0)
-            {
-                long nextReadSequence = readSequence + bytesToCopy;
-                Interlocked.Exchange(ref _readSequence, nextReadSequence);
-                librespot_audio_set_read_sequence((ulong)nextReadSequence);
-                UpdateMin(ref _transitionMinimumAvailableBytes, available);
-
-                if (boundarySequence >= 0 && nextReadSequence >= boundarySequence)
-                    Interlocked.Exchange(ref _consumerEnabled, 0);
+                _callbackLifetime.Exit();
             }
         }
 
@@ -319,6 +391,8 @@ namespace LibreSpotUWP.Services
                 Interlocked.Exchange(ref _consumerEnabled, 0);
                 _ = SetInputNodeRunningAsync(false, id);
             }
+
+            ResetPlaybackExpectation(shouldPlay);
 
             QueueTransitionPoll();
             return id;
@@ -408,6 +482,10 @@ namespace LibreSpotUWP.Services
             if (accepted)
             {
                 _audioHealthTrackUri = NormalizeTrackUri(trackUri);
+                _producerHealth.SetTrackGeneration(
+                    audioGeneration,
+                    producer.WriteSequence,
+                    GetMonotonicMilliseconds());
                 QueueTransitionPoll();
             }
             return accepted;
@@ -449,6 +527,7 @@ namespace LibreSpotUWP.Services
                 task = _playbackReady.Task;
             }
 
+            ResetPlaybackExpectation(true);
             QueueTransitionPoll();
             return task;
         }
@@ -488,18 +567,22 @@ namespace LibreSpotUWP.Services
                 CompletePlaybackReadyLocked(false);
             }
             Interlocked.Exchange(ref _consumerEnabled, 0);
+            ResetPlaybackExpectation(false);
             return SetInputNodeRunningAsync(false, 0);
         }
 
         public void Stop()
         {
+            long transitionId;
             lock (_transitionLock)
             {
                 _transitionState?.Cancel();
                 CompletePlaybackReadyLocked(false);
+                transitionId = _transitionState?.CurrentTransitionId ?? 0;
             }
             Interlocked.Exchange(ref _consumerEnabled, 0);
-            _ = SetInputNodeRunningAsync(false, 0);
+            ResetPlaybackExpectation(false);
+            _ = SetInputNodeRunningAsync(false, transitionId);
             Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
             FlushAudioTelemetry(force: true);
             FlushTransitionTelemetry();
@@ -508,7 +591,17 @@ namespace LibreSpotUWP.Services
         private void QueueTransitionPoll()
         {
             if (Volatile.Read(ref _disposed) != 0 ||
-                _transitionState == null ||
+                _transitionState == null)
+            {
+                return;
+            }
+
+            _transitionTimer?.Change(0, Timeout.Infinite);
+        }
+
+        private void RunTransitionPoll()
+        {
+            if (Volatile.Read(ref _disposed) != 0 ||
                 Interlocked.CompareExchange(ref _transitionPollRunning, 1, 0) != 0)
             {
                 return;
@@ -586,7 +679,7 @@ namespace LibreSpotUWP.Services
                 }
                 else if (evaluation.ShouldGate || Volatile.Read(ref _consumerEnabled) == 0)
                 {
-                    await SetInputNodeRunningAsync(false, 0);
+                    await SetInputNodeRunningAsync(false, evaluation.TransitionId);
                 }
             }
             catch (Exception ex)
@@ -596,6 +689,12 @@ namespace LibreSpotUWP.Services
             finally
             {
                 Interlocked.Exchange(ref _transitionPollRunning, 0);
+                bool shouldPollAgain;
+                lock (_transitionLock)
+                    shouldPollAgain = _transitionState != null && _transitionState.HasPendingTransition;
+
+                if (shouldPollAgain && Volatile.Read(ref _disposed) == 0)
+                    _transitionTimer?.Change(TransitionPollIntervalMs, Timeout.Infinite);
             }
         }
 
@@ -607,26 +706,35 @@ namespace LibreSpotUWP.Services
                 if (Volatile.Read(ref _disposed) != 0 || _inputNode == null)
                     return false;
 
+                lock (_transitionLock)
+                {
+                    if (expectedTransitionId != 0 &&
+                        _transitionState.CurrentTransitionId != expectedTransitionId)
+                    {
+                        return false;
+                    }
+                }
+
                 if (running)
                 {
-                    lock (_transitionLock)
-                    {
-                        if (expectedTransitionId != 0 &&
-                            _transitionState.CurrentTransitionId != expectedTransitionId)
-                        {
-                            return false;
-                        }
-                    }
-
                     Interlocked.Exchange(ref _consumerEnabled, 1);
+                    if (Interlocked.CompareExchange(ref _graphRunning, 1, 0) == 0)
+                        _graph.Start();
                     if (Interlocked.CompareExchange(ref _inputNodeRunning, 1, 0) == 0)
                         _inputNode.Start();
+                    _telemetryTimer?.Change(TelemetryIntervalMs, TelemetryIntervalMs);
+                    _producerWatchdogTimer?.Change(ProducerWatchdogIntervalMs, ProducerWatchdogIntervalMs);
                 }
                 else
                 {
                     Interlocked.Exchange(ref _consumerEnabled, 0);
                     if (Interlocked.CompareExchange(ref _inputNodeRunning, 0, 1) == 1)
                         _inputNode.Stop();
+                    if (Interlocked.CompareExchange(ref _graphRunning, 0, 1) == 1)
+                        _graph.Stop();
+                    _telemetryTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                    if (!_producerHealth.Snapshot.PlaybackExpected)
+                        _producerWatchdogTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 }
 
                 Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
@@ -651,6 +759,147 @@ namespace LibreSpotUWP.Services
                 ready.TrySetResult(result);
         }
 
+        public void SetSessionState(bool connected, long sessionGeneration)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            if (!_producerHealth.SetSessionState(
+                connected,
+                sessionGeneration,
+                GetMonotonicMilliseconds()))
+            {
+                LogService.Info($"[LibrespotRingBufferPlayer.SetSessionState] graphId={_graphInstanceId}, ignoring stale sessionGeneration={sessionGeneration}, activeSessionGeneration={_producerHealth.Snapshot.SessionGeneration}.");
+                return;
+            }
+
+            if (_producerHealth.Snapshot.PlaybackExpected)
+                _producerWatchdogTimer?.Change(0, ProducerWatchdogIntervalMs);
+        }
+
+        public void ReportTransportFailure(long sessionGeneration, string reason)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            if (!_producerHealth.ReportFatal(sessionGeneration, reason))
+            {
+                LogService.Info($"[LibrespotRingBufferPlayer.ReportTransportFailure] graphId={_graphInstanceId}, ignoring stale failure sessionGeneration={sessionGeneration}, activeSessionGeneration={_producerHealth.Snapshot.SessionGeneration}, reason={reason}.");
+                return;
+            }
+
+            if (_producerHealth.Snapshot.PlaybackExpected)
+                _producerWatchdogTimer?.Change(0, ProducerWatchdogIntervalMs);
+        }
+
+        internal ProducerHealthSnapshot GetProducerHealthSnapshot()
+        {
+            return _producerHealth.Snapshot;
+        }
+
+        private void ResetPlaybackExpectation(bool expected)
+        {
+            var snapshot = _producerHealth.Snapshot;
+            var producer = _transitionState == null ? default(AudioProducerState) : GetProducerState();
+            long nowMs = GetMonotonicMilliseconds();
+
+            // A new explicit transition is a new expectation window even if the
+            // session and track marker have not changed yet.
+            _producerHealth.SetPlaybackExpected(
+                false,
+                snapshot.SessionGeneration,
+                snapshot.TrackGeneration,
+                producer.WriteSequence,
+                nowMs);
+            _producerHealth.SetPlaybackExpected(
+                expected,
+                snapshot.SessionGeneration,
+                snapshot.TrackGeneration,
+                producer.WriteSequence,
+                nowMs);
+
+            if (expected)
+                _producerWatchdogTimer?.Change(ProducerWatchdogIntervalMs, ProducerWatchdogIntervalMs);
+            else
+                _producerWatchdogTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+
+        private void CheckProducerHealth()
+        {
+            if (Volatile.Read(ref _disposed) != 0 ||
+                Interlocked.CompareExchange(ref _watchdogRunning, 1, 0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var producer = GetProducerState();
+                long nowMs = GetMonotonicMilliseconds();
+                _producerHealth.ObserveProducer(producer.WriteSequence, nowMs);
+
+                ulong readSequence = (ulong)Math.Max(0, Volatile.Read(ref _readSequence));
+                ulong availableBytes = producer.WriteSequence > readSequence
+                    ? Math.Min((ulong)Math.Max(0, _capacityBytes), producer.WriteSequence - readSequence)
+                    : 0;
+                ulong lowBufferBytes = (ulong)Math.Max(0, MillisecondsToAlignedBytes(ProducerLowBufferMilliseconds));
+                var decision = _producerHealth.Evaluate(
+                    nowMs,
+                    availableBytes,
+                    lowBufferBytes,
+                    ProducerStallIntervalMs);
+                if (decision.ShouldRecover)
+                    _ = QuiesceForProducerStallAsync(decision, availableBytes);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[LibrespotRingBufferPlayer.CheckProducerHealth] graphId={_graphInstanceId}, watchdog sample failed: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _watchdogRunning, 0);
+            }
+        }
+
+        private async Task QuiesceForProducerStallAsync(
+            ProducerHealthDecision decision,
+            ulong availableBytes)
+        {
+            if (!_producerHealth.IsDecisionCurrent(decision.Snapshot))
+                return;
+
+            _producerWatchdogTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            await SetInputNodeRunningAsync(false, 0);
+
+            if (!_producerHealth.IsDecisionCurrent(decision.Snapshot))
+            {
+                QueueTransitionPoll();
+                if (_producerHealth.Snapshot.PlaybackExpected)
+                    _producerWatchdogTimer?.Change(ProducerWatchdogIntervalMs, ProducerWatchdogIntervalMs);
+                return;
+            }
+
+            var snapshot = decision.Snapshot;
+            LogService.Warn($"[LibrespotRingBufferPlayer.ProducerStall] graphId={_graphInstanceId}, sessionGeneration={snapshot.SessionGeneration}, trackGeneration={snapshot.TrackGeneration}, reason={decision.Reason}, availableMs={BytesToMilliseconds((long)availableBytes):F1}, lastPcmWriteMs={snapshot.LastPcmWriteMs}, lastSuccessfulStreamReadMs={snapshot.LastSuccessfulStreamReadMs}.");
+            try
+            {
+                ProducerStalled?.Invoke(this, new ProducerStalledEventArgs
+                {
+                    GraphInstanceId = _graphInstanceId,
+                    SessionGeneration = snapshot.SessionGeneration,
+                    TrackGeneration = snapshot.TrackGeneration,
+                    Reason = decision.Reason,
+                    AvailableBytes = availableBytes,
+                    LastPcmWriteMs = snapshot.LastPcmWriteMs,
+                    LastSuccessfulStreamReadMs = snapshot.LastSuccessfulStreamReadMs
+                });
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, $"[LibrespotRingBufferPlayer.ProducerStall] graphId={_graphInstanceId}, observer failed");
+            }
+        }
+
         private AudioProducerState GetProducerState()
         {
             librespot_audio_get_state(out ulong generation, out ulong generationStart, out ulong writeSequence);
@@ -660,6 +909,11 @@ namespace LibreSpotUWP.Services
                 GenerationStartSequence = generationStart,
                 WriteSequence = writeSequence
             };
+        }
+
+        private static long GetMonotonicMilliseconds()
+        {
+            return (long)(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency);
         }
 
         private int MillisecondsToAlignedBytes(int milliseconds)
@@ -714,7 +968,8 @@ namespace LibreSpotUWP.Services
                 ? TicksToMilliseconds(telemetry.FirstPcmTimestamp - telemetry.StartedTimestamp)
                 : -1.0;
 
-            LogService.Info($"[LibrespotRingBufferPlayer.Transition] transitionId={telemetry.Id}, oldTrack={telemetry.OldTrackUri}, newTrack={telemetry.NewTrackUri}, reason={telemetry.Reason}, timeToFirstPcmMs={firstPcmMs:F1}, preRollMs={telemetry.PreRollMilliseconds:F1}, minimumBufferFillMs={BytesToMilliseconds(minimumBytes):F1}, insertedSilenceMs={BytesToMilliseconds(insertedSilenceBytes):F1}, preloaded={telemetry.WasPreloaded}.");
+            var health = _producerHealth.Snapshot;
+            LogService.Info($"[LibrespotRingBufferPlayer.Transition] graphId={_graphInstanceId}, sessionGeneration={health.SessionGeneration}, trackGeneration={health.TrackGeneration}, transitionId={telemetry.Id}, oldTrack={telemetry.OldTrackUri}, newTrack={telemetry.NewTrackUri}, reason={telemetry.Reason}, timeToFirstPcmMs={firstPcmMs:F1}, preRollMs={telemetry.PreRollMilliseconds:F1}, minimumBufferFillMs={BytesToMilliseconds(minimumBytes):F1}, insertedSilenceMs={BytesToMilliseconds(insertedSilenceBytes):F1}, preloaded={telemetry.WasPreloaded}.");
         }
 
         public void SetOutgoingGain(double gain)
@@ -754,6 +1009,8 @@ namespace LibreSpotUWP.Services
             _transitionTimer = null;
             _telemetryTimer?.Dispose();
             _telemetryTimer = null;
+            _producerWatchdogTimer?.Dispose();
+            _producerWatchdogTimer = null;
             FlushAudioTelemetry(force: true);
             FlushTransitionTelemetry();
 
@@ -761,19 +1018,40 @@ namespace LibreSpotUWP.Services
             try
             {
                 Interlocked.Exchange(ref _consumerEnabled, 0);
-                _inputNode?.Stop();
+                if (_inputNode != null)
+                {
+                    _inputNode.QuantumStarted -= OnQuantumStarted;
+                    _inputNode.Stop();
+                }
                 _graph?.Stop();
+                Interlocked.Exchange(ref _inputNodeRunning, 0);
+                Interlocked.Exchange(ref _graphRunning, 0);
+                bool callbacksDrained = _callbackLifetime.BeginDisposeAndWait(TimeSpan.FromSeconds(2));
+                if (!callbacksDrained)
+                {
+                    LogService.Warn($"[LibrespotRingBufferPlayer.Dispose] graphId={_graphInstanceId}, still waiting for {_callbackLifetime.CallbacksInFlight} AudioGraph callbacks before releasing audio resources.");
+                    _callbackLifetime.BeginDisposeAndWait(Timeout.InfiniteTimeSpan);
+                }
                 _inputNode?.Dispose();
                 _graph?.Dispose();
                 _inputNode = null;
                 _graph = null;
                 foreach (var frame in _framePool)
                     frame?.Dispose();
+
+                if (Interlocked.Exchange(ref _graphCounted, 0) != 0)
+                {
+                    int liveGraphs = Interlocked.Decrement(ref _liveGraphCount);
+                    LogService.Info($"[LibrespotRingBufferPlayer.Dispose] graphId={_graphInstanceId}, disposed, liveGraphs={liveGraphs}.");
+                }
             }
             finally
             {
                 _lifecycleGate.Release();
             }
+
+            ProducerStalled = null;
+            _callbackLifetime.Dispose();
         }
 
         private void ApplyAudioEffectsPreset(string preset)
@@ -1169,7 +1447,8 @@ namespace LibreSpotUWP.Services
 
             string reason = BuildAudioHealthReason(hasUnderrun, hasSignificantLateCallbacks, hasPoolPressure);
 
-            string message = $"[LibrespotRingBufferPlayer.AudioHealth] reason={reason}, track={_audioHealthTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={maxCallbackGapMs:F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.";
+            var health = _producerHealth.Snapshot;
+            string message = $"[LibrespotRingBufferPlayer.AudioHealth] graphId={_graphInstanceId}, sessionGeneration={health.SessionGeneration}, trackGeneration={health.TrackGeneration}, reason={reason}, track={_audioHealthTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={maxCallbackGapMs:F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.";
             if (hasUnderrun || hasPoolPressure)
                 LogService.Warn(message);
             else
@@ -1257,11 +1536,18 @@ namespace LibreSpotUWP.Services
             int waited = 0;
             while (librespot_audio_get_buffer() == IntPtr.Zero)
             {
+                ThrowIfDisposed();
                 if (waited >= 5000) throw new InvalidOperationException("Ring Buffer timeout.");
                 await Task.Delay(50);
                 waited += 50;
             }
             _bufferPtr = librespot_audio_get_buffer();
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                throw new ObjectDisposedException(nameof(LibrespotRingBufferPlayer));
         }
     }
 }

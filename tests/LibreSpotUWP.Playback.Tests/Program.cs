@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using LibreSpotUWP.Services;
 
 internal static class Program
@@ -25,7 +27,18 @@ internal static class Program
             ProgrammaticUiUpdatesNeverSeek,
             RemoteConnectPositionRemainsSynchronized,
             CorrectionStormKeepsDispatcherAndAudioWorkBounded,
-            LumiaStyleSequenceDoesNotUnderrun
+            LumiaStyleSequenceDoesNotUnderrun,
+            TwoConcurrentInitializationCallsShareOneOperation,
+            RepeatedActivationInitializesOnce,
+            StopFollowedByPlayRearmsProducerHealth,
+            EndOfQueueDisarmsProducerHealth,
+            ProducerStopsWhileWindowsWouldRemainOnline,
+            UnexpectedEofTriggersTransportRecovery,
+            SessionDisconnectDuringPlaybackTriggersRecovery,
+            RapidReconnectRequestsShareOneOperation,
+            CancellationDuringReconnectIsObserved,
+            OldSessionEventsCannotChangeReplacementSession,
+            GraphDisposalWaitsForCallbacksInFlight
         };
 
         try
@@ -411,6 +424,195 @@ internal static class Program
         Assert(summary.ActualSeeksIssued == 1, "Lumia burst issued more than the user seek");
         Assert(summary.HardCorrections < correctionCount / 10,
             "Lumia burst hard-corrected close to every packet");
+    }
+
+    private static void TwoConcurrentInitializationCallsShareOneOperation()
+    {
+        var once = new AsyncOperationOnce();
+        var release = new TaskCompletionSource<bool>();
+        var starts = 0;
+        Func<Task> initialize = async () =>
+        {
+            Interlocked.Increment(ref starts);
+            await release.Task.ConfigureAwait(false);
+        };
+
+        var first = once.Run(initialize);
+        var second = once.Run(initialize);
+        Assert(ReferenceEquals(first, second), "concurrent initialization did not share one task");
+        release.SetResult(true);
+        Task.WhenAll(first, second).GetAwaiter().GetResult();
+        Assert(starts == 1, "concurrent initialization created more than one graph operation");
+    }
+
+    private static void RepeatedActivationInitializesOnce()
+    {
+        var once = new AsyncOperationOnce();
+        var starts = 0;
+        Task first = null;
+        for (var activation = 0; activation < 20; activation++)
+        {
+            var current = once.Run(() =>
+            {
+                starts++;
+                return Task.CompletedTask;
+            });
+            if (first == null)
+                first = current;
+            else
+                Assert(ReferenceEquals(first, current), "repeated activation replaced the initialization task");
+        }
+
+        Assert(starts == 1, "repeated activation initialized media services more than once");
+    }
+
+    private static void StopFollowedByPlayRearmsProducerHealth()
+    {
+        var health = ConnectedExpectedHealth();
+        health.SetPlaybackExpected(false, 1, 1, 100, 200);
+        Assert(!health.Evaluate(20_000, 0, 10, 6_000).ShouldRecover,
+            "deliberate stop was treated as a producer stall");
+
+        health.SetPlaybackExpected(true, 1, 1, 100, 20_000);
+        health.ObserveProducer(200, 20_100);
+        var snapshot = health.Snapshot;
+        Assert(snapshot.PlaybackExpected, "play did not rearm producer expectation");
+        Assert(snapshot.LastPcmWriteMs == 20_100, "play did not observe replacement PCM");
+        Assert(snapshot.LastSuccessfulStreamReadMs == 20_100,
+            "successful stream-read health was not tracked separately");
+    }
+
+    private static void EndOfQueueDisarmsProducerHealth()
+    {
+        var health = ConnectedExpectedHealth();
+        health.SetPlaybackExpected(false, 1, 1, 100, 500);
+        var decision = health.Evaluate(60_000, 0, 10, 6_000);
+        Assert(!decision.ShouldRecover, "completed queue entered recovery");
+        Assert(!decision.Snapshot.PlaybackExpected, "completed queue left producer expectation armed");
+    }
+
+    private static void ProducerStopsWhileWindowsWouldRemainOnline()
+    {
+        var health = ConnectedExpectedHealth();
+        // The watchdog deliberately has no Windows connectivity input. A healthy
+        // connectivity flag therefore cannot mask absent PCM.
+        var decision = health.Evaluate(6_101, 0, 10, 6_000);
+        Assert(decision.ShouldRecover && decision.Reason == "pcm-stalled",
+            "stopped producer was masked by session/network health");
+
+        health.ObserveProducer(200, 6_150);
+        Assert(!health.IsDecisionCurrent(decision.Snapshot),
+            "new PCM did not invalidate a queued stall decision");
+    }
+
+    private static void UnexpectedEofTriggersTransportRecovery()
+    {
+        var health = ConnectedExpectedHealth();
+        Assert(health.ReportFatal(1, "unexpected-eof"), "UnexpectedEof was not accepted for the active session");
+        var decision = health.Evaluate(200, 0, 10, 6_000);
+        Assert(decision.ShouldRecover && decision.Reason == "unexpected-eof",
+            "UnexpectedEof did not trigger bounded recovery at low buffer");
+    }
+
+    private static void SessionDisconnectDuringPlaybackTriggersRecovery()
+    {
+        var health = ConnectedExpectedHealth();
+        Assert(health.SetSessionState(false, 1, 200), "active disconnect was rejected");
+        var decision = health.Evaluate(200, 0, 10, 6_000);
+        Assert(decision.ShouldRecover && decision.Reason == "session-disconnected",
+            "session disconnect did not trigger recovery after local PCM drained");
+
+        Assert(health.SetSessionState(true, 1, 250), "same-generation reconnect was rejected");
+        var reconnected = health.Snapshot;
+        Assert(reconnected.SessionConnected && !reconnected.FatalTransportFailure,
+            "same-generation reconnect left the disconnect failure latched");
+    }
+
+    private static void RapidReconnectRequestsShareOneOperation()
+    {
+        using (var gate = new RecoveryOperationGate())
+        using (var lifetime = new CancellationTokenSource())
+        {
+            var release = new TaskCompletionSource<bool>();
+            var starts = 0;
+            Func<CancellationToken, Task> reconnect = async cancellationToken =>
+            {
+                Interlocked.Increment(ref starts);
+                await release.Task.ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+            };
+
+            var requests = new Task[25];
+            for (var i = 0; i < requests.Length; i++)
+                requests[i] = gate.RunAsync(reconnect, lifetime.Token);
+
+            for (var i = 1; i < requests.Length; i++)
+                Assert(ReferenceEquals(requests[0], requests[i]), "rapid recovery request created another operation");
+            Assert(starts == 1, "rapid recovery requests started multiple reconnects");
+            release.SetResult(true);
+            Task.WhenAll(requests).GetAwaiter().GetResult();
+        }
+    }
+
+    private static void CancellationDuringReconnectIsObserved()
+    {
+        using (var gate = new RecoveryOperationGate())
+        using (var lifetime = new CancellationTokenSource())
+        {
+            var started = new TaskCompletionSource<bool>();
+            var reconnect = gate.RunAsync(async cancellationToken =>
+            {
+                started.SetResult(true);
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            }, lifetime.Token);
+
+            started.Task.GetAwaiter().GetResult();
+            gate.CancelActive();
+            try
+            {
+                reconnect.GetAwaiter().GetResult();
+                throw new InvalidOperationException("cancelled reconnect completed successfully");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+
+    private static void OldSessionEventsCannotChangeReplacementSession()
+    {
+        var health = new ProducerHealthMonitor();
+        health.SetPlaybackExpected(true, 2, 7, 100, 100);
+        Assert(health.SetSessionState(true, 2, 100), "replacement session was rejected");
+        Assert(!health.SetSessionState(false, 1, 200), "old disconnect changed replacement session");
+        Assert(!health.ReportFatal(1, "unexpected-eof"), "old stream failure changed replacement session");
+        var snapshot = health.Snapshot;
+        Assert(snapshot.SessionGeneration == 2 && snapshot.SessionConnected,
+            "stale session event altered the replacement session");
+        Assert(!snapshot.FatalTransportFailure, "stale session failure poisoned replacement health");
+    }
+
+    private static void GraphDisposalWaitsForCallbacksInFlight()
+    {
+        using (var callbacks = new CallbackLifetimeGate())
+        {
+            Assert(callbacks.TryEnter(), "callback could not enter live graph");
+            var dispose = Task.Run(() => callbacks.BeginDisposeAndWait(TimeSpan.FromSeconds(2)));
+            Assert(SpinWait.SpinUntil(() => callbacks.IsDisposing, 1000),
+                "graph disposal did not begin");
+            Assert(!dispose.Wait(20), "graph disposal completed while callback was in flight");
+            callbacks.Exit();
+            Assert(dispose.GetAwaiter().GetResult(), "graph disposal did not observe callback drain");
+            Assert(!callbacks.TryEnter(), "callback entered after graph disposal began");
+        }
+    }
+
+    private static ProducerHealthMonitor ConnectedExpectedHealth()
+    {
+        var health = new ProducerHealthMonitor();
+        health.SetPlaybackExpected(true, 1, 1, 100, 100);
+        Assert(health.SetSessionState(true, 1, 100), "health setup session was rejected");
+        return health;
     }
 
     private static AudioTransitionStateMachine ActiveMachine(ulong generation, ulong request)

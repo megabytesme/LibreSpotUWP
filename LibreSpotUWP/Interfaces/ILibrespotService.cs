@@ -38,6 +38,7 @@ namespace LibreSpotUWP.Interfaces
     {
         Task InitializeAsync();
         LibrespotSessionState Session { get; }
+        long SessionGeneration { get; }
         LibrespotPlaybackState PlaybackState { get; }
         LibrespotTrackInfo CurrentTrack { get; }
         ushort Volume { get; }

@@ -12,6 +12,7 @@ namespace LibreSpotUWP.Models
         public TimeSpan Duration { get; set; }
         public ulong PlayRequestId { get; set; }
         public ulong AudioGeneration { get; set; }
+        public long SessionGeneration { get; set; }
         public bool WasPreloaded { get; set; }
 
         public LibrespotTrackInfo Clone()
@@ -26,6 +27,7 @@ namespace LibreSpotUWP.Models
                 Duration = this.Duration,
                 PlayRequestId = this.PlayRequestId,
                 AudioGeneration = this.AudioGeneration,
+                SessionGeneration = this.SessionGeneration,
                 WasPreloaded = this.WasPreloaded
             };
         }

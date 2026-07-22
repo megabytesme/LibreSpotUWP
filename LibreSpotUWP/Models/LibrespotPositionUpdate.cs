@@ -11,5 +11,6 @@ namespace LibreSpotUWP.Models
     {
         public uint PositionMs { get; set; }
         public LibrespotPositionUpdateOrigin Origin { get; set; }
+        public long SessionGeneration { get; set; }
     }
 }

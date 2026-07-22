@@ -237,6 +237,7 @@
     <Compile Include="Services\AudioTransitionStateMachine.cs" />
     <Compile Include="Services\PlaybackPositionSynchronizer.cs" />
     <Compile Include="Services\PositionSeekInteraction.cs" />
+    <Compile Include="Services\PlaybackLifecycleCoordinator.cs" />
     <Compile Include="Interop\LibreSpot.cs" />
     <Compile Include="Interop\NativeProbe.cs" />
     <Compile Include="OobePage.xaml.cs">
