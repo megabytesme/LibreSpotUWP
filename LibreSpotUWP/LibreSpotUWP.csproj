@@ -187,6 +187,7 @@
     <Compile Include="Helpers\PremiumRequiredDialog.cs" />
     <Compile Include="Helpers\QrLoginHelper.cs" />
     <Compile Include="Helpers\SpotifyIdHelper.cs" />
+    <Compile Include="Helpers\SpotifyDjSupportHelper.cs" />
     <Compile Include="Models\CacheResponse.cs" />
     <Compile Include="Models\BulkObservableCollection.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
@@ -242,6 +243,7 @@
     <Compile Include="Services\ApplicationPlaybackQueue.cs" />
     <Compile Include="Services\PlaybackPositionSynchronizer.cs" />
     <Compile Include="Services\PositionSeekInteraction.cs" />
+    <Compile Include="Services\SpotifyConnectTransferTracker.cs" />
     <Compile Include="Services\PlaybackLifecycleCoordinator.cs" />
     <Compile Include="Interop\LibreSpot.cs" />
     <Compile Include="Interop\NativeProbe.cs" />

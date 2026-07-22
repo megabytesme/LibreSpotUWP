@@ -122,6 +122,36 @@ namespace LibreSpotUWP.Services
             }
         }
 
+        public bool TryHydrate(
+            long expectedGenerationId,
+            IEnumerable<string> orderedTrackUris,
+            string startUri,
+            int startIndex)
+        {
+            var hydratedTracks = (orderedTrackUris ?? Enumerable.Empty<string>())
+                .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                .ToArray();
+            if (hydratedTracks.Length == 0)
+                return false;
+
+            lock (_gate)
+            {
+                if (_generationId != expectedGenerationId || _pending != null)
+                    return false;
+
+                var currentUri = UriAt(_currentIndex) ?? startUri;
+                var hydratedCurrentIndex = ResolveStartIndex(hydratedTracks, currentUri, startIndex);
+                if (hydratedCurrentIndex < 0)
+                    return false;
+
+                _tracks = hydratedTracks;
+                _currentIndex = hydratedCurrentIndex;
+                _playOrder = BuildPlayOrder(_tracks.Length, _shuffle, _shuffleSeed, _currentIndex);
+                _unavailableIndexes.Clear();
+                return true;
+            }
+        }
+
         public void UpdateShuffle(bool shuffle, long? shuffleSeed = null)
         {
             lock (_gate)

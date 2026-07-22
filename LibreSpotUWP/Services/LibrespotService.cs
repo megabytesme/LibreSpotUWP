@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -22,6 +23,8 @@ namespace LibreSpotUWP.Services
 {
     public sealed class LibrespotService : ILibrespotService
     {
+        private const int NativeQueueWindowSize = 50;
+        private const int NativeQueueLookbehind = 5;
         private readonly object _stateLock = new object();
 
         private IntPtr _dllHandle = IntPtr.Zero;
@@ -754,7 +757,11 @@ namespace LibreSpotUWP.Services
             };
         }
 
-        public async Task LoadAndPlayAsync(string contextUri, string startUri = null)
+        public async Task LoadAndPlayAsync(
+            string contextUri,
+            string startUri = null,
+            IReadOnlyList<string> orderedTrackUris = null,
+            bool startPlaying = true)
         {
             ThrowIfDisposed();
             if (!_initialized) throw new InvalidOperationException("Not initialized.");
@@ -764,15 +771,30 @@ namespace LibreSpotUWP.Services
 
             IntPtr contextPtr = AllocUtf8String(contextUri);
             IntPtr startPtr = startUri != null ? AllocUtf8String(startUri) : IntPtr.Zero;
+            IntPtr tracksPtr = IntPtr.Zero;
 
             try
             {
-                Librespot.librespot_load(_instance, contextPtr, startPtr, true);
-                LogService.Info("[LibrespotService.LoadAndPlayAsync] librespot_load returned.");
+                var allTracks = orderedTrackUris?
+                    .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                    .ToArray();
+                var tracks = CreateNativeQueueWindow(allTracks, startUri);
+                if (tracks != null && tracks.Length > 0)
+                {
+                    tracksPtr = AllocUtf8String(JsonConvert.SerializeObject(tracks));
+                    Librespot.librespot_load_tracks(_instance, contextPtr, tracksPtr, startPtr, startPlaying);
+                    LogService.Info($"[LibrespotService.LoadAndPlayAsync] librespot_load_tracks returned with {tracks.Length} of {allTracks.Length} tracks.");
+                }
+                else
+                {
+                    Librespot.librespot_load(_instance, contextPtr, startPtr, startPlaying);
+                    LogService.Info("[LibrespotService.LoadAndPlayAsync] librespot_load returned.");
+                }
             }
             finally
             {
                 Marshal.FreeHGlobal(contextPtr);
+                if (tracksPtr != IntPtr.Zero) Marshal.FreeHGlobal(tracksPtr);
                 if (startPtr != IntPtr.Zero) Marshal.FreeHGlobal(startPtr);
             }
 
@@ -1450,6 +1472,29 @@ namespace LibreSpotUWP.Services
 
             LogService.Info($"[LibrespotService.RecreateInstanceWithAccessTokenAsync] Native session created. sessionGeneration={generation}.");
             await Task.CompletedTask;
+        }
+
+        private static string[] CreateNativeQueueWindow(string[] tracks, string startUri)
+        {
+            if (tracks == null || tracks.Length <= NativeQueueWindowSize)
+                return tracks;
+
+            var startIndex = string.IsNullOrWhiteSpace(startUri)
+                ? 0
+                : Array.FindIndex(
+                    tracks,
+                    uri => string.Equals(uri, startUri, StringComparison.OrdinalIgnoreCase));
+            if (startIndex < 0)
+                startIndex = 0;
+
+            var windowStart = Math.Max(0, startIndex - NativeQueueLookbehind);
+            if (windowStart + NativeQueueWindowSize > tracks.Length)
+                windowStart = tracks.Length - NativeQueueWindowSize;
+
+            return tracks
+                .Skip(windowStart)
+                .Take(NativeQueueWindowSize)
+                .ToArray();
         }
 
         private LibrespotConfig BuildConfig(string accessToken)

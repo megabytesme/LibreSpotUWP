@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Models;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace LibreSpotUWP.Interfaces
@@ -59,7 +60,11 @@ namespace LibreSpotUWP.Interfaces
         Task<LibrespotLyricsData> GetLyricsAsync(string trackUri, string imageIdHex = null);
         Task<string> GetLyricsJsonAsync(string trackUri, string imageIdHex = null);
         Task<LibrespotSearchData> SearchAsync(string query);
-        Task LoadAndPlayAsync(string spotifyUri, string startUri);
+        Task LoadAndPlayAsync(
+            string spotifyUri,
+            string startUri,
+            IReadOnlyList<string> orderedTrackUris = null,
+            bool startPlaying = true);
         Task SetTrackPersistedAsync(string trackUri, bool persisted);
         Task PauseAsync();
         Task ResumeAsync();

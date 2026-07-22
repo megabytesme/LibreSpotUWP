@@ -21,6 +21,7 @@ namespace LibreSpotUWP.ViewModels
     {
         private const int MaximumRequestConcurrency = 3;
         private const int MaximumAlbumsFromTopArtists = 60;
+        private const int InitialPublishBudgetMs = 750;
         private static readonly TimeSpan ArtistAlbumCacheLifetime = TimeSpan.FromMinutes(15);
 
         private sealed class ArtistAlbumCacheEntry
@@ -110,6 +111,7 @@ namespace LibreSpotUWP.ViewModels
         }
 
         private readonly OperationGeneration _loadGeneration = new OperationGeneration();
+        private readonly OperationGeneration _albumEnrichmentGeneration = new OperationGeneration();
         private readonly object _artistAlbumCacheSync = new object();
         private readonly Dictionary<string, ArtistAlbumCacheEntry> _artistAlbumCache =
             new Dictionary<string, ArtistAlbumCacheEntry>(StringComparer.OrdinalIgnoreCase);
@@ -142,6 +144,7 @@ namespace LibreSpotUWP.ViewModels
         public void CancelCurrentLoad()
         {
             _loadGeneration.CancelCurrent();
+            _albumEnrichmentGeneration.CancelCurrent();
         }
 
         public async Task<bool> LoadAsync(ISpotifyWebService spotify, CancellationToken ct, bool forceRefresh = false)
@@ -149,22 +152,57 @@ namespace LibreSpotUWP.ViewModels
             if (spotify == null)
                 throw new ArgumentNullException(nameof(spotify));
 
+            _albumEnrichmentGeneration.CancelCurrent();
             var lease = _loadGeneration.Begin(ct);
-            using (UiResponsivenessTelemetry.BeginOperation("Home.Load", lease.Generation))
-            using (var requestGate = new BoundedAsyncGate(MaximumRequestConcurrency))
+            var requestGate = new BoundedAsyncGate(MaximumRequestConcurrency);
+            var fastSnapshotReady = new TaskCompletionSource<HomeSnapshot>();
+            var initialPublishComplete = new TaskCompletionSource<bool>();
+            var snapshotTask = Task.Run(
+                () => BuildOnlineSnapshotAsync(
+                    spotify,
+                    requestGate,
+                    lease.Token,
+                    forceRefresh,
+                    fastSnapshotReady),
+                lease.Token);
+            _ = CompleteOnlineLoadAsync(
+                spotify,
+                snapshotTask,
+                initialPublishComplete.Task,
+                requestGate,
+                lease,
+                forceRefresh);
+
+            using (UiResponsivenessTelemetry.BeginOperation("Home.Load.Initial", lease.Generation))
             {
                 try
                 {
-                    var snapshot = await Task.Run(
-                        () => BuildOnlineSnapshotAsync(spotify, requestGate, lease.Token, forceRefresh),
-                        lease.Token).ConfigureAwait(true);
-
-                    LastMaximumRequestConcurrency = requestGate.MaximumObserved;
+                    var publishBudget = Task.Delay(InitialPublishBudgetMs, lease.Token);
+                    await Task.WhenAny(fastSnapshotReady.Task, snapshotTask, publishBudget).ConfigureAwait(true);
                     lease.Token.ThrowIfCancellationRequested();
+                    if (snapshotTask.IsFaulted || snapshotTask.IsCanceled)
+                        await snapshotTask.ConfigureAwait(true);
                     if (!_loadGeneration.IsCurrent(lease.Generation))
                         return false;
 
-                    ApplySnapshot(snapshot);
+                    HomeSnapshot initialSnapshot;
+                    if (fastSnapshotReady.Task.IsCompleted &&
+                        fastSnapshotReady.Task.Status == TaskStatus.RanToCompletion)
+                    {
+                        initialSnapshot = await fastSnapshotReady.Task.ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        initialSnapshot = new HomeSnapshot();
+                        _ = ApplyFastSnapshotWhenReadyAsync(
+                            fastSnapshotReady.Task,
+                            snapshotTask,
+                            initialPublishComplete.Task,
+                            lease.Generation);
+                    }
+
+                    ApplySnapshot(initialSnapshot);
+                    initialPublishComplete.TrySetResult(true);
                     return true;
                 }
                 catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
@@ -172,12 +210,75 @@ namespace LibreSpotUWP.ViewModels
                     LogService.Telemetry(
                         "home-load-cancelled",
                         $"Home load generation {lease.Generation} cancelled; maximumRequestConcurrency={requestGate.MaximumObserved}.");
+                    initialPublishComplete.TrySetResult(false);
                     return false;
                 }
-                finally
+                catch
                 {
-                    _loadGeneration.Complete(lease.Generation);
+                    initialPublishComplete.TrySetResult(false);
+                    throw;
                 }
+            }
+        }
+
+        private async Task ApplyFastSnapshotWhenReadyAsync(
+            Task<HomeSnapshot> fastSnapshotTask,
+            Task<HomeSnapshot> fullSnapshotTask,
+            Task<bool> initialPublishTask,
+            long generation)
+        {
+            try
+            {
+                var snapshot = await fastSnapshotTask.ConfigureAwait(true);
+                if (!await initialPublishTask.ConfigureAwait(true) ||
+                    fullSnapshotTask.IsCompleted ||
+                    !_loadGeneration.IsCurrent(generation))
+                {
+                    return;
+                }
+
+                ApplySnapshot(snapshot);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Unable to publish the fast Home snapshot: {ex.Message}");
+            }
+        }
+
+        private async Task CompleteOnlineLoadAsync(
+            ISpotifyWebService spotify,
+            Task<HomeSnapshot> snapshotTask,
+            Task<bool> initialPublishTask,
+            BoundedAsyncGate requestGate,
+            OperationGenerationLease lease,
+            bool forceRefresh)
+        {
+            try
+            {
+                var snapshot = await snapshotTask.ConfigureAwait(true);
+                var initialPublished = await initialPublishTask.ConfigureAwait(true);
+                lease.Token.ThrowIfCancellationRequested();
+                if (!initialPublished || !_loadGeneration.IsCurrent(lease.Generation))
+                    return;
+
+                LastMaximumRequestConcurrency = requestGate.MaximumObserved;
+                ApplySnapshot(snapshot);
+                StartAlbumEnrichment(spotify, snapshot, forceRefresh, lease.Token);
+            }
+            catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Home background load failed: {ex.Message}");
+            }
+            finally
+            {
+                requestGate.Dispose();
+                _loadGeneration.Complete(lease.Generation);
             }
         }
 
@@ -186,6 +287,7 @@ namespace LibreSpotUWP.ViewModels
             if (offlineCatalog == null)
                 throw new ArgumentNullException(nameof(offlineCatalog));
 
+            _albumEnrichmentGeneration.CancelCurrent();
             var lease = _loadGeneration.Begin(ct);
             using (UiResponsivenessTelemetry.BeginOperation("Home.LoadOffline", lease.Generation))
             {
@@ -234,7 +336,8 @@ namespace LibreSpotUWP.ViewModels
             ISpotifyWebService spotify,
             BoundedAsyncGate requestGate,
             CancellationToken ct,
-            bool forceRefresh)
+            bool forceRefresh,
+            TaskCompletionSource<HomeSnapshot> fastSnapshotReady)
         {
             UiResponsivenessTelemetry.VerifyBackgroundThread("Home online snapshot assembly");
             var context = new HomeLoadContext();
@@ -245,26 +348,31 @@ namespace LibreSpotUWP.ViewModels
             var savedTask = LoadSavedAlbumsAsync(spotify, requestGate, context, ct, forceRefresh);
             var followedTask = LoadFollowedArtistsAsync(spotify, requestGate, context, ct, forceRefresh);
 
-            await Task.WhenAll(recentTask, playlistsTask, artistsTask, tracksTask, savedTask, followedTask)
-                .ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-
             var recent = await recentTask.ConfigureAwait(false);
-            var topArtists = await artistsTask.ConfigureAwait(false);
-            var albumsFromTopArtists = await LoadAlbumsFromTopArtistsAsync(
-                spotify,
-                requestGate,
-                context,
-                topArtists,
-                ct,
-                forceRefresh).ConfigureAwait(false);
-
             var albumsYouStarted = recent.Tracks
                 .Select(track => ToFullAlbum(track?.Album))
                 .Where(album => album != null && !string.IsNullOrWhiteSpace(album.Id))
                 .GroupBy(album => album.Id, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToList();
+            fastSnapshotReady.TrySetResult(new HomeSnapshot
+            {
+                RecentlyPlayedPlaylists = recent.Playlists,
+                RecentlyPlayedAlbums = recent.Albums,
+                RecentlyPlayedArtists = recent.Artists,
+                RecentlyPlayedTracks = recent.Tracks,
+                AlbumsYouStarted = albumsYouStarted,
+                UsedCachedData = context.UsedCachedData,
+                UsedOfflineFallback = context.UsedOfflineFallback,
+                CachedAt = context.CachedAt,
+                FailureSummary = context.BuildFailureSummary()
+            });
+
+            await Task.WhenAll(playlistsTask, artistsTask, tracksTask, savedTask, followedTask)
+                .ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            var topArtists = await artistsTask.ConfigureAwait(false);
 
             return new HomeSnapshot
             {
@@ -277,13 +385,76 @@ namespace LibreSpotUWP.ViewModels
                 TopTracks = await tracksTask.ConfigureAwait(false),
                 SavedAlbums = await savedTask.ConfigureAwait(false),
                 FollowedArtists = await followedTask.ConfigureAwait(false),
-                AlbumsFromTopArtists = albumsFromTopArtists,
+                AlbumsFromTopArtists = new List<FullAlbum>(),
                 AlbumsYouStarted = albumsYouStarted,
                 UsedCachedData = context.UsedCachedData,
                 UsedOfflineFallback = context.UsedOfflineFallback,
                 CachedAt = context.CachedAt,
                 FailureSummary = context.BuildFailureSummary()
             };
+        }
+
+        private void StartAlbumEnrichment(
+            ISpotifyWebService spotify,
+            HomeSnapshot snapshot,
+            bool forceRefresh,
+            CancellationToken cancellationToken)
+        {
+            if (snapshot?.TopArtists == null || snapshot.TopArtists.Count == 0)
+                return;
+
+            var lease = _albumEnrichmentGeneration.Begin(cancellationToken);
+            _ = LoadAndApplyAlbumEnrichmentAsync(spotify, snapshot, forceRefresh, lease);
+        }
+
+        private async Task LoadAndApplyAlbumEnrichmentAsync(
+            ISpotifyWebService spotify,
+            HomeSnapshot snapshot,
+            bool forceRefresh,
+            OperationGenerationLease lease)
+        {
+            using (var requestGate = new BoundedAsyncGate(MaximumRequestConcurrency))
+            {
+                var context = new HomeLoadContext();
+                try
+                {
+                    var albums = await Task.Run(
+                        () => LoadAlbumsFromTopArtistsAsync(
+                            spotify,
+                            requestGate,
+                            context,
+                            snapshot.TopArtists,
+                            lease.Token,
+                            forceRefresh),
+                        lease.Token).ConfigureAwait(true);
+
+                    lease.Token.ThrowIfCancellationRequested();
+                    if (!_albumEnrichmentGeneration.IsCurrent(lease.Generation))
+                        return;
+
+                    snapshot.AlbumsFromTopArtists = albums;
+                    AlbumsFromTopArtists.ReplaceAll(albums);
+                    GroupedHomeContent.ReplaceAll(BuildGroups(snapshot));
+
+                    var failureSummary = context.BuildFailureSummary();
+                    if (!string.IsNullOrWhiteSpace(failureSummary))
+                        LogService.Warn(failureSummary);
+                }
+                catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
+                {
+                    LogService.Telemetry(
+                        "home-album-enrichment-cancelled",
+                        $"Home album enrichment generation {lease.Generation} cancelled.");
+                }
+                catch (Exception ex)
+                {
+                    LogService.Warn($"Home album enrichment failed: {ex.Message}");
+                }
+                finally
+                {
+                    _albumEnrichmentGeneration.Complete(lease.Generation);
+                }
+            }
         }
 
         private async Task<RecentSnapshot> LoadRecentlyPlayedAsync(

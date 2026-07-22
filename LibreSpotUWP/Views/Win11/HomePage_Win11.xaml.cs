@@ -79,7 +79,7 @@ namespace LibreSpotUWP.Views.Win11
             }
         }
 
-        private void HomeItem_Click(object sender, ItemClickEventArgs e)
+        private async void HomeItem_Click(object sender, ItemClickEventArgs e)
         {
             var item = e.ClickedItem;
             var shell = Helpers.PlaybackNavigationHelper.FindShell(this);
@@ -104,6 +104,8 @@ namespace LibreSpotUWP.Views.Win11
                     break;
 
                 case FullPlaylist playlist:
+                    if (await Helpers.SpotifyDjSupportHelper.ShowIfUnsupportedAsync(playlist))
+                        break;
                     shell.NavigateToPlaylist(playlist.Id);
                     LogService.Info($"Navigating to playlist: {playlist.Name}");
                     break;

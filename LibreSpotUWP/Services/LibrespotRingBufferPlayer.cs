@@ -378,9 +378,14 @@ namespace LibreSpotUWP.Services
             FlushTransitionTelemetry();
 
             long id;
+            bool drainCurrentGeneration;
             lock (_transitionLock)
             {
-                id = _transitionState.BeginTransition(preserveCurrent, shouldPlay);
+                drainCurrentGeneration = AudioTransitionStateMachine.ShouldDrainCurrentGeneration(
+                    preserveCurrent,
+                    (ulong)Math.Max(0, Volatile.Read(ref _activeGeneration)),
+                    Volatile.Read(ref _consumerEnabled) != 0);
+                id = _transitionState.BeginTransition(drainCurrentGeneration, shouldPlay);
                 ReplacePlaybackReadyLocked();
                 _transitionTelemetry = new TransitionTelemetry
                 {
@@ -395,7 +400,7 @@ namespace LibreSpotUWP.Services
             }
 
             Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
-            if (!preserveCurrent)
+            if (!drainCurrentGeneration)
             {
                 Interlocked.Exchange(ref _consumerEnabled, 0);
                 _ = SetInputNodeRunningAsync(false, id);
@@ -421,12 +426,17 @@ namespace LibreSpotUWP.Services
         public bool ObserveLoading(ulong playRequestId)
         {
             bool hadPendingTransition;
+            bool drainCurrentGeneration;
             bool accepted;
             long transitionId;
             lock (_transitionLock)
             {
                 hadPendingTransition = _transitionState.HasPendingTransition;
-                accepted = _transitionState.ObserveLoading(playRequestId);
+                drainCurrentGeneration = AudioTransitionStateMachine.ShouldDrainCurrentGeneration(
+                    preserveCurrent: false,
+                    activeGeneration: _transitionState.ActiveGeneration,
+                    consumerEnabled: Volatile.Read(ref _consumerEnabled) != 0);
+                accepted = _transitionState.ObserveLoading(playRequestId, drainCurrentGeneration);
                 transitionId = _transitionState.CurrentTransitionId;
                 if (accepted && !hadPendingTransition)
                 {
@@ -446,9 +456,12 @@ namespace LibreSpotUWP.Services
 
             if (accepted && !hadPendingTransition)
             {
-                Interlocked.Exchange(ref _consumerEnabled, 0);
+                if (!drainCurrentGeneration)
+                {
+                    Interlocked.Exchange(ref _consumerEnabled, 0);
+                    _ = SetInputNodeRunningAsync(false, transitionId);
+                }
                 Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
-                _ = SetInputNodeRunningAsync(false, transitionId);
                 QueueTransitionPoll();
             }
 
@@ -505,6 +518,29 @@ namespace LibreSpotUWP.Services
             var producer = GetProducerState();
             if (producer.Generation != audioGeneration)
                 return false;
+
+            bool needsImplicitTransition;
+            bool shouldPlay;
+            lock (_transitionLock)
+            {
+                needsImplicitTransition = !_transitionState.HasPendingTransition;
+                shouldPlay = _transitionState.DesiredPlaying ||
+                    Volatile.Read(ref _consumerEnabled) != 0;
+            }
+
+            // Local UI seeks declare their transition before issuing the
+            // command. A seek arriving from another Connect client does not,
+            // so establish the missing PCM-generation handoff here instead of
+            // rejecting and permanently gating its replacement audio.
+            if (needsImplicitTransition)
+            {
+                BeginTransition(
+                    "external-seek",
+                    _audioHealthTrackUri,
+                    _audioHealthTrackUri,
+                    preserveCurrent: false,
+                    shouldPlay: shouldPlay);
+            }
 
             bool accepted;
             lock (_transitionLock)
@@ -577,7 +613,16 @@ namespace LibreSpotUWP.Services
             }
             Interlocked.Exchange(ref _consumerEnabled, 0);
             ResetPlaybackExpectation(false);
-            return SetInputNodeRunningAsync(false, 0);
+
+            // Keep the AudioGraph alive for an ordinary pause. Stopping a live UWP
+            // graph can block while a quantum callback is in flight, which used to
+            // hold the playback command gate before the native pause was issued.
+            // The gated callback supplies silence, and RequestPlaybackAsync can
+            // re-enable the consumer without rebuilding or restarting the graph.
+            _telemetryTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _producerWatchdogTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            Interlocked.Exchange(ref _lastQuantumTimestamp, 0);
+            return Task.CompletedTask;
         }
 
         public void Stop()

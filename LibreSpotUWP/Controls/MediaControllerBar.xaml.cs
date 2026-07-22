@@ -30,8 +30,25 @@ namespace LibreSpotUWP.Controls
         public MediaControllerBar()
         {
             InitializeComponent();
+            RegisterPositionSliderHandlers();
             Loaded += MediaControllerBar_Loaded;
             Unloaded += MediaControllerBar_Unloaded;
+        }
+
+        private void RegisterPositionSliderHandlers()
+        {
+            PositionSlider.AddHandler(
+                UIElement.PointerPressedEvent,
+                new PointerEventHandler(PositionSlider_PointerPressed),
+                true);
+            PositionSlider.AddHandler(
+                UIElement.PointerReleasedEvent,
+                new PointerEventHandler(PositionSlider_PointerReleased),
+                true);
+            PositionSlider.AddHandler(
+                UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(PositionSlider_PointerCaptureLost),
+                true);
         }
 
         private void MediaControllerBar_Loaded(object sender, RoutedEventArgs e)

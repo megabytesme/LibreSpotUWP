@@ -23,10 +23,13 @@ internal static class Program
             PlaybackEventStormCreatesOnePendingDispatcherItem,
             MetadataAndLyricsCompletionCannotOutliveNavigation,
             UiPathStaticAuditFindsNoBlockingIoOrTaskWaits,
+            PlaybackAndHomeCriticalPathsDoNotAwaitEnrichment,
             InitialPlaybackWithDelayedProducer,
+            UiTransitionKeepsBackpressuredProducerDrainable,
             ManualNextWithThreeSecondProducerDelay,
             AutomaticHandoffToPreloadedTrack,
             SeekWithDelayedPcm,
+            RemoteSeekCreatesImplicitTransition,
             StalePcmFromPreviousGeneration,
             RapidNextPrevious,
             CancellationDuringTransition,
@@ -37,6 +40,8 @@ internal static class Program
             LargeLegitimateCorrectionIsApplied,
             ProgrammaticUiUpdatesNeverSeek,
             RemoteConnectPositionRemainsSynchronized,
+            ConnectTransferIgnoresStaleSnapshots,
+            ConnectTransferTimeoutReleasesSnapshot,
             CorrectionStormKeepsDispatcherAndAudioWorkBounded,
             LumiaStyleSequenceDoesNotUnderrun,
             TwoConcurrentInitializationCallsShareOneOperation,
@@ -63,7 +68,8 @@ internal static class Program
             UnavailableNextTrackIsSkipped,
             DuplicateTrackUrisAdvanceByOccurrence,
             ReconnectImmediatelyBeforeEndRebasesGeneration,
-            StaleEndFromPreviousQueueGenerationIsIgnored
+            StaleEndFromPreviousQueueGenerationIsIgnored,
+            BackgroundQueueHydrationPreservesCurrentTrack
         };
 
         try
@@ -255,6 +261,27 @@ internal static class Program
             "metadata JSON parsing is not explicitly off-dispatcher");
     }
 
+    private static void PlaybackAndHomeCriticalPathsDoNotAwaitEnrichment()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var media = File.ReadAllText(Path.Combine(appRoot, "Services", "MediaService.cs"));
+        var playStart = media.IndexOf("public async Task PlayAsync(", StringComparison.Ordinal);
+        var playEnd = media.IndexOf("private async Task PlayOnlineQueueRecoveryAsync(", StringComparison.Ordinal);
+        Assert(playStart >= 0 && playEnd > playStart, "unable to audit the playback request critical path");
+        var playCriticalPath = media.Substring(playStart, playEnd - playStart);
+        Assert(!playCriticalPath.Contains("await GetKnownTrackUrisForPlaybackContextAsync"),
+            "playback still waits for optional queue metadata before issuing its native load");
+
+        var home = File.ReadAllText(Path.Combine(appRoot, "ViewModels", "HomePageViewModel.cs"));
+        var homeStart = home.IndexOf("private async Task<HomeSnapshot> BuildOnlineSnapshotAsync(", StringComparison.Ordinal);
+        var enrichmentStart = home.IndexOf("private void StartAlbumEnrichment(", StringComparison.Ordinal);
+        Assert(homeStart >= 0 && enrichmentStart > homeStart, "unable to audit the Home snapshot critical path");
+        var homeCriticalPath = home.Substring(homeStart, enrichmentStart - homeStart);
+        Assert(!homeCriticalPath.Contains("LoadAlbumsFromTopArtistsAsync("),
+            "Home still waits for per-artist album enrichment before publishing core sections");
+    }
+
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
@@ -320,6 +347,46 @@ internal static class Program
             "manual Next did not resume the replacement generation");
     }
 
+    private static void UiTransitionKeepsBackpressuredProducerDrainable()
+    {
+        var machine = ActiveMachine(1, 1);
+        var preserve = AudioTransitionStateMachine.ShouldDrainCurrentGeneration(
+            preserveCurrent: false,
+            activeGeneration: machine.ActiveGeneration,
+            consumerEnabled: true);
+
+        Assert(preserve,
+            "an active UI transition gated the consumer before the native command");
+        machine.BeginTransition(preserve, true);
+
+        var fullOldRing = Evaluate(
+            machine,
+            generation: 1,
+            generationStart: 0,
+            writeSequence: QuantumBytes * 100,
+            readSequence: QuantumBytes * 50);
+        Assert(!fullOldRing.ShouldGate,
+            "the old generation stopped draining while the producer was backpressured");
+
+        var externalMachine = ActiveMachine(1, 1);
+        Assert(externalMachine.ObserveLoading(2, preserveCurrent: true),
+            "the external loading marker was rejected");
+        var externalFullOldRing = Evaluate(
+            externalMachine,
+            generation: 1,
+            generationStart: 0,
+            writeSequence: QuantumBytes * 100,
+            readSequence: QuantumBytes * 50);
+        Assert(!externalFullOldRing.ShouldGate,
+            "an external Connect load stopped draining the backpressured producer");
+
+        Assert(!AudioTransitionStateMachine.ShouldDrainCurrentGeneration(
+                preserveCurrent: false,
+                activeGeneration: machine.ActiveGeneration,
+                consumerEnabled: false),
+            "a paused consumer unexpectedly preserved stale PCM");
+    }
+
     private static void AutomaticHandoffToPreloadedTrack()
     {
         var machine = ActiveMachine(1, 10);
@@ -358,6 +425,29 @@ internal static class Program
             "seek resumed with only 100 ms buffered");
         Assert(Evaluate(machine, 5, seekStart, seekStart + PreRollBytes, seekStart).ShouldResume,
             "seek did not resume at 200 ms");
+    }
+
+    private static void RemoteSeekCreatesImplicitTransition()
+    {
+        var machine = ActiveMachine(5, 50);
+        ulong seekStart = QuantumBytes * 90;
+
+        Assert(!machine.ObserveSeek(51, 6, seekStart),
+            "a remote seek unexpectedly bound without a transition");
+
+        var shouldPlay = machine.DesiredPlaying;
+        var preserveCurrent = AudioTransitionStateMachine.ShouldDrainCurrentGeneration(
+            preserveCurrent: false,
+            activeGeneration: machine.ActiveGeneration,
+            consumerEnabled: true);
+        machine.BeginTransition(preserveCurrent, shouldPlay);
+
+        Assert(machine.ObserveSeek(51, 6, seekStart),
+            "the implicit remote-seek transition rejected its PCM generation");
+        Assert(machine.RequestPlayback(51, 6),
+            "the implicit remote-seek transition rejected playback resume");
+        Assert(Evaluate(machine, 6, seekStart, seekStart + PreRollBytes, seekStart).ShouldResume,
+            "the implicit remote-seek transition did not resume after pre-roll");
     }
 
     private static void StalePcmFromPreviousGeneration()
@@ -553,6 +643,46 @@ internal static class Program
         now = 750;
         Assert(synchronizer.GetEstimatedPosition(60_000, isPlaying: true) == 30_500,
             "remote Connect position did not progress from monotonic time");
+    }
+
+    private static void ConnectTransferIgnoresStaleSnapshots()
+    {
+        var now = new DateTimeOffset(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
+        var tracker = new SpotifyConnectTransferTracker(TimeSpan.FromSeconds(15));
+        tracker.Begin("target-device", now);
+
+        Assert(
+            tracker.Observe("old-device", now.AddSeconds(1)) ==
+                SpotifyConnectTransferObservation.IgnoreStaleSnapshot,
+            "the old active device overwrote an in-flight Connect transfer");
+        Assert(
+            tracker.Observe(null, now.AddSeconds(2)) ==
+                SpotifyConnectTransferObservation.IgnoreStaleSnapshot,
+            "an empty playback snapshot cancelled an in-flight Connect transfer");
+        Assert(
+            tracker.Observe("target-device", now.AddSeconds(3)) ==
+                SpotifyConnectTransferObservation.Confirmed,
+            "the target active-device snapshot did not confirm the transfer");
+        Assert(
+            tracker.Observe("old-device", now.AddSeconds(4)) ==
+                SpotifyConnectTransferObservation.NoPendingTransfer,
+            "the confirmed Connect transfer remained pending");
+    }
+
+    private static void ConnectTransferTimeoutReleasesSnapshot()
+    {
+        var now = new DateTimeOffset(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
+        var tracker = new SpotifyConnectTransferTracker(TimeSpan.FromSeconds(15));
+        tracker.Begin("missing-device", now);
+
+        Assert(
+            tracker.Observe("actual-device", now.AddSeconds(15)) ==
+                SpotifyConnectTransferObservation.Expired,
+            "a failed Connect transfer suppressed active-device snapshots forever");
+        Assert(
+            tracker.Observe("actual-device", now.AddSeconds(16)) ==
+                SpotifyConnectTransferObservation.NoPendingTransfer,
+            "an expired Connect transfer was not cleared");
     }
 
     private static void CorrectionStormKeepsDispatcherAndAudioWorkBounded()
@@ -1006,6 +1136,25 @@ internal static class Program
         queue.ObserveTrackChanged("a", 20, 2, DateTimeOffset.UtcNow);
         Assert(queue.BeginEndOfTrack("a", 20, 2, DateTimeOffset.UtcNow).IsValid,
             "replacement queue did not accept its confirmed end event");
+    }
+
+    private static void BackgroundQueueHydrationPreservesCurrentTrack()
+    {
+        var queue = new ApplicationPlaybackQueue();
+        var generation = queue.Replace("ctx", new[] { "b" }, "b", 0, false, 0, 1234);
+        queue.ObserveTrackChanged("b", 10, 1, DateTimeOffset.UtcNow);
+
+        Assert(queue.TryHydrate(generation, new[] { "a", "b", "c" }, "b", 1),
+            "current queue generation rejected background hydration");
+        Assert(queue.Snapshot.CurrentIndex == 1,
+            "background hydration did not preserve the confirmed current track");
+        var transition = queue.BeginEndOfTrack("b", 10, 1, DateTimeOffset.UtcNow);
+        Assert(transition.IsValid && transition.ExpectedUri == "c",
+            "hydrated queue could not continue to the following track");
+
+        queue.Replace("replacement", new[] { "x" }, "x", 0, false, 0, 5678);
+        Assert(!queue.TryHydrate(generation, new[] { "a", "b", "c" }, "b", 1),
+            "stale background hydration replaced a newer user selection");
     }
 
     private static ApplicationPlaybackQueue ReadyQueue(

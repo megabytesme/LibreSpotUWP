@@ -326,6 +326,9 @@ namespace LibreSpotUWP.Interop
         public static extern void librespot_load(IntPtr inst, IntPtr contextUri, IntPtr startUri, bool play);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_load_tracks(IntPtr inst, IntPtr contextUri, IntPtr tracksJson, IntPtr startUri, bool play);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_play(IntPtr inst);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]

@@ -60,6 +60,20 @@ namespace LibreSpotUWP.Services
         public bool HasPendingTransition => _hasPendingTransition;
         public bool DesiredPlaying => _desiredPlaying;
 
+        /// <summary>
+        /// An active consumer must keep draining until the producer publishes
+        /// the replacement generation boundary. Gating it before the native
+        /// load/seek/skip command can deadlock a producer which is already
+        /// blocked on a full ring buffer.
+        /// </summary>
+        public static bool ShouldDrainCurrentGeneration(
+            bool preserveCurrent,
+            ulong activeGeneration,
+            bool consumerEnabled)
+        {
+            return preserveCurrent || (activeGeneration != 0 && consumerEnabled);
+        }
+
         public long BeginTransition(bool preserveCurrent, bool desiredPlaying)
         {
             _transitionId++;
@@ -85,7 +99,7 @@ namespace LibreSpotUWP.Services
             return BeginTransition(true, desiredPlaying);
         }
 
-        public bool ObserveLoading(ulong playRequestId)
+        public bool ObserveLoading(ulong playRequestId, bool preserveCurrent = false)
         {
             if (playRequestId != 0 &&
                 _pendingPlayRequestId == 0 &&
@@ -97,7 +111,7 @@ namespace LibreSpotUWP.Services
 
             if (!_hasPendingTransition)
             {
-                BeginTransition(false, true);
+                BeginTransition(preserveCurrent, true);
             }
 
             if (playRequestId == 0 || playRequestId == _pendingPlayRequestId)

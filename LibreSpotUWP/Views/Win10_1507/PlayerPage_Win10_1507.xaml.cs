@@ -35,9 +35,26 @@ namespace LibreSpotUWP.Views.Win10_1507
         public PlayerPage_Win10_1507()
         {
             this.InitializeComponent();
+            RegisterPositionSliderHandlers();
             _lyricsPresenter = new NowPlayingLyricsPresenter(CurrentLyricPreview, CurrentLyricText);
             this.Loaded += PlayerPage_Loaded;
             this.Unloaded += PlayerPage_Unloaded;
+        }
+
+        private void RegisterPositionSliderHandlers()
+        {
+            PositionSlider.AddHandler(
+                UIElement.PointerPressedEvent,
+                new PointerEventHandler(PositionSlider_PointerPressed),
+                true);
+            PositionSlider.AddHandler(
+                UIElement.PointerReleasedEvent,
+                new PointerEventHandler(PositionSlider_PointerReleased),
+                true);
+            PositionSlider.AddHandler(
+                UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(PositionSlider_PointerCaptureLost),
+                true);
         }
 
         private void PlayerPage_Loaded(object sender, RoutedEventArgs e)

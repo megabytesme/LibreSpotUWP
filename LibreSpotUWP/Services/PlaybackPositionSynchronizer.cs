@@ -45,7 +45,9 @@ namespace LibreSpotUWP.Services
         // A second is larger than ordinary decoder, dispatcher and Connect clock
         // jitter while still correcting a genuinely stale playback position.
         public const int HardCorrectionToleranceMs = 1000;
-        public const int UiUpdateIntervalMs = 250;
+        // Keep the UI/SMTC publishing rate modest on single-core phone hardware.
+        // Native position observations still update the anchor immediately.
+        public const int UiUpdateIntervalMs = 500;
         public const int CorrectionBurstQuietPeriodMs = 1000;
 
         private readonly object _gate = new object();

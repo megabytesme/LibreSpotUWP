@@ -1,5 +1,6 @@
 using LibreSpotUWP.ViewModels;
 using SpotifyAPI.Web;
+using LibreSpotUWP.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -44,7 +45,10 @@ namespace LibreSpotUWP.Views.Win10_1709
                 GetMainPage()?.NavigateToAlbum(album.Id);
 
             else if (item is FullPlaylist playlist)
-                GetMainPage()?.NavigateToPlaylist(playlist.Id);
+            {
+                if (!await SpotifyDjSupportHelper.ShowIfUnsupportedAsync(playlist))
+                    GetMainPage()?.NavigateToPlaylist(playlist.Id);
+            }
 
             else if (item is FullTrack track)
             {
