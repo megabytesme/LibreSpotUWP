@@ -1,6 +1,7 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Exceptions;
+using LibreSpotUWP.Services;
 using System;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
@@ -30,7 +31,11 @@ namespace LibreSpotUWP.Helpers
         {
             try
             {
-                var importedState = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                var importedState = await Task.Run(() =>
+                {
+                    UiResponsivenessTelemetry.VerifyBackgroundThread("QR auth JSON parsing");
+                    return Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                });
                 if (importedState == null)
                     throw new InvalidOperationException("The sign-in details did not contain a valid session.");
 

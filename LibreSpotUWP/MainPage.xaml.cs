@@ -94,9 +94,7 @@ namespace LibreSpotUWP
             {
                 _mediaStateChangedHandler = (s, state) =>
                 {
-                    var ignored = Dispatcher.RunAsync(
-                        CoreDispatcherPriority.Normal,
-                        () => UpdatePlaybackRecoveryBanner(state));
+                    UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdatePlaybackRecoveryBanner(state));
                 };
                 App.Media.MediaStateChanged += _mediaStateChangedHandler;
             }
@@ -337,6 +335,7 @@ namespace LibreSpotUWP
         {
             try
             {
+                UiResponsivenessTelemetry.SetCurrentPage(pageTag);
                 LogService.Info($"[MainPage.NavigateTo] pageTag={pageTag}, forceReload={forceReload}");
                 ClearCacheStatus();
 
@@ -365,6 +364,7 @@ namespace LibreSpotUWP
                             ContentFrame.Navigate(settingsType);
 
                         SetSelectedNavigationTag("Settings");
+                        UiResponsivenessTelemetry.SetCurrentPage("Settings");
 
                         UpdateBackButton();
                         return;

@@ -328,11 +328,9 @@ namespace LibreSpotUWP.Controls
                 });
         }
 
-        private async void OnMediaStateChanged(object sender, MediaState state)
+        private void OnMediaStateChanged(object sender, MediaState state)
         {
-            await Dispatcher.RunAsync(
-                Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () =>
+            LibreSpotUWP.Services.UiWorkScheduler.RunLatest(this, Dispatcher, () =>
                 {
                     var previousTrackUri = _currentTrackUri;
                     _currentTrackUri = state?.Track?.Uri;

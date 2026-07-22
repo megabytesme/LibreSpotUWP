@@ -261,7 +261,7 @@ namespace LibreSpotUWP.Controls
             if (_auth.Current == null)
                 return;
 
-            string json = BuildCurrentAccountPayload();
+            string json = await BuildCurrentAccountPayloadAsync();
             var qrBitmap = await BarcodeUIService.GenerateQrCodeBitmapAsync(json);
 
             if (qrBitmap != null)
@@ -303,7 +303,7 @@ namespace LibreSpotUWP.Controls
 
             var textBox = new TextBox
             {
-                Text = BuildCurrentAccountPayload(),
+                Text = await BuildCurrentAccountPayloadAsync(),
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
                 IsReadOnly = true,
@@ -364,9 +364,13 @@ namespace LibreSpotUWP.Controls
             await QrLoginHelper.ImportQrLoginAsync(textBox.Text, _auth, value => IsLoading = value);
         }
 
-        private string BuildCurrentAccountPayload()
+        private Task<string> BuildCurrentAccountPayloadAsync()
         {
-            return Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
+            return Task.Run(() =>
+            {
+                UiResponsivenessTelemetry.VerifyBackgroundThread("account export JSON serialization");
+                return Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
+            });
         }
 
         private async Task ShowQrSignInHelpAsync()

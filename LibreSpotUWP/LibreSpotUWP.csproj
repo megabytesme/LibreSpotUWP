@@ -188,6 +188,7 @@
     <Compile Include="Helpers\QrLoginHelper.cs" />
     <Compile Include="Helpers\SpotifyIdHelper.cs" />
     <Compile Include="Models\CacheResponse.cs" />
+    <Compile Include="Models\BulkObservableCollection.cs" />
     <Compile Include="Interfaces\ISpotifyWebService.cs" />
     <Compile Include="Interfaces\IOfflineCatalogService.cs" />
     <Compile Include="Interfaces\IMetadataCache.cs" />
@@ -225,6 +226,8 @@
     <Compile Include="Services\FileMetadataCache.cs" />
     <Compile Include="Services\FileSystem.cs" />
     <Compile Include="Services\LogService.cs" />
+    <Compile Include="Services\ResponsivenessPrimitives.cs" />
+    <Compile Include="Services\UiResponsivenessTelemetry.cs" />
     <Compile Include="Services\LiveTileService.cs" />
     <Compile Include="Services\UpdateService.cs" />
     <Compile Include="Services\DownloadTrackerService.cs" />

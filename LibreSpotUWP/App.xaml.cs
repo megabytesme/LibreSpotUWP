@@ -133,6 +133,7 @@ namespace LibreSpotUWP
                     }
 
                     Window.Current.Activate();
+                    UiResponsivenessTelemetry.Start();
                 }
             }
             catch (SpotifyPremiumRequiredException ex)
@@ -206,6 +207,8 @@ namespace LibreSpotUWP
                 if (e.PrelaunchActivated == false)
                 {
                     Window.Current.Activate();
+                    UiResponsivenessTelemetry.SetCurrentPage(isSignedIn ? "Home" : "Oobe");
+                    UiResponsivenessTelemetry.Start();
 
                     if (shouldCheckForUpdates)
                         _ = CheckForUpdatesAtStartup();
@@ -445,6 +448,7 @@ namespace LibreSpotUWP
         /// <param name="e">Details about the suspend request.</param>
         private async void OnSuspending(object sender, SuspendingEventArgs e)
         {
+            UiResponsivenessTelemetry.Stop();
             var deferral = e.SuspendingOperation.GetDeferral();
             try
             {
@@ -467,6 +471,7 @@ namespace LibreSpotUWP
         {
             try
             {
+                UiResponsivenessTelemetry.Start();
                 if (Media != null)
                     await Media.ResumeAfterSuspendingAsync();
             }

@@ -57,9 +57,7 @@ namespace LibreSpotUWP.Views.Win11
             {
                 _mediaStateChangedHandler = (s, state) =>
                 {
-                    var ignored = Dispatcher.RunAsync(
-                        CoreDispatcherPriority.Normal,
-                        () => UpdatePlaybackRecoveryBanner(state));
+                    UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdatePlaybackRecoveryBanner(state));
                 };
                 App.Media.MediaStateChanged += _mediaStateChangedHandler;
             }
@@ -279,6 +277,7 @@ namespace LibreSpotUWP.Views.Win11
         {
             try
             {
+                UiResponsivenessTelemetry.SetCurrentPage(pageTag);
                 ClearCacheStatus();
 
                 if (_history.Count == 0 || _history[_history.Count - 1] != pageTag)
@@ -306,6 +305,7 @@ namespace LibreSpotUWP.Views.Win11
                         ContentFrame.Navigate(settingsType);
 
                     SelectNavigationItem("Settings");
+                    UiResponsivenessTelemetry.SetCurrentPage("Settings");
                     UpdateBackButton();
                     return;
                 }

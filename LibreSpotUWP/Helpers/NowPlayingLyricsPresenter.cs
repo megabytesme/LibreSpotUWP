@@ -1,4 +1,5 @@
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Services;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -68,7 +69,7 @@ namespace LibreSpotUWP.Helpers
                 lyrics = null;
             }
 
-            var ignored = _container.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            UiWorkScheduler.RunLatest(this, _container.Dispatcher, () =>
             {
                 if (version != _loadVersion || !string.Equals(_trackUri, trackUri, StringComparison.OrdinalIgnoreCase))
                     return;

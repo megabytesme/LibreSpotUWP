@@ -85,6 +85,7 @@ namespace LibreSpotUWP.Services
         private bool _currentOfflineFallbackIsRandom;
         private int _contextResolutionVersion;
         private int _trackChangeVersion;
+        private int _metadataRefreshVersion;
         private int _offlineStopRecoveryVersion;
         private int _connectivityRecheckVersion;
         private int _offlineLoadVersion;
@@ -110,6 +111,8 @@ namespace LibreSpotUWP.Services
         private uint _lastPersistedSnapshotPositionMs = uint.MaxValue;
         private uint _pendingRestoreSeekMs = uint.MaxValue;
         private DateTimeOffset _lastSnapshotWriteAt = DateTimeOffset.MinValue;
+        private readonly LatestWorkCoalescer _snapshotWriteQueue = new LatestWorkCoalescer(
+            action => { var ignored = Task.Run(action); });
 
         public MediaState Current => _state;
         public event EventHandler<MediaState> MediaStateChanged;
@@ -1381,7 +1384,7 @@ namespace LibreSpotUWP.Services
                 {
                     _ringPlayer.ProducerStalled -= OnProducerStalled;
                     _ringPlayer.Stop();
-                    _ringPlayer.Dispose();
+                    await _ringPlayer.DisposeAsync();
                 }
                 _ringPlayer = null;
             }
@@ -1412,9 +1415,21 @@ namespace LibreSpotUWP.Services
             if (string.IsNullOrWhiteSpace(trackUri) || !trackUri.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
                 return;
 
+            var version = Interlocked.Increment(ref _metadataRefreshVersion);
             var id = trackUri.Replace("spotify:track:", "");
-            var offlineTrack = await App.OfflineCatalog.GetDownloadedTrackAsync(trackUri);
-            var metadata = await _web.GetTrackAsync(id, true);
+            OfflineTrackEntry offlineTrack;
+            CacheResponse<FullTrack> metadata;
+            using (UiResponsivenessTelemetry.BeginOperation("Metadata.Refresh", version))
+            {
+                offlineTrack = await App.OfflineCatalog.GetDownloadedTrackAsync(trackUri);
+                metadata = await _web.GetTrackAsync(id, true);
+            }
+
+            if (version != _metadataRefreshVersion ||
+                !string.Equals(Current?.Track?.Uri, trackUri, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
 
             UpdateState(state =>
             {
@@ -1694,7 +1709,7 @@ namespace LibreSpotUWP.Services
                 }
                 catch
                 {
-                    player.Dispose();
+                    await player.DisposeAsync();
                     throw;
                 }
             }
@@ -3138,7 +3153,10 @@ namespace LibreSpotUWP.Services
         {
             if (result == null)
                 return;
-            LogService.Info("[MediaService.ApplicationQueueTransitionResult] " + JsonConvert.SerializeObject(result));
+            LogService.Info(
+                $"[MediaService.ApplicationQueueTransitionResult] expected={result.ExpectedNextUri}, preloaded={result.PreloadedUri}, " +
+                $"actual={result.ActualChangedUri}, fallback={result.FallbackUsed}, failure={result.InternalQueueFailureReason}, " +
+                $"elapsedMs={result.ElapsedTransitionMilliseconds}, queueGeneration={result.QueueGenerationId}, transition={result.TransitionId}.");
         }
 
         private void UpdateConnectivityState(bool? isOfflineOverride = null)
@@ -3820,7 +3838,11 @@ namespace LibreSpotUWP.Services
             PlaybackSnapshot snapshot;
             try
             {
-                snapshot = JsonConvert.DeserializeObject<PlaybackSnapshot>(json);
+                snapshot = await Task.Run(() =>
+                {
+                    UiResponsivenessTelemetry.VerifyBackgroundThread("playback snapshot JSON parsing");
+                    return JsonConvert.DeserializeObject<PlaybackSnapshot>(json);
+                }).ConfigureAwait(true);
             }
             catch (Exception ex)
             {
@@ -3905,9 +3927,23 @@ namespace LibreSpotUWP.Services
                 if (!forceWrite && now - _lastSnapshotWriteAt < TimeSpan.FromMilliseconds(SnapshotWriteIntervalMs))
                     return;
 
-                Windows.Storage.ApplicationData.Current.LocalSettings.Values[PlaybackSnapshotKey] =
-                    JsonConvert.SerializeObject(snapshot);
                 _lastSnapshotWriteAt = now;
+                _snapshotWriteQueue.Post(() =>
+                {
+                    try
+                    {
+                        UiResponsivenessTelemetry.VerifyBackgroundThread("playback snapshot persistence");
+                        var json = JsonConvert.SerializeObject(snapshot);
+                        Windows.Storage.ApplicationData.Current.LocalSettings.Values[PlaybackSnapshotKey] = json;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Telemetry(
+                            "playback-snapshot-write-failure",
+                            $"Unable to save playback snapshot: {ex.Message}",
+                            warning: true);
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -4445,10 +4481,10 @@ namespace LibreSpotUWP.Services
             if (!value.StartsWith(AppDataLocalUriPrefix, StringComparison.OrdinalIgnoreCase))
                 return value;
 
-            var relativePath = Uri.UnescapeDataString(value.Substring(AppDataLocalUriPrefix.Length))
-                .Replace('/', Path.DirectorySeparatorChar);
-            var localPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, relativePath);
-            return File.Exists(localPath) ? value : null;
+            // OfflineCatalogService only commits this URI after its asynchronous
+            // image write succeeds. Avoid probing the filesystem from playback/UI
+            // event handlers; a missing cache file is handled by the image source.
+            return value;
         }
 
         private static string FirstNonBlank(params string[] values)
@@ -4573,24 +4609,30 @@ namespace LibreSpotUWP.Services
             if (_smtc != null)
                 _smtc.ButtonPressed -= OnSmtcButtonPressed;
 
-            _ringPlayerGate.Wait();
+            _ = DisposeRingPlayerAsync();
+
+            _mediaPlayer?.Dispose();
+            _mediaPlayer = null;
+        }
+
+        private async Task DisposeRingPlayerAsync()
+        {
+            await _ringPlayerGate.WaitAsync().ConfigureAwait(false);
             try
             {
                 if (_ringPlayer != null)
                 {
                     _ringPlayer.ProducerStalled -= OnProducerStalled;
-                    _ringPlayer.Dispose();
+                    await _ringPlayer.DisposeAsync().ConfigureAwait(false);
                     _ringPlayer = null;
                 }
+
+                LogService.Info($"[MediaService.Dispose] Media service disposed. sessionGeneration={_librespot.SessionGeneration}, liveGraphs={LibrespotRingBufferPlayer.LiveGraphCount}.");
             }
             finally
             {
                 _ringPlayerGate.Release();
             }
-
-            _mediaPlayer?.Dispose();
-            _mediaPlayer = null;
-            LogService.Info($"[MediaService.Dispose] Media service disposed. sessionGeneration={_librespot.SessionGeneration}, liveGraphs={LibrespotRingBufferPlayer.LiveGraphCount}.");
         }
     }
 }

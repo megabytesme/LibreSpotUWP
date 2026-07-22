@@ -36,12 +36,22 @@ namespace LibreSpotUWP.Services
                 if (_initialized)
                     return;
 
-                if (File.Exists(_catalogPath))
+                try
                 {
                     var json = await File.ReadAllTextAsync(_catalogPath).ConfigureAwait(false);
-                    _catalog = JsonConvert.DeserializeObject<OfflineCatalogData>(json) ?? new OfflineCatalogData();
+                    _catalog = await Task.Run(() =>
+                    {
+                        UiResponsivenessTelemetry.VerifyBackgroundThread("offline catalog JSON parsing");
+                        return JsonConvert.DeserializeObject<OfflineCatalogData>(json) ?? new OfflineCatalogData();
+                    }).ConfigureAwait(false);
                     if (MigrateDownloadedState())
                         await SaveAsync().ConfigureAwait(false);
+                }
+                catch (FileNotFoundException)
+                {
+                }
+                catch (DirectoryNotFoundException)
+                {
                 }
 
                 _initialized = true;
@@ -932,11 +942,15 @@ namespace LibreSpotUWP.Services
                 _catalog.Tracks.Any(track => string.Equals(track.TrackUri, uri, StringComparison.OrdinalIgnoreCase) && TrackIsRequested(track))));
         }
 
-        private Task SaveAsync()
+        private async Task SaveAsync()
         {
-            var json = JsonConvert.SerializeObject(_catalog, Formatting.Indented);
+            var json = await Task.Run(() =>
+            {
+                UiResponsivenessTelemetry.VerifyBackgroundThread("offline catalog JSON serialization");
+                return JsonConvert.SerializeObject(_catalog, Formatting.Indented);
+            }).ConfigureAwait(false);
             LogService.Info($"[OfflineCatalogService.SaveAsync] Saving offline catalog to {_catalogPath}.");
-            return File.WriteAllTextAsync(_catalogPath, json);
+            await File.WriteAllTextAsync(_catalogPath, json).ConfigureAwait(false);
         }
 
         private async Task<string> CacheImageAsync(string imageUrl, string cacheKey)
@@ -946,8 +960,6 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                Directory.CreateDirectory(_imageFolderPath);
-
                 var extension = ".img";
                 if (Uri.TryCreate(imageUrl, UriKind.Absolute, out var imageUri))
                 {
@@ -958,7 +970,13 @@ namespace LibreSpotUWP.Services
 
                 var fileName = $"{ComputeSha1($"{cacheKey}|{imageUrl}")}{extension}";
                 var filePath = Path.Combine(_imageFolderPath, fileName);
-                if (!File.Exists(filePath))
+                var exists = await Task.Run(() =>
+                {
+                    UiResponsivenessTelemetry.VerifyBackgroundThread("offline image filesystem probe");
+                    Directory.CreateDirectory(_imageFolderPath);
+                    return File.Exists(filePath);
+                }).ConfigureAwait(false);
+                if (!exists)
                 {
                     var bytes = await _httpClient.GetByteArrayAsync(imageUrl).ConfigureAwait(false);
                     await File.WriteAllBytesAsync(filePath, bytes).ConfigureAwait(false);

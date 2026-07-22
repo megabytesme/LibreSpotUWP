@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LibreSpotUWP.Services;
@@ -12,6 +15,14 @@ internal static class Program
     {
         var tests = new Action[]
         {
+            HomeRequestsUseArmSafeBoundedConcurrency,
+            NavigationCancelsOldHomeGeneration,
+            StaleHomeResultsCannotUpdateReplacementGeneration,
+            TileRefreshBurstProducesOneUpdate,
+            RepetitiveTelemetryProducesOneSinkEntry,
+            PlaybackEventStormCreatesOnePendingDispatcherItem,
+            MetadataAndLyricsCompletionCannotOutliveNavigation,
+            UiPathStaticAuditFindsNoBlockingIoOrTaskWaits,
             InitialPlaybackWithDelayedProducer,
             ManualNextWithThreeSecondProducerDelay,
             AutomaticHandoffToPreloadedTrack,
@@ -69,6 +80,203 @@ internal static class Program
         {
             Console.Error.WriteLine("FAIL " + ex.Message);
             return 1;
+        }
+    }
+
+    private static void HomeRequestsUseArmSafeBoundedConcurrency()
+    {
+        using (var gate = new BoundedAsyncGate(3))
+        {
+            var active = 0;
+            var maximum = 0;
+            var tasks = Enumerable.Range(0, 30).Select(_ => gate.RunAsync(async cancellationToken =>
+            {
+                var current = Interlocked.Increment(ref active);
+                UpdateMaximum(ref maximum, current);
+                try
+                {
+                    await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+                    return current;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref active);
+                }
+            }, CancellationToken.None)).ToArray();
+
+            Task.WhenAll(tasks).GetAwaiter().GetResult();
+            Assert(maximum == 3, "Home request gate did not exercise the configured ARM-safe concurrency");
+            Assert(gate.MaximumObserved == 3, "Home request concurrency diagnostics were incorrect");
+        }
+    }
+
+    private static void NavigationCancelsOldHomeGeneration()
+    {
+        using (var generations = new OperationGeneration())
+        {
+            var oldLoad = generations.Begin(CancellationToken.None);
+            var newLoad = generations.Begin(CancellationToken.None);
+
+            Assert(oldLoad.Token.IsCancellationRequested, "navigating away did not cancel the old Home generation");
+            Assert(!generations.IsCurrent(oldLoad.Generation), "cancelled Home generation remained current");
+            Assert(generations.IsCurrent(newLoad.Generation), "replacement Home generation was not current");
+        }
+    }
+
+    private static void StaleHomeResultsCannotUpdateReplacementGeneration()
+    {
+        using (var generations = new OperationGeneration())
+        {
+            var oldLoad = generations.Begin(CancellationToken.None);
+            var oldApplyCount = 0;
+            var replacement = generations.Begin(CancellationToken.None);
+
+            if (generations.IsCurrent(oldLoad.Generation))
+                oldApplyCount++;
+
+            Assert(oldApplyCount == 0, "stale Home results updated the replacement page");
+            Assert(generations.IsCurrent(replacement.Generation), "replacement generation lost ownership");
+        }
+    }
+
+    private static void TileRefreshBurstProducesOneUpdate()
+    {
+        var coalescer = new RefreshRequestCoalescer();
+        var due = new DateTimeOffset(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
+        var workerStarts = 0;
+        for (var i = 0; i < 100; i++)
+        {
+            if (coalescer.Enqueue(i == 20, "reason-" + (i % 4), due))
+                workerStarts++;
+        }
+
+        Assert(workerStarts == 1, "tile burst started more than one refresh worker");
+        CoalescedRefreshRequest request;
+        TimeSpan remaining;
+        Assert(coalescer.TryTake(due, out request, out remaining), "tile burst did not produce a refresh");
+        Assert(request.Force, "tile burst lost its merged force-refresh flag");
+        Assert(request.Reasons.Split('+').Length == 4, "tile burst did not merge refresh reasons");
+        Assert(!coalescer.CompleteOrContinue(), "tile burst left a second OS update pending");
+    }
+
+    private static void RepetitiveTelemetryProducesOneSinkEntry()
+    {
+        var limiter = new RepetitiveEventLimiter(TimeSpan.FromSeconds(30));
+        var now = new DateTimeOffset(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
+        var sinkEntries = 0;
+        long suppressed;
+        for (var i = 0; i < 1000; i++)
+        {
+            if (limiter.TryEmit("audio-health", now.AddMilliseconds(i), out suppressed))
+                sinkEntries++;
+        }
+
+        Assert(sinkEntries == 1, "repetitive telemetry enqueued one sink write per event");
+        Assert(limiter.TryEmit("audio-health", now.AddSeconds(31), out suppressed),
+            "telemetry did not reopen after the rate-limit interval");
+        Assert(suppressed == 999, "telemetry summary lost its suppressed-event count");
+    }
+
+    private static void PlaybackEventStormCreatesOnePendingDispatcherItem()
+    {
+        var scheduled = new List<Action>();
+        var applied = -1;
+        var coalescer = new LatestWorkCoalescer(action => scheduled.Add(action));
+        for (var i = 0; i < 1000; i++)
+        {
+            var snapshot = i;
+            coalescer.Post(() => applied = snapshot);
+        }
+
+        Assert(scheduled.Count == 1, "1,000 playback events created unbounded dispatcher work");
+        Assert(coalescer.HasPendingWork, "coalesced playback UI work was not pending");
+        scheduled[0]();
+        Assert(applied == 999, "coalesced playback work did not apply the latest state");
+        Assert(!coalescer.HasPendingWork, "dispatcher work remained pending after the latest update");
+    }
+
+    private static void MetadataAndLyricsCompletionCannotOutliveNavigation()
+    {
+        using (var generations = new OperationGeneration())
+        {
+            var oldPage = generations.Begin(CancellationToken.None);
+            var scheduled = new List<Action>();
+            var dispatcher = new LatestWorkCoalescer(action => scheduled.Add(action));
+            var completion = Task.Run(async () =>
+            {
+                await Task.Delay(20).ConfigureAwait(false); // simulated parsing/network completion
+                if (generations.IsCurrent(oldPage.Generation))
+                    dispatcher.Post(() => { });
+            });
+
+            generations.Begin(CancellationToken.None);
+            completion.GetAwaiter().GetResult();
+            Assert(scheduled.Count == 0, "metadata or lyrics completion queued UI work after navigation");
+        }
+    }
+
+    private static void UiPathStaticAuditFindsNoBlockingIoOrTaskWaits()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var sourceFiles = Directory.GetFiles(appRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(file => file.IndexOf(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) < 0)
+            .Where(file => file.IndexOf(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) < 0)
+            .ToArray();
+        foreach (var file in sourceFiles)
+        {
+            var source = File.ReadAllText(file);
+            var relative = file.Substring(appRoot.Length).TrimStart(Path.DirectorySeparatorChar);
+            var allowsBackgroundOnlyWait =
+                relative.EndsWith("PlaybackLifecycleCoordinator.cs", StringComparison.OrdinalIgnoreCase) ||
+                relative.EndsWith("LibrespotRingBufferPlayer.cs", StringComparison.OrdinalIgnoreCase) ||
+                relative.EndsWith("LogService.cs", StringComparison.OrdinalIgnoreCase);
+            if (!allowsBackgroundOnlyWait)
+            {
+                Assert(!source.Contains(".Wait();") && !source.Contains(".Wait("),
+                    "blocking wait remains in application source: " + relative);
+            }
+
+            Assert(!source.Contains(".Result"), "blocking Task.Result remains in application source: " + relative);
+            Assert(!source.Contains("File.ReadAllText(") &&
+                   !source.Contains("File.WriteAllText(") &&
+                   !source.Contains("File.AppendAllText("),
+                "synchronous file I/O remains in application source: " + relative);
+        }
+
+        var home = File.ReadAllText(Path.Combine(appRoot, "ViewModels", "HomePageViewModel.cs"));
+        Assert(home.Contains("Task.Run(") && home.Contains("MaximumRequestConcurrency = 3"),
+            "Home snapshot work is not explicitly off-dispatcher and bounded");
+        var lyrics = File.ReadAllText(Path.Combine(appRoot, "Views", "Win11", "LyricsPage_Win11.xaml.cs"));
+        Assert(lyrics.Contains("GetLyricsAsync") && !lyrics.Contains("JsonConvert.DeserializeObject"),
+            "lyrics JSON parsing remains on the page dispatcher");
+        var metadata = File.ReadAllText(Path.Combine(appRoot, "Services", "FileMetadataCache.cs"));
+        Assert(metadata.Contains("Task.Run(() =>") && metadata.Contains("metadata JSON parsing"),
+            "metadata JSON parsing is not explicitly off-dispatcher");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current != null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, "LibreSpotUWP")) &&
+                Directory.Exists(Path.Combine(current.FullName, "tests")))
+            {
+                return current.FullName;
+            }
+            current = current.Parent;
+        }
+
+        throw new InvalidOperationException("Unable to locate repository root for static UI audit");
+    }
+
+    private static void UpdateMaximum(ref int target, int value)
+    {
+        int current;
+        while (value > (current = Volatile.Read(ref target)) &&
+               Interlocked.CompareExchange(ref target, value, current) != current)
+        {
         }
     }
 

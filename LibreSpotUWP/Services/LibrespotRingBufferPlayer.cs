@@ -37,6 +37,8 @@ namespace LibreSpotUWP.Services
         private readonly string _outputDeviceId;
         private readonly long _graphInstanceId;
         private readonly AsyncOperationOnce _initialization = new AsyncOperationOnce();
+        private readonly object _disposeSync = new object();
+        private Task _disposeTask;
         private readonly CallbackLifetimeGate _callbackLifetime = new CallbackLifetimeGate();
         private readonly ProducerHealthMonitor _producerHealth = new ProducerHealthMonitor();
         private AudioGraph _graph;
@@ -86,6 +88,7 @@ namespace LibreSpotUWP.Services
         private long _telemetryLateQuantumCount;
         private long _telemetryMaxQuantumElapsedTicks;
         private long _telemetryFramePoolMissCount;
+        private long _idleQuantumCallbackCount;
         private int _telemetryMinAvailableBytes = int.MaxValue;
         private int _telemetryMaxAvailableBytes;
 
@@ -109,6 +112,7 @@ namespace LibreSpotUWP.Services
         private uint _maxFrameBytes;
 
         public long GraphInstanceId => _graphInstanceId;
+        public long IdleQuantumCallbackCount => Interlocked.Read(ref _idleQuantumCallbackCount);
         internal static int LiveGraphCount => Volatile.Read(ref _liveGraphCount);
 
         public event EventHandler<ProducerStalledEventArgs> ProducerStalled;
@@ -264,8 +268,13 @@ namespace LibreSpotUWP.Services
             try
             {
                 int samplesNeeded = args.RequiredSamples;
-                if (samplesNeeded <= 0 || Volatile.Read(ref _consumerEnabled) == 0)
+                if (samplesNeeded <= 0)
                     return;
+                if (Volatile.Read(ref _consumerEnabled) == 0)
+                {
+                    Interlocked.Increment(ref _idleQuantumCallbackCount);
+                    return;
+                }
 
                 int bytesRequested = samplesNeeded * _frameSize;
                 var producer = GetProducerState();
@@ -1002,9 +1011,25 @@ namespace LibreSpotUWP.Services
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return;
+            _ = DisposeAsync();
+        }
 
+        public Task DisposeAsync()
+        {
+            lock (_disposeSync)
+            {
+                if (_disposeTask != null)
+                    return _disposeTask;
+
+                Interlocked.Exchange(ref _disposed, 1);
+                Interlocked.Exchange(ref _consumerEnabled, 0);
+                _disposeTask = Task.Run(DisposeCore);
+                return _disposeTask;
+            }
+        }
+
+        private void DisposeCore()
+        {
             _transitionTimer?.Dispose();
             _transitionTimer = null;
             _telemetryTimer?.Dispose();
@@ -1042,7 +1067,7 @@ namespace LibreSpotUWP.Services
                 if (Interlocked.Exchange(ref _graphCounted, 0) != 0)
                 {
                     int liveGraphs = Interlocked.Decrement(ref _liveGraphCount);
-                    LogService.Info($"[LibrespotRingBufferPlayer.Dispose] graphId={_graphInstanceId}, disposed, liveGraphs={liveGraphs}.");
+                    LogService.Info($"[LibrespotRingBufferPlayer.Dispose] graphId={_graphInstanceId}, disposed, liveGraphs={liveGraphs}, idleQuantumCallbacks={IdleQuantumCallbackCount}.");
                 }
             }
             finally
@@ -1449,10 +1474,10 @@ namespace LibreSpotUWP.Services
 
             var health = _producerHealth.Snapshot;
             string message = $"[LibrespotRingBufferPlayer.AudioHealth] graphId={_graphInstanceId}, sessionGeneration={health.SessionGeneration}, trackGeneration={health.TrackGeneration}, reason={reason}, track={_audioHealthTrackUri}, window={TelemetryIntervalMs / 1000}s, force={force}, quantum={quantumCount}, fill={fillPercent:F1}%, silenceFills={silenceFillQuantumCount}, zeroAvailable={zeroAvailableQuantumCount}, silenceMs={BytesToMilliseconds(silenceFillBytes):F1}, maxSilenceMs={BytesToMilliseconds(maxSilenceFillBytes):F1}, lateCallbacks={lateQuantumCount}, maxCallbackGapMs={maxCallbackGapMs:F1}, availableMs(avg/min/max)={BytesToMilliseconds((long)avgAvailableBytes):F1}/{BytesToMilliseconds(minAvailableBytes):F1}/{BytesToMilliseconds(maxAvailableBytes):F1}, poolMisses={framePoolMissCount}, capacityMs={BytesToMilliseconds(_capacityBytes):F1}.";
-            if (hasUnderrun || hasPoolPressure)
-                LogService.Warn(message);
-            else
-                LogService.Info(message);
+            LogService.Telemetry(
+                "audio-health:" + reason,
+                message,
+                warning: hasUnderrun || hasPoolPressure);
         }
 
         private double BytesToMilliseconds(long byteCount)

@@ -32,6 +32,7 @@ namespace LibreSpotUWP.Services
         private readonly Librespot.LibrespotKeySaveCallback _keySaveDelegate;
         private readonly Librespot.LibrespotKeyRemoveCallback _keyRemoveDelegate;
         private readonly SemaphoreSlim _connectGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _appDataGate = new SemaphoreSlim(2, 2);
 
         private readonly AudioKeyCache _audioKeyCache;
 
@@ -363,7 +364,7 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private Task<T> GetAppDataPayloadAsync<T>(
+        private async Task<T> GetAppDataPayloadAsync<T>(
             string argument,
             LibrespotAppDataKind kind,
             Func<string, T> mapper)
@@ -374,49 +375,72 @@ namespace LibreSpotUWP.Services
             if (_instance == IntPtr.Zero)
                 throw new InvalidOperationException("Not connected.");
 
-            return Task.Run(() =>
+            await _appDataGate.WaitAsync().ConfigureAwait(false);
+            using (UiResponsivenessTelemetry.BeginOperation("Librespot.AppData." + kind))
             {
-                IntPtr argumentPtr = IntPtr.Zero;
-                IntPtr payloadPtr = IntPtr.Zero;
-
                 try
                 {
-                    argumentPtr = AllocUtf8String(argument ?? string.Empty);
-                    payloadPtr = Librespot.librespot_appdata_get(_instance, (int)kind, argumentPtr);
-
-                    if (payloadPtr == IntPtr.Zero)
+                    var stopwatch = Stopwatch.StartNew();
+                    var result = await Task.Run(() =>
                     {
-                        var lastError = GetLastNativeError();
-                        if (IsLyricsKind(kind) && IsMissingAppData(lastError))
-                        {
-                            LogService.Warn($"[LibrespotService.GetAppDataPayloadAsync] Lyrics unavailable for {argument}: {lastError}");
-                            return default(T);
-                        }
+                        IntPtr argumentPtr = IntPtr.Zero;
+                        IntPtr payloadPtr = IntPtr.Zero;
 
-                        throw new InvalidOperationException(
-                            string.IsNullOrWhiteSpace(lastError)
-                                ? $"librespot app data request returned null for {argument}."
-                                : $"librespot app data request returned null for {argument}. Native error: {lastError}");
+                        try
+                        {
+                            UiResponsivenessTelemetry.VerifyBackgroundThread("librespot app-data callback");
+                            argumentPtr = AllocUtf8String(argument ?? string.Empty);
+                            payloadPtr = Librespot.librespot_appdata_get(_instance, (int)kind, argumentPtr);
+
+                            if (payloadPtr == IntPtr.Zero)
+                            {
+                                var lastError = GetLastNativeError();
+                                if (IsLyricsKind(kind) && IsMissingAppData(lastError))
+                                {
+                                    LogService.Telemetry(
+                                        "lyrics-unavailable",
+                                        $"Lyrics app-data unavailable: {lastError}.");
+                                    return default(T);
+                                }
+
+                                throw new InvalidOperationException(
+                                    string.IsNullOrWhiteSpace(lastError)
+                                        ? $"librespot app data request returned null for kind {(int)kind}."
+                                        : $"librespot app data request returned null for kind {(int)kind}. Native error: {lastError}");
+                            }
+
+                            var json = ReadString(payloadPtr);
+                            if (string.IsNullOrWhiteSpace(json))
+                                throw new InvalidOperationException("App data payload was empty.");
+
+                            return mapper(json);
+                        }
+                        finally
+                        {
+                            if (payloadPtr != IntPtr.Zero)
+                                Librespot.librespot_string_free(payloadPtr);
+
+                            if (argumentPtr != IntPtr.Zero)
+                                Marshal.FreeHGlobal(argumentPtr);
+                        }
+                    }).ConfigureAwait(false);
+
+                    stopwatch.Stop();
+                    if (stopwatch.Elapsed >= TimeSpan.FromSeconds(2))
+                    {
+                        LogService.Telemetry(
+                            "slow-librespot-appdata:" + kind,
+                            $"Slow librespot app-data request kind={(int)kind}, elapsedMs={stopwatch.ElapsedMilliseconds}.",
+                            warning: stopwatch.Elapsed >= TimeSpan.FromSeconds(10));
                     }
 
-                    var json = ReadString(payloadPtr);
-                    if (string.IsNullOrWhiteSpace(json))
-                        throw new InvalidOperationException("App data payload was empty.");
-
-                    if (kind == LibrespotAppDataKind.Lyrics || kind == LibrespotAppDataKind.LyricsForImage)
-                        LogService.Info($"[LibrespotService.GetAppDataPayloadAsync] Lyrics payload received for kind={(int)kind}, argument={argument}, length={json.Length}, prefix={json.Substring(0, Math.Min(240, json.Length))}.");
-
-                    return mapper(json);
+                    return result;
                 }
                 finally
                 {
-                    if (payloadPtr != IntPtr.Zero)
-                        Librespot.librespot_string_free(payloadPtr);
-
-                    if (argumentPtr != IntPtr.Zero)
-                        Marshal.FreeHGlobal(argumentPtr);
+                    _appDataGate.Release();
                 }
-            });
+            }
         }
 
         private static bool IsLyricsKind(LibrespotAppDataKind kind)
@@ -920,27 +944,33 @@ namespace LibreSpotUWP.Services
             _disposed = true;
 
             long disposedGeneration = Interlocked.Increment(ref _sessionGeneration);
-            _connectGate.Wait();
-            try
+            _ = Task.Run(async () =>
             {
-                if (_instance != IntPtr.Zero)
+                await _connectGate.WaitAsync().ConfigureAwait(false);
+                await _appDataGate.WaitAsync().ConfigureAwait(false);
+                await _appDataGate.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    Librespot.librespot_free(_instance);
-                    _instance = IntPtr.Zero;
+                    if (_instance != IntPtr.Zero)
+                    {
+                        Librespot.librespot_free(_instance);
+                        _instance = IntPtr.Zero;
+                    }
+                    _activeAccessToken = null;
                 }
-                _activeAccessToken = null;
-            }
-            finally
-            {
-                _connectGate.Release();
-            }
-            LogService.Info($"[LibrespotService.Dispose] Native service disposed. sessionGeneration={disposedGeneration}.");
+                finally
+                {
+                    _appDataGate.Release(2);
+                    _connectGate.Release();
+                }
+                LogService.Info($"[LibrespotService.Dispose] Native service disposed. sessionGeneration={disposedGeneration}.");
 
-            if (_dllHandle != IntPtr.Zero)
-            {
-                NativeProbe.TryFree(_dllHandle);
-                _dllHandle = IntPtr.Zero;
-            }
+                if (_dllHandle != IntPtr.Zero)
+                {
+                    NativeProbe.TryFree(_dllHandle);
+                    _dllHandle = IntPtr.Zero;
+                }
+            });
         }
 
         private void ThrowIfDisposed()
@@ -952,7 +982,9 @@ namespace LibreSpotUWP.Services
         {
             if (sessionGeneration != SessionGeneration || _disposed)
             {
-                LogService.Info($"[LibrespotService.OnLibrespotEvent] Ignoring stale native event. eventSessionGeneration={sessionGeneration}, activeSessionGeneration={SessionGeneration}.");
+                LogService.Telemetry(
+                    "stale-librespot-native-event",
+                    $"Ignoring stale native events. eventSessionGeneration={sessionGeneration}, activeSessionGeneration={SessionGeneration}.");
                 return;
             }
 
@@ -1338,19 +1370,32 @@ namespace LibreSpotUWP.Services
                 var dispatcher = CoreApplication.MainView?.CoreWindow?.Dispatcher;
                 if (dispatcher != null && !dispatcher.HasThreadAccess)
                 {
-                    var ignored = dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    UiResponsivenessTelemetry.DispatcherWorkQueued();
+                    try
                     {
-                        try
+                        var ignored = dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                         {
-                            if (sessionGeneration != SessionGeneration || _disposed)
-                                return;
-                            action();
-                        }
-                        catch (Exception ex)
-                        {
-                            LogService.Error(ex, $"Librespot event handler failed for {eventName}");
-                        }
-                    });
+                            try
+                            {
+                                if (sessionGeneration != SessionGeneration || _disposed)
+                                    return;
+                                action();
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Error(ex, $"Librespot event handler failed for {eventName}");
+                            }
+                            finally
+                            {
+                                UiResponsivenessTelemetry.DispatcherWorkCompleted();
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        UiResponsivenessTelemetry.DispatcherWorkCompleted();
+                        throw;
+                    }
                     return;
                 }
 

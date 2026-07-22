@@ -27,7 +27,11 @@ namespace LibreSpotUWP.Views.Win10_1507
             InitializeComponent();
             DataContext = this;
             Loaded += HomePage_Loaded;
-            Unloaded += (s, e) => _cts?.Cancel();
+            Unloaded += (s, e) =>
+            {
+                _cts?.Cancel();
+                ViewModel.CancelCurrentLoad();
+            };
         }
 
         private async void HomePage_Loaded(object sender, RoutedEventArgs e)
@@ -61,12 +65,12 @@ namespace LibreSpotUWP.Views.Win10_1507
                 _cts?.Cancel();
                 _cts = new CancellationTokenSource();
 
-                if (Helpers.ConnectivityHelper.HasInternetAccess())
-                    await ViewModel.LoadAsync(_spotify, _cts.Token);
-                else
-                    await ViewModel.LoadOfflineAsync(App.OfflineCatalog);
+                var applied = Helpers.ConnectivityHelper.HasInternetAccess()
+                    ? await ViewModel.LoadAsync(_spotify, _cts.Token)
+                    : await ViewModel.LoadOfflineAsync(App.OfflineCatalog, _cts.Token);
 
-                UpdateStatusBanner();
+                if (applied)
+                    UpdateStatusBanner();
             }
             catch (OperationCanceledException) { }
             catch (SpotifyWebException ex)
@@ -172,12 +176,12 @@ namespace LibreSpotUWP.Views.Win10_1507
                 _cts?.Cancel();
                 _cts = new CancellationTokenSource();
 
-                if (Helpers.ConnectivityHelper.HasInternetAccess())
-                    await ViewModel.LoadAsync(_spotify, _cts.Token, true);
-                else
-                    await ViewModel.LoadOfflineAsync(App.OfflineCatalog);
+                var applied = Helpers.ConnectivityHelper.HasInternetAccess()
+                    ? await ViewModel.LoadAsync(_spotify, _cts.Token, true)
+                    : await ViewModel.LoadOfflineAsync(App.OfflineCatalog, _cts.Token);
 
-                UpdateStatusBanner();
+                if (applied)
+                    UpdateStatusBanner();
             }
             catch (OperationCanceledException)
             {

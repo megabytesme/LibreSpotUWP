@@ -1,6 +1,7 @@
 ﻿using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -53,11 +54,9 @@ namespace LibreSpotUWP.Controls
             UpdateUI(Media.Current);
         }
 
-        private async void Media_MediaStateChanged(object sender, MediaState state)
+        private void Media_MediaStateChanged(object sender, MediaState state)
         {
-            await Dispatcher.RunAsync(
-                Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () => UpdateUI(state));
+            UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdateUI(state));
         }
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -198,14 +197,12 @@ namespace LibreSpotUWP.Controls
                 : null;
         }
 
-        private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)
+        private void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)
         {
             if (Media?.Current?.Track?.Uri != e?.TrackUri)
                 return;
 
-            await Dispatcher.RunAsync(
-                Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () => UpdateUI(Media.Current));
+            UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdateUI(Media.Current));
         }
 
         private void NarrowMediaControllerBar_Unloaded(object sender, RoutedEventArgs e)

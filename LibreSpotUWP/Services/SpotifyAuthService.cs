@@ -276,7 +276,11 @@ namespace LibreSpotUWP.Services
             if (Current != null)
                 StampCurrentAuthSchema(Current);
 
-            var json = Newtonsoft.Json.JsonConvert.SerializeObject(Current);
+            var json = await Task.Run(() =>
+            {
+                UiResponsivenessTelemetry.VerifyBackgroundThread("auth JSON serialization");
+                return Newtonsoft.Json.JsonConvert.SerializeObject(Current);
+            }).ConfigureAwait(false);
             await _storage.SaveAsync(StorageKey, json);
         }
 
@@ -288,7 +292,11 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                Current = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                Current = await Task.Run(() =>
+                {
+                    UiResponsivenessTelemetry.VerifyBackgroundThread("auth JSON parsing");
+                    return Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                }).ConfigureAwait(true);
 
                 if (Current == null ||
                     string.IsNullOrEmpty(Current.AccessToken) ||
@@ -454,7 +462,11 @@ namespace LibreSpotUWP.Services
 
             try
             {
-                var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                var loaded = await Task.Run(() =>
+                {
+                    UiResponsivenessTelemetry.VerifyBackgroundThread("auth state JSON parsing");
+                    return Newtonsoft.Json.JsonConvert.DeserializeObject<AuthState>(json);
+                }).ConfigureAwait(false);
                 if (loaded == null || string.IsNullOrEmpty(loaded.AccessToken))
                 {
                     await ClearStoredAuthStateAsync().ConfigureAwait(false);

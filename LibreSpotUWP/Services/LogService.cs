@@ -23,8 +23,11 @@ namespace LibreSpotUWP.Services
         }
 
         private const int MaximumQueuedEntries = 512;
-        private const int MaximumBatchEntries = 64;
+        private const int MaximumBatchEntries = MaximumQueuedEntries;
+        private const int BatchWindowMilliseconds = 150;
         private static readonly ConcurrentQueue<LogEntry> _queue = new ConcurrentQueue<LogEntry>();
+        private static readonly RepetitiveEventLimiter _telemetry =
+            new RepetitiveEventLimiter(TimeSpan.FromSeconds(30));
         private static readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
         private static readonly object _writerLock = new object();
         private static readonly Regex JsonSecretRegex = new Regex("(\"(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|authorization|auth[_-]?blob|audio[_-]?key|private[_-]?key|code)\"\\s*:\\s*\")[^\"]*(\")", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -38,6 +41,9 @@ namespace LibreSpotUWP.Services
         private static Task _writerTask;
         private static int _queuedEntries;
         private static long _droppedEntries;
+        private static long _totalDroppedEntries;
+        private static long _enqueuedEntries;
+        private static long _fileWriteCount;
 
         public static string LogPath => _logPath;
 
@@ -61,6 +67,33 @@ namespace LibreSpotUWP.Services
         public static void Error(string message, [CallerFilePath] string file = null, [CallerMemberName] string member = null)
             => Enqueue("ERROR", GetClassName(file), member, message);
 
+        public static void Telemetry(
+            string key,
+            string message,
+            bool warning = false,
+            [CallerFilePath] string file = null,
+            [CallerMemberName] string member = null)
+        {
+            if (!_telemetry.TryEmit(key, DateTimeOffset.UtcNow, out long suppressed))
+                return;
+
+            if (suppressed > 0)
+                message += $" Repeated {suppressed} additional time(s) during the rate-limit window.";
+
+            Enqueue(warning ? "WARN" : "INFO", GetClassName(file), member, message);
+        }
+
+        public static LogDiagnosticsSnapshot GetDiagnostics()
+        {
+            return new LogDiagnosticsSnapshot
+            {
+                QueuedEntries = Volatile.Read(ref _queuedEntries),
+                EnqueuedEntries = Interlocked.Read(ref _enqueuedEntries),
+                DroppedEntries = Interlocked.Read(ref _totalDroppedEntries),
+                FileWriteCount = Interlocked.Read(ref _fileWriteCount)
+            };
+        }
+
         private static void Enqueue(string level, string className, string member, string message)
         {
             EnsureWriterStarted();
@@ -68,6 +101,7 @@ namespace LibreSpotUWP.Services
             {
                 Interlocked.Decrement(ref _queuedEntries);
                 Interlocked.Increment(ref _droppedEntries);
+                Interlocked.Increment(ref _totalDroppedEntries);
                 return;
             }
 
@@ -79,11 +113,15 @@ namespace LibreSpotUWP.Services
                 Message = message,
                 Timestamp = DateTimeOffset.Now
             });
+            Interlocked.Increment(ref _enqueuedEntries);
             _queueSignal.Release();
         }
 
         private static void EnsureWriterStarted()
         {
+            if (Volatile.Read(ref _writerTask) != null)
+                return;
+
             lock (_writerLock)
             {
                 if (_writerTask == null)
@@ -96,6 +134,10 @@ namespace LibreSpotUWP.Services
             while (true)
             {
                 await _queueSignal.WaitAsync().ConfigureAwait(false);
+                await Task.Delay(BatchWindowMilliseconds).ConfigureAwait(false);
+                while (_queueSignal.Wait(0))
+                {
+                }
 
                 try
                 {
@@ -126,7 +168,10 @@ namespace LibreSpotUWP.Services
                     }
 
                     if (batch.Length > 0)
+                    {
                         await File.AppendAllTextAsync(_logPath, batch.ToString()).ConfigureAwait(false);
+                        Interlocked.Increment(ref _fileWriteCount);
+                    }
                 }
                 catch
                 {
@@ -182,5 +227,13 @@ namespace LibreSpotUWP.Services
             message = SpotifyConnectedUserRegex.Replace(message, "$1[redacted]");
             return message;
         }
+    }
+
+    public sealed class LogDiagnosticsSnapshot
+    {
+        public int QueuedEntries { get; set; }
+        public long EnqueuedEntries { get; set; }
+        public long DroppedEntries { get; set; }
+        public long FileWriteCount { get; set; }
     }
 }

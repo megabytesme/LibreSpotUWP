@@ -42,9 +42,7 @@ namespace LibreSpotUWP.Controls
             {
                 _mediaStateChangedHandler = (s, state) =>
                 {
-                    var ignored = Dispatcher.RunAsync(
-                        Windows.UI.Core.CoreDispatcherPriority.Normal,
-                        () => UpdateUI(state));
+                    UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdateUI(state));
                 };
                 _media.MediaStateChanged += _mediaStateChangedHandler;
             }

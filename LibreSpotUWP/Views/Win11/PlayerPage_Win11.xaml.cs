@@ -81,9 +81,7 @@ namespace LibreSpotUWP.Views.Win11
 
         private void OnMediaStateChanged(object sender, MediaState state)
         {
-            var ignore = Dispatcher.RunAsync(
-                Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () => UpdateUI(state));
+            UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdateUI(state));
         }
 
         private void UpdateUI(MediaState state)
@@ -556,14 +554,12 @@ namespace LibreSpotUWP.Views.Win11
             return new List<AppSimpleArtist>();
         }
 
-        private async void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)
+        private void Downloads_TrackStatusChanged(object sender, TrackDownloadStatus e)
         {
             if (Media?.Current?.Track?.Uri != e?.TrackUri)
                 return;
 
-            await Dispatcher.RunAsync(
-                Windows.UI.Core.CoreDispatcherPriority.Normal,
-                () => UpdateUI(Media.Current));
+            UiWorkScheduler.RunLatest(this, Dispatcher, () => UpdateUI(Media.Current));
         }
     }
 }

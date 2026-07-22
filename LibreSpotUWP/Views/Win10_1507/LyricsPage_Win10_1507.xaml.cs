@@ -1,9 +1,8 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Services;
-using Newtonsoft.Json;
 using System;
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.Foundation;
@@ -19,11 +18,12 @@ namespace LibreSpotUWP.Views.Win10_1507
 {
     public sealed partial class LyricsPage_Win10_1507 : Page
     {
-        private readonly ObservableCollection<LibrespotLyricsLineData> _lines = new ObservableCollection<LibrespotLyricsLineData>();
+        private const int MaximumLyricsLines = 2000;
+        private List<LibrespotLyricsLineData> _lines = new List<LibrespotLyricsLineData>();
         private string _currentTrackUri;
         private bool _autoScrollEnabled;
         private int _currentLineIndex = -1;
-        private bool _lyricsLoadInProgress;
+        private int _lyricsLoadVersion;
         private DateTime _ignoreAutoScrollDisableUntil = DateTime.MinValue;
         private DispatcherTimer _ignoreAutoScrollDisableTimer;
         private ScrollViewer _scrollViewer;
@@ -58,12 +58,9 @@ namespace LibreSpotUWP.Views.Win10_1507
             }
         }
 
-        private async void Media_MediaStateChanged(object sender, MediaState state)
+        private void Media_MediaStateChanged(object sender, MediaState state)
         {
-            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-            {
-                _ = UpdateFromStateAsync(state);
-            });
+            UiWorkScheduler.RunLatest(this, Dispatcher, () => _ = UpdateFromStateAsync(state));
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -89,6 +86,8 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             if (App.Media != null)
                 App.Media.MediaStateChanged -= Media_MediaStateChanged;
+
+            _lyricsLoadVersion++;
 
             if (_scrollViewer != null)
                 _scrollViewer.ViewChanged -= LyricsScrollViewer_ViewChanged;
@@ -126,12 +125,9 @@ namespace LibreSpotUWP.Views.Win10_1507
 
         private async Task LoadLyricsAsync(MediaState state)
         {
-            if (_lyricsLoadInProgress)
-                return;
-
             SetStatus("Loading lyrics...");
             ClearLyrics();
-            _lyricsLoadInProgress = true;
+            var version = ++_lyricsLoadVersion;
 
             try
             {
@@ -149,12 +145,14 @@ namespace LibreSpotUWP.Views.Win10_1507
                 }
 
                 LogService.Info($"Requesting lyrics for {trackUri}.");
-                var lyricsJson = await TryLoadLyricsJsonAsync(trackUri);
-                var lyrics = DeserializeLyrics(lyricsJson);
+                LibrespotLyricsData lyrics;
+                using (UiResponsivenessTelemetry.BeginOperation("Lyrics.Load", version))
+                    lyrics = await App.Librespot.GetLyricsAsync(trackUri);
                 LogService.Info(
                     $"Lyrics response for {trackUri}: provider={lyrics?.Provider ?? "(null)"}, syncType={lyrics?.SyncType ?? "(null)"}, lineCount={lyrics?.Lines?.Count ?? -1}.");
 
-                if (!string.Equals(_currentTrackUri, trackUri, StringComparison.OrdinalIgnoreCase))
+                if (version != _lyricsLoadVersion ||
+                    !string.Equals(_currentTrackUri, trackUri, StringComparison.OrdinalIgnoreCase))
                     return;
 
                 if (!HasLyrics(lyrics))
@@ -170,20 +168,20 @@ namespace LibreSpotUWP.Views.Win10_1507
                     ? $"Synced lyrics loaded from {lyrics.ProviderDisplayName ?? "Spotify"}."
                     : $"Synced lyrics loaded from {lyrics.ProviderDisplayName ?? "Spotify"} ({lyrics.SyncType}).");
 
-                foreach (var line in lyrics.Lines.Where(line => line != null))
-                    _lines.Add(line);
+                _lines = lyrics.Lines
+                    .Where(line => line != null)
+                    .Take(MaximumLyricsLines)
+                    .ToList();
+                LyricsListView.ItemsSource = _lines;
 
-                RefreshAllLyricsVisuals();
                 UpdateCurrentLine(App.Media?.Current?.PositionMs ?? 0, animate: false);
             }
             catch (Exception ex)
             {
+                if (version != _lyricsLoadVersion)
+                    return;
                 SetStatus("Lyrics could not be loaded.");
                 LogService.Warn($"Failed to load lyrics: {ex}");
-            }
-            finally
-            {
-                _lyricsLoadInProgress = false;
             }
         }
 
@@ -192,61 +190,14 @@ namespace LibreSpotUWP.Views.Win10_1507
             return lyrics != null && lyrics.Lines != null && lyrics.Lines.Count > 0;
         }
 
-        private async Task<string> TryLoadLyricsJsonAsync(string trackUri)
-        {
-            if (string.IsNullOrWhiteSpace(trackUri))
-                return null;
-
-            try
-            {
-                return await App.Librespot.GetLyricsJsonAsync(trackUri);
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"Lyrics lookup failed for {trackUri}: {ex}");
-                return null;
-            }
-        }
-
-        private static LibrespotLyricsData DeserializeLyrics(string lyricsJson)
-        {
-            if (string.IsNullOrWhiteSpace(lyricsJson))
-                return null;
-
-            try
-            {
-                var wrapper = JsonConvert.DeserializeObject<LibrespotAppDataResponse<LibrespotLyricsData>>(lyricsJson);
-                return wrapper?.Data;
-            }
-            catch
-            {
-                try
-                {
-                    return JsonConvert.DeserializeObject<LibrespotLyricsData>(lyricsJson);
-                }
-                catch
-                {
-                    return null;
-                }
-            }
-        }
-
         private void ClearLyrics()
         {
-            _lines.Clear();
+            _lines = new List<LibrespotLyricsLineData>();
+            LyricsListView.ItemsSource = _lines;
             _currentLineIndex = -1;
             LyricsListView.SelectedIndex = -1;
             _currentLyrics = null;
             LyricsScrollViewer.Background = null;
-        }
-
-        private void RefreshAllLyricsVisuals()
-        {
-            for (int i = 0; i < _lines.Count; i++)
-            {
-                var isCurrent = i == _currentLineIndex;
-                UpdateItemVisual(i, isCurrent, animate: false);
-            }
         }
 
         private void UpdateCurrentLine(uint positionMs, bool animate)
@@ -272,8 +223,6 @@ namespace LibreSpotUWP.Views.Win10_1507
 
             UpdateItemVisual(previousIndex, false, animate);
             UpdateItemVisual(index, true, animate);
-            RefreshAllLyricsVisuals();
-
             if (_autoScrollEnabled && index >= 0 && index < _lines.Count)
                 ScrollToLine(index);
         }
