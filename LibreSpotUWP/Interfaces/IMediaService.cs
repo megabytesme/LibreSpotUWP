@@ -1,5 +1,6 @@
 ﻿using LibreSpotUWP.Models;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace LibreSpotUWP.Interfaces
@@ -8,6 +9,7 @@ namespace LibreSpotUWP.Interfaces
     {
         Task InitializeAsync();
         Task PlayAsync(string spotifyUri, string contextUri);
+        Task PlayAsync(string spotifyUri, string contextUri, IReadOnlyList<string> orderedTrackUris, int startIndex);
         Task PauseAsync();
         Task ResumeAsync();
         Task StopAsync();

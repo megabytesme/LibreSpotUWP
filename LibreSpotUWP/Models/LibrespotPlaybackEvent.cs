@@ -9,5 +9,6 @@ namespace LibreSpotUWP.Models
         public string TrackUri { get; set; }
         public uint PositionMs { get; set; }
         public bool IsSeek { get; set; }
+        public bool IsUnavailable { get; set; }
     }
 }

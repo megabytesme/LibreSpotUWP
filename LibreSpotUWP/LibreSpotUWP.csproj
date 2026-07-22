@@ -210,6 +210,7 @@
     <Compile Include="Models\OfflineCatalogModels.cs" />
     <Compile Include="Models\LibrespotPlaybackState.cs" />
     <Compile Include="Models\LibrespotPlaybackEvent.cs" />
+    <Compile Include="Models\LibrespotTrackBoundaryInfo.cs" />
     <Compile Include="Models\LibrespotPositionUpdate.cs" />
     <Compile Include="Models\LibrespotTrackInfo.cs" />
     <Compile Include="Models\LibrespotSessionState.cs" />
@@ -235,6 +236,7 @@
     <Compile Include="Services\LibrespotService.cs" />
     <Compile Include="Services\LibrespotRingBufferPlayer.cs" />
     <Compile Include="Services\AudioTransitionStateMachine.cs" />
+    <Compile Include="Services\ApplicationPlaybackQueue.cs" />
     <Compile Include="Services\PlaybackPositionSynchronizer.cs" />
     <Compile Include="Services\PositionSeekInteraction.cs" />
     <Compile Include="Services\PlaybackLifecycleCoordinator.cs" />

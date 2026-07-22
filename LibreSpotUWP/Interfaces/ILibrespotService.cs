@@ -82,7 +82,9 @@ namespace LibreSpotUWP.Interfaces
         event EventHandler<ushort> VolumeChanged;
         event EventHandler<bool> ShuffleChanged;
         event EventHandler<uint> RepeatChanged;
-        event EventHandler<string> EndOfTrack;
+        event EventHandler<LibrespotTrackBoundaryInfo> EndOfTrack;
+        event EventHandler<LibrespotTrackBoundaryInfo> TimeToPreloadNextTrack;
+        event EventHandler<LibrespotTrackBoundaryInfo> TrackPreloading;
         event EventHandler<string> LogMessage;
         event EventHandler<string> Panic;
     }

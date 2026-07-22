@@ -6,6 +6,7 @@ using LibreSpotUWP.Services;
 using SpotifyAPI.Web;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
@@ -117,7 +118,18 @@ namespace LibreSpotUWP.Views.Win11
                     break;
 
                 case OfflineTrackEntry offlineTrack:
-                    _ = App.Media.PlayAsync(offlineTrack.TrackUri, null);
+                    var offlineGroup = ViewModel.GroupedHomeContent
+                        .FirstOrDefault(group => group.Items.Contains(offlineTrack));
+                    var offlineQueue = offlineGroup?.Items
+                        .OfType<OfflineTrackEntry>()
+                        .Select(track => track.TrackUri)
+                        .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                        .ToList();
+                    _ = App.Media.PlayAsync(
+                        offlineTrack.TrackUri,
+                        null,
+                        offlineQueue,
+                        offlineQueue?.IndexOf(offlineTrack.TrackUri) ?? -1);
                     break;
 
                 default:

@@ -38,7 +38,21 @@ internal static class Program
             RapidReconnectRequestsShareOneOperation,
             CancellationDuringReconnectIsObserved,
             OldSessionEventsCannotChangeReplacementSession,
-            GraphDisposalWaitsForCallbacksInFlight
+            GraphDisposalWaitsForCallbacksInFlight,
+            SuccessfulNormalPreloadAndHandoff,
+            UnavailableSpotifyContextUsesApplicationFallback,
+            EmptyInternalQueueUsesApplicationFallback,
+            NoTrackChangedAfterEndUsesFallback,
+            DelayedNormalHandoffCancelsFallback,
+            UserNextDuringGraceCancelsFallback,
+            ShuffleUsesStoredOccurrenceOrder,
+            RepeatOneReloadsCurrentOccurrence,
+            RepeatContextWraps,
+            FinalTrackWithoutRepeatCompletes,
+            UnavailableNextTrackIsSkipped,
+            DuplicateTrackUrisAdvanceByOccurrence,
+            ReconnectImmediatelyBeforeEndRebasesGeneration,
+            StaleEndFromPreviousQueueGenerationIsIgnored
         };
 
         try
@@ -605,6 +619,199 @@ internal static class Program
             Assert(dispose.GetAwaiter().GetResult(), "graph disposal did not observe callback drain");
             Assert(!callbacks.TryEnter(), "callback entered after graph disposal began");
         }
+    }
+
+    private static void SuccessfulNormalPreloadAndHandoff()
+    {
+        var queue = ReadyQueue(new[] { "a", "b", "c" }, "a", 10, 1);
+        var preload = queue.ObservePreloadRequested("a", 10, 1);
+        Assert(preload.ExpectedUri == "b", "preload did not calculate the application-owned next URI");
+        Assert(queue.ObservePreloaded("b", 1), "matching librespot preload was not recorded");
+
+        var started = DateTimeOffset.UtcNow;
+        var transition = queue.BeginEndOfTrack("a", 10, 1, started);
+        var result = queue.ObserveTrackChanged("b", 11, 1, started.AddMilliseconds(80));
+        Assert(result != null && result.ActualChangedUri == "b", "normal handoff was not completed");
+        Assert(result.PreloadedUri == "b" && !result.FallbackUsed, "normal preload was mislabeled as fallback");
+        ApplicationQueueTransition ignored;
+        Assert(!queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out ignored),
+            "fallback remained armed after normal TrackChanged");
+    }
+
+    private static void UnavailableSpotifyContextUsesApplicationFallback()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1);
+        queue.RecordInternalQueueFailure("spotify-context-unavailable");
+        var transition = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        ApplicationQueueTransition claimed;
+        Assert(queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out claimed),
+            "context loss did not arm fallback");
+        Assert(claimed.ExpectedUri == "b" && claimed.FailureReason == "spotify-context-unavailable",
+            "context-loss fallback lost the expected URI or reason");
+    }
+
+    private static void EmptyInternalQueueUsesApplicationFallback()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1);
+        queue.RecordInternalQueueFailure("internal-librespot-queue-empty");
+        var transition = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        ApplicationQueueTransition claimed;
+        Assert(queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out claimed),
+            "empty librespot queue did not use the application queue");
+        Assert(claimed.FailureReason == "internal-librespot-queue-empty", "empty-queue reason was not retained");
+    }
+
+    private static void NoTrackChangedAfterEndUsesFallback()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1);
+        var started = DateTimeOffset.UtcNow;
+        var transition = queue.BeginEndOfTrack("a", 10, 1, started);
+        ApplicationQueueTransition claimed;
+        Assert(queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out claimed),
+            "missing TrackChanged did not claim fallback");
+        Assert(claimed.ExpectedUri == "b" && claimed.FallbackUsed, "fallback target was incorrect");
+        var result = queue.ObserveTrackChanged("b", 11, 1, started.AddSeconds(3));
+        Assert(result != null && result.FallbackUsed && result.ActualChangedUri == "b",
+            "fallback TrackChanged did not produce the structured transition result");
+        queue.ObserveTrackChanged("b", 11, 1, started.AddSeconds(3).AddMilliseconds(1));
+        Assert(queue.Snapshot.CurrentIndex == 1, "duplicate fallback confirmation double-advanced the queue");
+    }
+
+    private static void DelayedNormalHandoffCancelsFallback()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1);
+        var started = DateTimeOffset.UtcNow;
+        var transition = queue.BeginEndOfTrack("a", 10, 1, started);
+        var result = queue.ObserveTrackChanged("b", 11, 1, started.AddMilliseconds(2_900));
+        Assert(result != null && !result.FallbackUsed, "delayed normal handoff was not accepted");
+        ApplicationQueueTransition ignored;
+        Assert(!queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out ignored),
+            "delayed successful handoff did not cancel fallback");
+    }
+
+    private static void UserNextDuringGraceCancelsFallback()
+    {
+        var queue = ReadyQueue(new[] { "a", "b", "c" }, "a", 10, 1);
+        var automatic = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        var cancelled = queue.CancelPendingTransition("user-next", DateTimeOffset.UtcNow);
+        Assert(cancelled != null && cancelled.InternalQueueFailureReason.Contains("user-next"),
+            "user Next did not produce a cancellation result for the automatic transition");
+        var manual = queue.BeginManualMove(1, 10, 1);
+        Assert(manual.ExpectedUri == "b", "manual Next did not retain the expected application target");
+        ApplicationQueueTransition ignored;
+        Assert(!queue.TryClaimFallback(automatic.QueueGenerationId, automatic.TransitionId, out ignored),
+            "automatic fallback survived user Next");
+        Assert(!queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow).IsValid,
+            "late end event superseded the user Next transition");
+        queue.ObserveTrackChanged("b", 11, 1, DateTimeOffset.UtcNow);
+        Assert(queue.Snapshot.CurrentIndex == 1, "user Next did not synchronize the queue index");
+    }
+
+    private static void ShuffleUsesStoredOccurrenceOrder()
+    {
+        var tracks = new[] { "a", "b", "c", "d" };
+        var queue = new ApplicationPlaybackQueue();
+        queue.Replace("ctx", tracks, "a", 0, true, 1, 8675309);
+        var order = queue.Snapshot.ShuffleOrder;
+        queue.ObserveTrackChanged("a", 10, 1, DateTimeOffset.UtcNow);
+        var transition = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        Assert(transition.ExpectedIndex == order[1], "shuffle did not follow its stored occurrence order");
+        Assert(queue.Snapshot.ShuffleSeed == 8675309, "shuffle seed was not retained in the snapshot");
+    }
+
+    private static void RepeatOneReloadsCurrentOccurrence()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1, repeatMode: 2);
+        var transition = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        Assert(transition.ExpectedIndex == 0 && transition.ExpectedUri == "a",
+            "repeat-one did not select the current occurrence");
+    }
+
+    private static void RepeatContextWraps()
+    {
+        var queue = ReadyQueue(new[] { "a", "b", "c" }, "c", 10, 1, repeatMode: 1, startIndex: 2);
+        var transition = queue.BeginEndOfTrack("c", 10, 1, DateTimeOffset.UtcNow);
+        Assert(transition.ExpectedIndex == 0 && transition.ExpectedUri == "a",
+            "repeat-context did not wrap to the first occurrence");
+    }
+
+    private static void FinalTrackWithoutRepeatCompletes()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "b", 10, 1, startIndex: 1);
+        var transition = queue.BeginEndOfTrack("b", 10, 1, DateTimeOffset.UtcNow);
+        Assert(transition.ExpectedUri == null && transition.FailureReason == "end-of-queue",
+            "final track produced a continuation with repeat disabled");
+        ApplicationQueueTransition ignored;
+        Assert(!queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out ignored),
+            "final track incorrectly claimed fallback");
+    }
+
+    private static void UnavailableNextTrackIsSkipped()
+    {
+        var queue = ReadyQueue(new[] { "a", "b", "c" }, "a", 10, 1);
+        var transition = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        var next = queue.MarkPendingExpectedUnavailable("b", 1);
+        Assert(next != null && next.ExpectedUri == "c", "unavailable next track was not skipped");
+        ApplicationQueueTransition claimed;
+        Assert(queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out claimed) &&
+            claimed.ExpectedUri == "c", "fallback did not advance to the next playable occurrence");
+    }
+
+    private static void DuplicateTrackUrisAdvanceByOccurrence()
+    {
+        var queue = ReadyQueue(new[] { "same", "same", "after" }, "same", 10, 1, startIndex: 0);
+        var first = queue.BeginEndOfTrack("same", 10, 1, DateTimeOffset.UtcNow);
+        Assert(first.ExpectedIndex == 1 && first.ExpectedUri == "same",
+            "duplicate URI did not retain the next occurrence index");
+        queue.ObserveTrackChanged("same", 11, 1, DateTimeOffset.UtcNow);
+        Assert(queue.Snapshot.CurrentIndex == 1, "duplicate TrackChanged collapsed to the first occurrence");
+        var second = queue.BeginEndOfTrack("same", 11, 1, DateTimeOffset.UtcNow);
+        Assert(second.ExpectedIndex == 2 && second.ExpectedUri == "after",
+            "queue did not advance beyond the confirmed duplicate occurrence");
+    }
+
+    private static void ReconnectImmediatelyBeforeEndRebasesGeneration()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1);
+        var oldTransition = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        var replacementGeneration = queue.RebaseForReconnect(2);
+        ApplicationQueueTransition ignored;
+        Assert(!queue.TryClaimFallback(oldTransition.QueueGenerationId, oldTransition.TransitionId, out ignored),
+            "pre-reconnect transition survived generation rebase");
+        var current = queue.BeginEndOfTrack("a", 20, 2, DateTimeOffset.UtcNow);
+        Assert(current.IsValid && current.ExpectedUri == "b" && current.QueueGenerationId == replacementGeneration,
+            "reconnected queue could not continue before TrackChanged confirmation");
+        var result = queue.ObserveTrackChanged("b", 21, 2, DateTimeOffset.UtcNow);
+        Assert(result != null && result.ActualChangedUri == "b",
+            "reconnect-boundary transition did not produce a result");
+        Assert(queue.Snapshot.CurrentIndex == 1, "reconnected queue did not synchronize its next track");
+    }
+
+    private static void StaleEndFromPreviousQueueGenerationIsIgnored()
+    {
+        var queue = ReadyQueue(new[] { "a", "b" }, "a", 10, 1);
+        queue.Replace("new", new[] { "a", "c" }, "a", 0, false, 0, 7);
+        var stale = queue.BeginEndOfTrack("a", 10, 1, DateTimeOffset.UtcNow);
+        Assert(!stale.IsValid && stale.FailureReason == "stale-end-of-track",
+            "stale end event from the prior queue was accepted");
+        Assert(queue.Snapshot.CurrentIndex == 0, "stale end event moved the replacement queue index");
+        queue.ObserveTrackChanged("a", 20, 2, DateTimeOffset.UtcNow);
+        Assert(queue.BeginEndOfTrack("a", 20, 2, DateTimeOffset.UtcNow).IsValid,
+            "replacement queue did not accept its confirmed end event");
+    }
+
+    private static ApplicationPlaybackQueue ReadyQueue(
+        string[] tracks,
+        string startUri,
+        ulong playRequestId,
+        long sessionGeneration,
+        int repeatMode = 0,
+        int startIndex = 0)
+    {
+        var queue = new ApplicationPlaybackQueue();
+        queue.Replace("ctx", tracks, startUri, startIndex, false, repeatMode, 1234);
+        queue.ObserveTrackChanged(startUri, playRequestId, sessionGeneration, DateTimeOffset.UtcNow);
+        return queue;
     }
 
     private static ProducerHealthMonitor ConnectedExpectedHealth()

@@ -74,7 +74,11 @@ namespace LibreSpotUWP.Views.Win10_1709
             if (string.IsNullOrWhiteSpace(trackUri))
                 return;
 
-            await App.Media.PlayAsync("spotify:collection:tracks", trackUri);
+            var queue = ViewModel.GetOrderedTracks()
+                .Select(item => item?.Track?.Uri)
+                .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                .ToList();
+            await App.Media.PlayAsync("spotify:collection:tracks", trackUri, queue, e.Index);
         }
 
         private async void OnTrackPersistRequested(object sender, TrackClickedEventArgs e)

@@ -2,6 +2,7 @@ using LibreSpotUWP.ViewModels;
 using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -34,7 +35,7 @@ namespace LibreSpotUWP.Views.Win11
             UpdateStatusBanner();
         }
 
-        private void OnItemClick(object sender, ItemClickEventArgs e)
+        private async void OnItemClick(object sender, ItemClickEventArgs e)
         {
             var item = e.ClickedItem;
 
@@ -48,7 +49,13 @@ namespace LibreSpotUWP.Views.Win11
                 GetShell()?.NavigateToPlaylist(playlist.Id);
 
             else if (item is FullTrack track)
-                App.Media.PlayAsync(track.Uri, null);
+            {
+                var queue = (ViewModel.Tracks ?? new List<FullTrack>())
+                    .Select(candidate => candidate?.Uri)
+                    .Where(uri => !string.IsNullOrWhiteSpace(uri))
+                    .ToList();
+                await App.Media.PlayAsync(track.Uri, null, queue, ViewModel.Tracks?.IndexOf(track) ?? -1);
+            }
         }
 
         private void UpdateStatusBanner()

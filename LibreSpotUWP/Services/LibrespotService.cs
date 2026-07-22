@@ -73,7 +73,9 @@ namespace LibreSpotUWP.Services
         public event EventHandler<LibrespotPlaybackEvent> PlaybackEvent;
         public event EventHandler<LibrespotPositionUpdate> PositionChanged;
         public event EventHandler<ushort> VolumeChanged;
-        public event EventHandler<string> EndOfTrack;
+        public event EventHandler<LibrespotTrackBoundaryInfo> EndOfTrack;
+        public event EventHandler<LibrespotTrackBoundaryInfo> TimeToPreloadNextTrack;
+        public event EventHandler<LibrespotTrackBoundaryInfo> TrackPreloading;
         public event EventHandler<string> LogMessage;
         public event EventHandler<string> Panic;
         public event EventHandler<bool> ShuffleChanged;
@@ -1016,13 +1018,35 @@ namespace LibreSpotUWP.Services
                 case EventType.PlaybackStopped:
                 case EventType.PlaybackUnavailable:
                     LogService.Info($"{logPrefix} Playback Stopped.");
-                    UpdatePlaybackState(LibrespotPlaybackState.Stopped, evt.data, sessionGeneration);
+                    UpdatePlaybackState(
+                        LibrespotPlaybackState.Stopped,
+                        evt.data,
+                        sessionGeneration,
+                        evt.event_type == EventType.PlaybackUnavailable);
                     break;
 
                 case EventType.EndOfTrack:
                     var endedTrackUri = ReadString(evt.data.track_uri);
                     LogService.Info($"{logPrefix} Reached end of track URI: {endedTrackUri}");
-                    OnEndOfTrack(endedTrackUri, sessionGeneration);
+                    OnEndOfTrack(endedTrackUri, evt.data.play_request_id, sessionGeneration);
+                    break;
+
+                case EventType.TimeToPreloadNextTrack:
+                    var preloadSource = CreateTrackBoundaryInfo(evt.data, sessionGeneration);
+                    LogService.Info($"{logPrefix} Preload requested near end of {preloadSource.TrackUri}.");
+                    RaiseOnMainThread(
+                        () => TimeToPreloadNextTrack?.Invoke(this, preloadSource),
+                        nameof(TimeToPreloadNextTrack),
+                        sessionGeneration);
+                    break;
+
+                case EventType.Preloading:
+                    var preloadingTrack = CreateTrackBoundaryInfo(evt.data, sessionGeneration);
+                    LogService.Info($"{logPrefix} Preloading {preloadingTrack.TrackUri}.");
+                    RaiseOnMainThread(
+                        () => TrackPreloading?.Invoke(this, preloadingTrack),
+                        nameof(TrackPreloading),
+                        sessionGeneration);
                     break;
 
                 case EventType.VolumeChanged:
@@ -1138,7 +1162,11 @@ namespace LibreSpotUWP.Services
             UpdatePlaybackState(state, default(EventData), SessionGeneration);
         }
 
-        private void UpdatePlaybackState(LibrespotPlaybackState state, EventData data, long sessionGeneration)
+        private void UpdatePlaybackState(
+            LibrespotPlaybackState state,
+            EventData data,
+            long sessionGeneration,
+            bool isUnavailable = false)
         {
             lock (_stateLock)
             {
@@ -1154,7 +1182,8 @@ namespace LibreSpotUWP.Services
                 AudioGeneration = data.audio_generation,
                 SessionGeneration = sessionGeneration,
                 TrackUri = ReadString(data.track_uri),
-                PositionMs = data.position_ms
+                PositionMs = data.position_ms,
+                IsUnavailable = isUnavailable
             };
             RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, state), nameof(PlaybackStateChanged), sessionGeneration);
             PublishPlaybackEvent(playbackEvent, sessionGeneration);
@@ -1191,13 +1220,29 @@ namespace LibreSpotUWP.Services
 
         private void OnEndOfTrack()
         {
-            OnEndOfTrack(null, SessionGeneration);
+            OnEndOfTrack(null, 0, SessionGeneration);
         }
 
-        private void OnEndOfTrack(string trackUri, long sessionGeneration)
+        private void OnEndOfTrack(string trackUri, ulong playRequestId, long sessionGeneration)
         {
             LogService.Info($"[LibreSpot] End of track reached. {trackUri}");
-            RaiseOnMainThread(() => EndOfTrack?.Invoke(this, trackUri), nameof(EndOfTrack), sessionGeneration);
+            var boundary = new LibrespotTrackBoundaryInfo
+            {
+                TrackUri = trackUri,
+                PlayRequestId = playRequestId,
+                SessionGeneration = sessionGeneration
+            };
+            RaiseOnMainThread(() => EndOfTrack?.Invoke(this, boundary), nameof(EndOfTrack), sessionGeneration);
+        }
+
+        private static LibrespotTrackBoundaryInfo CreateTrackBoundaryInfo(EventData data, long sessionGeneration)
+        {
+            return new LibrespotTrackBoundaryInfo
+            {
+                TrackUri = ReadString(data.track_uri),
+                PlayRequestId = data.play_request_id,
+                SessionGeneration = sessionGeneration
+            };
         }
 
         private void UpdateClientInfo(string clientName, long sessionGeneration)

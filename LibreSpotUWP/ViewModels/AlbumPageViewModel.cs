@@ -82,7 +82,11 @@ namespace LibreSpotUWP.ViewModels
                 return;
 
             await App.Media.SetShuffleAsync(false);
-            await App.Media.PlayAsync($"spotify:album:{Album.Id}", "");
+            await App.Media.PlayAsync(
+                $"spotify:album:{Album.Id}",
+                "",
+                Tracks?.Items?.Select(track => track?.Uri).Where(uri => !string.IsNullOrWhiteSpace(uri)).ToList(),
+                -1);
         }
 
         public async void ShuffleAlbum()
@@ -91,7 +95,11 @@ namespace LibreSpotUWP.ViewModels
                 return;
 
             await App.Media.SetShuffleAsync(true);
-            await App.Media.PlayAsync($"spotify:album:{Album.Id}", "");
+            await App.Media.PlayAsync(
+                $"spotify:album:{Album.Id}",
+                "",
+                Tracks?.Items?.Select(track => track?.Uri).Where(uri => !string.IsNullOrWhiteSpace(uri)).ToList(),
+                -1);
         }
 
         private static string BuildStatusMessage<T1, T2>(CacheResponse<T1> first, CacheResponse<T2> second)

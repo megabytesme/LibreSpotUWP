@@ -11,5 +11,6 @@
     <Compile Include="..\..\LibreSpotUWP\Services\PlaybackPositionSynchronizer.cs" Link="PlaybackPositionSynchronizer.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\PositionSeekInteraction.cs" Link="PositionSeekInteraction.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\PlaybackLifecycleCoordinator.cs" Link="PlaybackLifecycleCoordinator.cs" />
+    <Compile Include="..\..\LibreSpotUWP\Services\ApplicationPlaybackQueue.cs" Link="ApplicationPlaybackQueue.cs" />
   </ItemGroup>
 </Project>
