@@ -203,6 +203,7 @@
     </Compile>
     <Compile Include="Models\MediaState.cs" />
     <Compile Include="Models\AudioOutputDeviceInfo.cs" />
+    <Compile Include="Models\AudioBackendKind.cs" />
     <Compile Include="Models\SpotifyConnectDeviceInfo.cs" />
     <Compile Include="Models\EqualizerBandRange.cs" />
     <Compile Include="Models\AppEntities.cs" />
@@ -238,7 +239,9 @@
     <Compile Include="Services\SpotifyWebService.cs" />
     <Compile Include="Services\MediaService.cs" />
     <Compile Include="Services\LibrespotService.cs" />
+    <Compile Include="Services\ILibrespotAudioPlayer.cs" />
     <Compile Include="Services\LibrespotRingBufferPlayer.cs" />
+    <Compile Include="Services\NativeWindowsAudioPlayer.cs" />
     <Compile Include="Services\AudioTransitionStateMachine.cs" />
     <Compile Include="Services\ApplicationPlaybackQueue.cs" />
     <Compile Include="Services\PlaybackPositionSynchronizer.cs" />

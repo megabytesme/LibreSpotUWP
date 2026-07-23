@@ -21,6 +21,7 @@ namespace LibreSpotUWP.Interfaces
         EqualizerBandRange[] GetEqualizerBandRanges();
         Task<AudioOutputDeviceInfo[]> GetAudioOutputDevicesAsync();
         Task SetAudioOutputDeviceAsync(string deviceId);
+        Task SetAudioBackendAsync(AudioBackendKind backend);
         Task<SpotifyConnectDeviceInfo[]> GetSpotifyConnectDevicesAsync();
         Task SetSpotifyConnectDeviceAsync(string deviceId);
         Task RefreshCurrentTrackMetadataAsync();
@@ -33,6 +34,7 @@ namespace LibreSpotUWP.Interfaces
 
         MediaState Current { get; }
         string CurrentAudioOutputDeviceId { get; }
+        AudioBackendKind CurrentAudioBackend { get; }
         string CurrentSpotifyConnectDeviceId { get; }
 
         event EventHandler<MediaState> MediaStateChanged;

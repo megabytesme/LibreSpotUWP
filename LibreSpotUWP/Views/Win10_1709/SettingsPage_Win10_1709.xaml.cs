@@ -29,6 +29,7 @@ namespace LibreSpotUWP.Views.Win10_1709
 
         protected bool _loading = true;
         protected bool _suppressAppearanceChange;
+        private bool _suppressAudioBackendChange;
 
         public SettingsPage_Win10_1709()
         {
@@ -55,6 +56,8 @@ namespace LibreSpotUWP.Views.Win10_1709
             ResumeLastPlaybackToggle.Visibility = resumeVisible;
             ResumeLastPlaybackDescription.Visibility = resumeVisible;
             RememberLastPageToggle.IsOn = UserSettings.RememberLastPage;
+            SelectAudioBackend(UserSettings.AudioBackend);
+            UpdateAudioBackendCapabilities();
             SelectAudioEffectsPreset(UserSettings.AudioEffectsPreset);
             EchoEffectToggle.IsOn = UserSettings.AudioEchoEffectEnabled;
             ReverbEffectToggle.IsOn = UserSettings.AudioReverbEffectEnabled;
@@ -246,6 +249,32 @@ namespace LibreSpotUWP.Views.Win10_1709
             }
         }
 
+        private async void AudioBackendComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || _suppressAudioBackendChange)
+                return;
+
+            var backend = GetSelectedAudioBackend();
+            AudioBackendComboBox.IsEnabled = false;
+            try
+            {
+                if (_media != null)
+                    await _media.SetAudioBackendAsync(backend);
+                else
+                    UserSettings.AudioBackend = backend;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Failed to switch audio backend to {backend}: {ex}");
+                SelectAudioBackend(UserSettings.AudioBackend);
+            }
+            finally
+            {
+                AudioBackendComboBox.IsEnabled = true;
+                UpdateAudioBackendCapabilities();
+            }
+        }
+
         private void AudioEffectToggle_Toggled(object sender, RoutedEventArgs e)
         {
             if (_loading)
@@ -296,6 +325,59 @@ namespace LibreSpotUWP.Views.Win10_1709
             }
 
             AudioEffectsComboBox.SelectedIndex = 0;
+        }
+
+        private void SelectAudioBackend(AudioBackendKind backend)
+        {
+            _suppressAudioBackendChange = true;
+            foreach (var item in AudioBackendComboBox.Items.OfType<ComboBoxItem>())
+            {
+                if (Enum.TryParse(item.Tag as string, out AudioBackendKind itemBackend) && itemBackend == backend)
+                {
+                    AudioBackendComboBox.SelectedItem = item;
+                    _suppressAudioBackendChange = false;
+                    return;
+                }
+            }
+            AudioBackendComboBox.SelectedIndex = 0;
+            _suppressAudioBackendChange = false;
+        }
+
+        private AudioBackendKind GetSelectedAudioBackend()
+        {
+            var tag = (AudioBackendComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            return Enum.TryParse(tag, out AudioBackendKind backend)
+                ? backend
+                : AudioBackendKind.RingBuffer;
+        }
+
+        private void UpdateAudioBackendCapabilities()
+        {
+            var backend = GetSelectedAudioBackend();
+            var supportsEffects = backend != AudioBackendKind.RustWasapi;
+            AudioEffectsComboBox.IsEnabled = supportsEffects;
+            EchoEffectToggle.IsEnabled = supportsEffects;
+            ReverbEffectToggle.IsEnabled = supportsEffects;
+            LimiterEffectToggle.IsEnabled = supportsEffects;
+            EffectStrengthSlider.IsEnabled = supportsEffects;
+            EqualizerLowSlider.IsEnabled = supportsEffects;
+            EqualizerLowMidSlider.IsEnabled = supportsEffects;
+            EqualizerMidSlider.IsEnabled = supportsEffects;
+            EqualizerHighMidSlider.IsEnabled = supportsEffects;
+            EqualizerHighSlider.IsEnabled = supportsEffects;
+
+            switch (backend)
+            {
+                case AudioBackendKind.RustWasapi:
+                    AudioBackendDescriptionText.Text = "Lowest-overhead Rust renderer. PCM is written directly to WASAPI; app audio effects are unavailable.";
+                    break;
+                case AudioBackendKind.RustXAudio2:
+                    AudioBackendDescriptionText.Text = "Rust-native XAudio2 renderer with live XAPO equalizer, echo, reverb, and limiter effects.";
+                    break;
+                default:
+                    AudioBackendDescriptionText.Text = "Compatibility renderer using the existing Rust PCM ring and managed AudioGraph effects.";
+                    break;
+            }
         }
 
         private void LoadAudioEffectSettings()
@@ -561,8 +643,8 @@ namespace LibreSpotUWP.Views.Win10_1709
                         new Run { Text = "LibreSpot Commit: " },
                         new Hyperlink
                         {
-                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/62ab322387eb5f97e75c9295abc417317a8944f4"),
-                            Inlines = { new Run { Text = "62ab322387eb5f97e75c9295abc417317a8944f4" } }
+                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/0418ad2687e1978ee9a15ab5a451c5638896a6f6"),
+                            Inlines = { new Run { Text = "0418ad2687e1978ee9a15ab5a451c5638896a6f6" } }
                         },
                         new LineBreak(),
                         new LineBreak(),

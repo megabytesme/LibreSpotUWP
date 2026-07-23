@@ -28,7 +28,7 @@ namespace LibreSpotUWP.Services
         public long LastSuccessfulStreamReadMs { get; set; }
     }
 
-    public sealed class LibrespotRingBufferPlayer : IDisposable
+    public sealed class LibrespotRingBufferPlayer : ILibrespotAudioPlayer
     {
         private static long _nextGraphInstanceId;
         private static int _liveGraphCount;

@@ -23,6 +23,7 @@ internal static class Program
             PlaybackEventStormCreatesOnePendingDispatcherItem,
             MetadataAndLyricsCompletionCannotOutliveNavigation,
             UiPathStaticAuditFindsNoBlockingIoOrTaskWaits,
+            AudioBackendsAreWiredAcrossEveryTheme,
             PlaybackAndHomeCriticalPathsDoNotAwaitEnrichment,
             InitialPlaybackWithDelayedProducer,
             UiTransitionKeepsBackpressuredProducerDrainable,
@@ -280,6 +281,105 @@ internal static class Program
         var homeCriticalPath = home.Substring(homeStart, enrichmentStart - homeStart);
         Assert(!homeCriticalPath.Contains("LoadAlbumsFromTopArtistsAsync("),
             "Home still waits for per-artist album enrichment before publishing core sections");
+    }
+
+    private static void AudioBackendsAreWiredAcrossEveryTheme()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var nativePlayer = File.ReadAllText(Path.Combine(appRoot, "Services", "NativeWindowsAudioPlayer.cs"));
+        Assert(nativePlayer.Contains("librespot_audio_set_backend"),
+            "native Windows player does not select the Rust backend");
+        Assert(nativePlayer.Contains("SelectBackendAsync") &&
+               nativePlayer.Contains("Task.Run(() => SelectBackend"),
+            "native backend probing can still block the settings dispatcher");
+        Assert(nativePlayer.Contains("librespot_audio_get_last_error") &&
+               nativePlayer.Contains("Native error:"),
+            "native backend failures do not preserve their operation and HRESULT for device logs");
+        Assert(!nativePlayer.Contains("GetDefaultAudioRenderId") &&
+               nativePlayer.Contains("? string.Empty"),
+            "the native default-device path still expands an endpoint ID instead of using the W10M-compatible native default");
+        Assert(!nativePlayer.Contains("using Windows.Media.Audio") &&
+               !nativePlayer.Contains("LibrespotRingBufferPlayer"),
+            "native Windows player still depends on AudioGraph or the managed ring player");
+
+        var librespotService = File.ReadAllText(Path.Combine(appRoot, "Services", "LibrespotService.cs"));
+        Assert(librespotService.Contains("SelectStartupAudioBackendAsync") &&
+               librespotService.Contains("new[] { AudioBackendKind.RustWasapi, AudioBackendKind.RingBuffer }") &&
+               librespotService.Contains("UserSettings.AudioBackend = fallback"),
+            "launch-time XAudio2 rejection can still escape before WASAPI or ring-buffer fallback");
+
+        var userSettings = File.ReadAllText(Path.Combine(appRoot, "Helpers", "UserSettings.cs"));
+        Assert(userSettings.Contains("return AudioBackendKind.RustXAudio2;") &&
+               userSettings.Contains(": AudioBackendKind.RustXAudio2;"),
+            "fresh and upgraded installs do not default to Rust XAudio2");
+
+        var media = File.ReadAllText(Path.Combine(appRoot, "Services", "MediaService.cs"));
+        var switchStart = media.IndexOf("public async Task SetAudioBackendAsync(", StringComparison.Ordinal);
+        var switchEnd = media.IndexOf("public async Task RefreshCurrentTrackMetadataAsync", switchStart, StringComparison.Ordinal);
+        Assert(switchStart >= 0 && switchEnd > switchStart,
+            "unable to audit live audio backend switching");
+        var backendSwitch = media.Substring(switchStart, switchEnd - switchStart);
+        Assert(backendSwitch.Contains("RecreateAudioPlayerAsync") && backendSwitch.Contains("previousBackend"),
+            "backend switching does not recreate live audio or roll back failures");
+        Assert(backendSwitch.Contains("_audioConfigurationGate.WaitAsync") &&
+               backendSwitch.Contains("_audioConfigurationGate.Release"),
+            "rapid audio backend changes are not serialized");
+        Assert(!backendSwitch.Contains("_smtc"),
+            "audio backend switching unexpectedly changes SMTC state");
+
+        var recreateStart = media.IndexOf("private async Task RecreateAudioPlayerAsync(", StringComparison.Ordinal);
+        var recreateEnd = media.IndexOf("private async Task", recreateStart + 1, StringComparison.Ordinal);
+        Assert(recreateStart >= 0 && recreateEnd > recreateStart,
+            "unable to audit audio player recreation ordering");
+        var recreate = media.Substring(recreateStart, recreateEnd - recreateStart);
+        var publishBackend = recreate.IndexOf("NativeWindowsAudioPlayer.SelectBackend", StringComparison.Ordinal);
+        var enterRingGate = recreate.IndexOf("_ringPlayerGate.WaitAsync", StringComparison.Ordinal);
+        Assert(publishBackend >= 0 && enterRingGate > publishBackend,
+            "runtime backend selection is not published before the old player is stopped");
+        Assert(recreate.Contains("Volatile.Read(ref _playbackRequested)") &&
+               recreate.Contains("SelectBackendAsync"),
+            "audio recreation does not preserve playback intent or validate the replacement asynchronously");
+
+        var themes = new[] { "Win10_1507", "Win10_1709", "Win11" };
+        foreach (var theme in themes)
+        {
+            var xaml = File.ReadAllText(Path.Combine(appRoot, "Views", theme, "SettingsPage_" + theme + ".xaml"));
+            var codeBehind = File.ReadAllText(Path.Combine(appRoot, "Views", theme, "SettingsPage_" + theme + ".xaml.cs"));
+            Assert(xaml.Contains("Tag=\"RingBuffer\"") &&
+                   xaml.Contains("Tag=\"RustWasapi\"") &&
+                   xaml.Contains("Tag=\"RustXAudio2\""),
+                theme + " settings do not expose all audio backends");
+            Assert(codeBehind.Contains("AudioBackendComboBox_SelectionChanged") &&
+                   codeBehind.Contains("UpdateAudioBackendCapabilities"),
+                theme + " settings do not switch backends or update effect capabilities");
+        }
+
+        var rustRoot = Path.Combine(Directory.GetParent(repositoryRoot).FullName, "librespot", "playback", "src", "audio_backend");
+        var ring = File.ReadAllText(Path.Combine(rustRoot, "uwp_ring.rs"));
+        var wasapi = File.ReadAllText(Path.Combine(rustRoot, "uwp_wasapi.rs"));
+        var xaudio2 = File.ReadAllText(Path.Combine(rustRoot, "uwp_xaudio2.rs"));
+        var uwp = File.ReadAllText(Path.Combine(rustRoot, "uwp.rs"));
+        Assert(ring.Contains("backend_selection_changed") &&
+               ring.Contains("backend_selection_version"),
+            "a blocked ring-buffer producer cannot yield to a runtime backend switch");
+        Assert(wasapi.Contains("ActivateAudioInterfaceAsync") && !wasapi.Contains("AudioBuffer"),
+            "Rust WASAPI backend is not a direct endpoint client");
+        Assert(xaudio2.Contains("XAudio2Create") && xaudio2.Contains("CreateFX") &&
+               xaudio2.Contains("XAUDIO2_DEFAULT_PROCESSOR: u32 = 0x0000_0001") &&
+               xaudio2.Contains("XAudio2EffectChain") && xaudio2.Contains("XAUDIO2_VOICE_NOSRC") &&
+               xaudio2.Contains("XAUDIO2_VOICE_NOPITCH") && xaudio2.Contains("create_submix_voice") &&
+               xaudio2.Contains("commit_changes") && xaudio2.Contains("effect_headroom_gain") &&
+               xaudio2.Contains("PRE_ROLL_MILLISECONDS") &&
+               xaudio2.Contains("SUBMISSION_CHUNK_MILLISECONDS") &&
+               xaudio2.Contains("wait_for_queue_capacity"),
+            "Rust XAudio2 backend is missing its exact-rate graph or corrected effect routing");
+        Assert(uwp.Contains("UwpSink::probe") &&
+               uwp.Contains("librespot_audio_get_last_error") &&
+               uwp.Contains("std::mem::replace(&mut self.active, replacement)") &&
+               uwp.IndexOf("Self::create_active(self.format, requested_backend", StringComparison.Ordinal) <
+               uwp.IndexOf("std::mem::replace(&mut self.active, replacement)", StringComparison.Ordinal),
+            "Rust backend switching does not probe or transactionally replace the active renderer");
     }
 
     private static string FindRepositoryRoot()

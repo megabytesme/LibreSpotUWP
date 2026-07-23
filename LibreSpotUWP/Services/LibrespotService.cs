@@ -103,11 +103,65 @@ namespace LibreSpotUWP.Services
             if (_dllHandle == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to load librespot.dll");
 
+            await SelectStartupAudioBackendAsync().ConfigureAwait(false);
+            NativeWindowsAudioPlayer.ApplyEffects();
+
             await _audioKeyCache.InitializeAsync().ConfigureAwait(false);
 
             _audioFormat = await AudioFormatProbe.ProbeAsync().ConfigureAwait(false);
 
             _initialized = true;
+        }
+
+        private static async Task SelectStartupAudioBackendAsync()
+        {
+            var requestedBackend = UserSettings.AudioBackend;
+            var outputDeviceId = UserSettings.AudioOutputDeviceId;
+            Exception lastError;
+
+            try
+            {
+                await NativeWindowsAudioPlayer.SelectBackendAsync(requestedBackend, outputDeviceId)
+                    .ConfigureAwait(false);
+                LogService.Info(
+                    $"[LibrespotService.SelectStartupAudioBackendAsync] Initialized requested backend {requestedBackend}.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                LogService.Warn(
+                    $"[LibrespotService.SelectStartupAudioBackendAsync] Requested backend {requestedBackend} is unavailable: {ex.Message}");
+            }
+
+            var fallbacks = requestedBackend == AudioBackendKind.RustXAudio2
+                ? new[] { AudioBackendKind.RustWasapi, AudioBackendKind.RingBuffer }
+                : requestedBackend == AudioBackendKind.RustWasapi
+                    ? new[] { AudioBackendKind.RingBuffer }
+                    : new[] { AudioBackendKind.RustWasapi };
+
+            foreach (var fallback in fallbacks)
+            {
+                try
+                {
+                    await NativeWindowsAudioPlayer.SelectBackendAsync(fallback, outputDeviceId)
+                        .ConfigureAwait(false);
+                    UserSettings.AudioBackend = fallback;
+                    LogService.Warn(
+                        $"[LibrespotService.SelectStartupAudioBackendAsync] Falling back from {requestedBackend} to {fallback}; the fallback has been saved.");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    LogService.Warn(
+                        $"[LibrespotService.SelectStartupAudioBackendAsync] Fallback backend {fallback} is unavailable: {ex.Message}");
+                }
+            }
+
+            throw new InvalidOperationException(
+                "None of the configured Windows audio backends could be initialized.",
+                lastError);
         }
 
         private bool OnKeyRequested(IntPtr trackIdPtr, IntPtr fileIdPtr, IntPtr keyOutPtr, IntPtr userData)

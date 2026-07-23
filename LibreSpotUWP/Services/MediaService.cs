@@ -35,6 +35,7 @@ namespace LibreSpotUWP.Services
         private readonly object _spotifyConnectRefreshScheduleLock = new object();
         private readonly SemaphoreSlim _playbackGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _ringPlayerGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _audioConfigurationGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _networkStatusGate = new SemaphoreSlim(1, 1);
         private readonly AsyncOperationOnce _initialization = new AsyncOperationOnce();
         private readonly RecoveryOperationGate _producerRecovery = new RecoveryOperationGate();
@@ -67,7 +68,7 @@ namespace LibreSpotUWP.Services
         private MediaPlayer _mediaPlayer;
         private SystemMediaTransportControls _smtc;
 
-        private LibrespotRingBufferPlayer _ringPlayer;
+        private ILibrespotAudioPlayer _ringPlayer;
 
         private DispatcherTimer _positionTimer;
         private readonly PlaybackPositionSynchronizer _positionSynchronizer = new PlaybackPositionSynchronizer();
@@ -138,6 +139,7 @@ namespace LibreSpotUWP.Services
         private const string AppDataLocalUriPrefix = "ms-appdata:///local/";
 
         public string CurrentAudioOutputDeviceId => UserSettings.AudioOutputDeviceId;
+        public AudioBackendKind CurrentAudioBackend => UserSettings.AudioBackend;
         public string CurrentSpotifyConnectDeviceId => GetSelectedSpotifyConnectDeviceId();
 
         private sealed class PlaybackSnapshot
@@ -1465,6 +1467,7 @@ namespace LibreSpotUWP.Services
         public Task SetAudioEffectsPresetAsync(string preset)
         {
             UserSettings.AudioEffectsPreset = string.IsNullOrWhiteSpace(preset) ? "None" : preset;
+            NativeWindowsAudioPlayer.ApplyEffects();
             _ringPlayer?.SetAudioEffectsPreset(UserSettings.AudioEffectsPreset);
             return Task.CompletedTask;
         }
@@ -1520,41 +1523,58 @@ namespace LibreSpotUWP.Services
         public async Task SetAudioOutputDeviceAsync(string deviceId)
         {
             deviceId = deviceId ?? string.Empty;
-            if (string.Equals(UserSettings.AudioOutputDeviceId, deviceId, StringComparison.Ordinal))
-                return;
-
-            UserSettings.AudioOutputDeviceId = deviceId;
-            var wasPlaying = Current.PlaybackState == LibrespotPlaybackState.Playing;
-
-            await _ringPlayerGate.WaitAsync();
+            await _audioConfigurationGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (_ringPlayer != null)
+                if (string.Equals(UserSettings.AudioOutputDeviceId, deviceId, StringComparison.Ordinal))
+                    return;
+
+                var previousDeviceId = UserSettings.AudioOutputDeviceId;
+                UserSettings.AudioOutputDeviceId = deviceId;
+                try
                 {
-                    _ringPlayer.ProducerStalled -= OnProducerStalled;
-                    _ringPlayer.Stop();
-                    await _ringPlayer.DisposeAsync();
+                    await RecreateAudioPlayerAsync("output-device-change").ConfigureAwait(false);
                 }
-                _ringPlayer = null;
+                catch
+                {
+                    UserSettings.AudioOutputDeviceId = previousDeviceId;
+                    await RecreateAudioPlayerAsync("output-device-rollback").ConfigureAwait(false);
+                    throw;
+                }
             }
             finally
             {
-                _ringPlayerGate.Release();
+                _audioConfigurationGate.Release();
             }
+        }
 
-            if ((_librespot as LibrespotService)?.HasInstance != true)
-                return;
+        public async Task SetAudioBackendAsync(AudioBackendKind backend)
+        {
+            if (!Enum.IsDefined(typeof(AudioBackendKind), backend))
+                throw new ArgumentOutOfRangeException(nameof(backend));
 
-            await EnsureRingPlayerAsync();
-            if (wasPlaying)
+            await _audioConfigurationGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                _ringPlayer.BeginTransition(
-                    "output-device-change",
-                    Current.Track?.Uri,
-                    Current.Track?.Uri,
-                    preserveCurrent: false,
-                    shouldPlay: true);
-                await IssueSystemLibrespotSeekAsync(Current.PositionMs).ConfigureAwait(false);
+                if (UserSettings.AudioBackend == backend)
+                    return;
+
+                var previousBackend = UserSettings.AudioBackend;
+                UserSettings.AudioBackend = backend;
+                try
+                {
+                    await RecreateAudioPlayerAsync("audio-backend-change").ConfigureAwait(false);
+                }
+                catch
+                {
+                    UserSettings.AudioBackend = previousBackend;
+                    await RecreateAudioPlayerAsync("audio-backend-rollback").ConfigureAwait(false);
+                    throw;
+                }
+            }
+            finally
+            {
+                _audioConfigurationGate.Release();
             }
         }
 
@@ -1896,10 +1916,17 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
-                var props = (_librespot as LibrespotService)?.EncodingProperties
-                            ?? AudioEncodingProperties.CreatePcm(44100, 2, 16);
-
-                var player = new LibrespotRingBufferPlayer(props, UserSettings.AudioOutputDeviceId);
+                ILibrespotAudioPlayer player;
+                if (UserSettings.AudioBackend == AudioBackendKind.RingBuffer)
+                {
+                    var props = (_librespot as LibrespotService)?.EncodingProperties
+                                ?? AudioEncodingProperties.CreatePcm(44100, 2, 16);
+                    player = new LibrespotRingBufferPlayer(props, UserSettings.AudioOutputDeviceId);
+                }
+                else
+                {
+                    player = new NativeWindowsAudioPlayer(UserSettings.AudioBackend, UserSettings.AudioOutputDeviceId);
+                }
                 try
                 {
                     await player.InitializeAsync();
@@ -1925,16 +1952,92 @@ namespace LibreSpotUWP.Services
             if ((_librespot as LibrespotService)?.HasInstance != true)
                 return;
 
+            var requestedBackend = UserSettings.AudioBackend;
             try
             {
                 await EnsureRingPlayerAsync();
                 _ringPlayer?.Stop();
-                LogService.Info("[MediaService.PrewarmRingPlayerAsync] Ring buffer player initialized during startup.");
+                LogService.Info($"[MediaService.PrewarmRingPlayerAsync] Audio backend initialized during startup: {requestedBackend}.");
             }
             catch (Exception ex)
             {
-                LogService.Warn($"[MediaService.PrewarmRingPlayerAsync] Unable to prewarm ring buffer player: {ex.Message}");
+                LogService.Warn($"[MediaService.PrewarmRingPlayerAsync] Unable to prewarm audio backend {requestedBackend}: {ex.Message}");
+                if (requestedBackend == AudioBackendKind.RustWasapi)
+                    return;
+
+                await _audioConfigurationGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (UserSettings.AudioBackend != requestedBackend)
+                        return;
+
+                    UserSettings.AudioBackend = AudioBackendKind.RustWasapi;
+                    try
+                    {
+                        await EnsureRingPlayerAsync().ConfigureAwait(false);
+                        _ringPlayer?.Stop();
+                        LogService.Warn($"[MediaService.PrewarmRingPlayerAsync] Falling back from {requestedBackend} to RustWasapi.");
+                    }
+                    catch (Exception fallbackError)
+                    {
+                        LogService.Warn($"[MediaService.PrewarmRingPlayerAsync] WASAPI fallback failed: {fallbackError.Message}");
+                    }
+                }
+                finally
+                {
+                    _audioConfigurationGate.Release();
+                }
             }
+        }
+
+        private async Task RecreateAudioPlayerAsync(string reason)
+        {
+            var wasPlaying =
+                Volatile.Read(ref _playbackRequested) != 0 ||
+                Current.PlaybackState == LibrespotPlaybackState.Playing ||
+                _librespot.PlaybackState == LibrespotPlaybackState.Playing;
+            var position = Current.PositionMs;
+
+            // The Rust call probes the complete replacement graph before it
+            // publishes the selection. A rejected backend therefore leaves
+            // the current renderer and managed controller untouched.
+            await NativeWindowsAudioPlayer.SelectBackendAsync(
+                UserSettings.AudioBackend,
+                UserSettings.AudioOutputDeviceId).ConfigureAwait(false);
+            NativeWindowsAudioPlayer.ApplyEffects();
+
+            await _ringPlayerGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_ringPlayer != null)
+                {
+                    _ringPlayer.ProducerStalled -= OnProducerStalled;
+                    _ringPlayer.Stop();
+                    await _ringPlayer.DisposeAsync().ConfigureAwait(false);
+                    _ringPlayer = null;
+                }
+            }
+            finally
+            {
+                _ringPlayerGate.Release();
+            }
+
+            if ((_librespot as LibrespotService)?.HasInstance != true)
+                return;
+
+            await EnsureRingPlayerAsync().ConfigureAwait(false);
+            if (wasPlaying)
+            {
+                _ringPlayer.BeginTransition(
+                    reason,
+                    Current.Track?.Uri,
+                    Current.Track?.Uri,
+                    preserveCurrent: false,
+                    shouldPlay: true);
+                await IssueSystemLibrespotSeekAsync(position).ConfigureAwait(false);
+            }
+
+            LogService.Info($"[MediaService.RecreateAudioPlayerAsync] backend={UserSettings.AudioBackend}, reason={reason}, resumed={wasPlaying}.");
         }
 
         private async Task RefreshSpotifyConnectPlaybackAsync(bool force = false)
@@ -2980,10 +3083,11 @@ namespace LibreSpotUWP.Services
                         : trackUri;
                     await _librespot.LoadAndPlayAsync(contextUri, startUri).ConfigureAwait(false);
 
-                    if (!await WaitForProducerProgressAsync(
-                        player,
-                        replacementSessionGeneration,
-                        cancellationToken).ConfigureAwait(false))
+                    if (player is LibrespotRingBufferPlayer ringPlayer &&
+                        !await WaitForProducerProgressAsync(
+                            ringPlayer,
+                            replacementSessionGeneration,
+                            cancellationToken).ConfigureAwait(false))
                     {
                         throw new TimeoutException("The replacement session connected but produced no PCM.");
                     }

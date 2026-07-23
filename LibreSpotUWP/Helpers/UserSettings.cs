@@ -19,6 +19,7 @@ namespace LibreSpotUWP.Helpers
         private const string AudioReverbEffectEnabledKey = "AudioReverbEffectEnabled";
         private const string AudioLimiterEffectEnabledKey = "AudioLimiterEffectEnabled";
         private const string AudioOutputDeviceIdKey = "AudioOutputDeviceId";
+        private const string AudioBackendKey = "AudioBackend";
         private const string SpotifyConnectDeviceIdKey = "SpotifyConnectDeviceId";
         private const string SpotifyCustomClientIdKey = "SpotifyCustomClientId";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
@@ -140,6 +141,31 @@ namespace LibreSpotUWP.Helpers
         {
             get => ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioOutputDeviceIdKey, out object value) ? value as string : string.Empty;
             set => ApplicationData.Current.LocalSettings.Values[AudioOutputDeviceIdKey] = value ?? string.Empty;
+        }
+
+        public static AudioBackendKind AudioBackend
+        {
+            get
+            {
+                if (ApplicationData.Current.LocalSettings.Values.TryGetValue(AudioBackendKey, out object value) &&
+                    value is int stored &&
+                    Enum.IsDefined(typeof(AudioBackendKind), stored))
+                {
+                    return (AudioBackendKind)stored;
+                }
+
+                // New installations and upgrades from versions that did not
+                // persist an audio backend start on the native effects path.
+                // An explicitly saved RingBuffer choice is still preserved.
+                return AudioBackendKind.RustXAudio2;
+            }
+            set
+            {
+                var normalized = Enum.IsDefined(typeof(AudioBackendKind), value)
+                    ? value
+                    : AudioBackendKind.RustXAudio2;
+                ApplicationData.Current.LocalSettings.Values[AudioBackendKey] = (int)normalized;
+            }
         }
 
         public static string SpotifyConnectDeviceId

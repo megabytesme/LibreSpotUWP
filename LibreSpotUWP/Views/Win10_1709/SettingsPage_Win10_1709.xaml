@@ -265,6 +265,25 @@
                     <TextBlock
                         Margin="0,16,0,0"
                         Style="{StaticResource BodyTextBlockStyle}"
+                        Text="Audio backend" />
+                    <ComboBox
+                        x:Name="AudioBackendComboBox"
+                        Margin="0,8,0,0"
+                        SelectionChanged="AudioBackendComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Ring buffer (AudioGraph)" Tag="RingBuffer" />
+                        <ComboBoxItem Content="Rust WASAPI (lightweight)" Tag="RustWasapi" />
+                        <ComboBoxItem Content="Rust XAudio2 (effects)" Tag="RustXAudio2" />
+                    </ComboBox>
+                    <TextBlock
+                        x:Name="AudioBackendDescriptionText"
+                        Margin="0,6,0,0"
+                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="WrapWholeWords" />
+
+                    <TextBlock
+                        Margin="0,16,0,0"
+                        Style="{StaticResource BodyTextBlockStyle}"
                         Text="Equaliser" />
 
                     <ComboBox

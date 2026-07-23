@@ -387,6 +387,26 @@ namespace LibreSpotUWP.Interop
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.U1)]
+        public static extern bool librespot_audio_set_backend(uint backend, IntPtr deviceId);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint librespot_audio_get_backend();
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_audio_get_last_error();
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void librespot_audio_set_effects(
+            uint preset,
+            float strength,
+            [MarshalAs(UnmanagedType.U1)] bool echo,
+            [MarshalAs(UnmanagedType.U1)] bool reverb,
+            [MarshalAs(UnmanagedType.U1)] bool limiter,
+            IntPtr gainsDb,
+            UIntPtr gainCount);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.U1)]
         public static extern bool librespot_cache_set_persisted(
             IntPtr inst,
             IntPtr fileIdHex,
