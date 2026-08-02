@@ -3,6 +3,7 @@ using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using SpotifyAPI.Web;
+using SpotifyAPI.Web.Http;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,11 +21,13 @@ namespace LibreSpotUWP.Services
         private readonly ILibrespotService _librespot;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(4);
         private readonly SemaphoreSlim _clientUpdateGate = new SemaphoreSlim(1, 1);
+        private readonly NetHttpClient _httpClient;
         private SpotifyClient _client;
 
+        internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
         private static readonly TimeSpan TtlImmutable = TimeSpan.MaxValue;
         private static readonly TimeSpan TtlArtist = TimeSpan.FromDays(7);
-        private static readonly TimeSpan TtlSession = TimeSpan.Zero;
+        internal static readonly TimeSpan TtlSession = TimeSpan.FromMinutes(5);
         private const string UserContextCacheKey = "session/user_context";
 
         private string _userId;
@@ -35,11 +38,13 @@ namespace LibreSpotUWP.Services
             _auth = auth;
             _cache = cache;
             _librespot = librespot;
+            _httpClient = new NetHttpClient();
+            _httpClient.SetRequestTimeout(RequestTimeout);
 
             _auth.AuthStateChanged += OnAuthStateChanged;
 
             if (_auth.Current != null && !_auth.Current.IsExpired)
-                _client = new SpotifyClient(_auth.Current.AccessToken);
+                _client = CreateClient(_auth.Current.AccessToken);
         }
 
         private async Task<T> ExecuteAsync<T>(Func<SpotifyClient, Task<T>> action, CancellationToken ct)
@@ -120,7 +125,7 @@ namespace LibreSpotUWP.Services
             _userId = null;
             _userCountry = null;
             _client = state != null && !state.IsExpired
-                ? new SpotifyClient(state.AccessToken)
+                ? CreateClient(state.AccessToken)
                 : null;
         }
 
@@ -139,7 +144,7 @@ namespace LibreSpotUWP.Services
                 if (string.IsNullOrEmpty(token))
                     throw new InvalidOperationException("Spotify client is not authenticated.");
 
-                _client = new SpotifyClient(token);
+                _client = CreateClient(token);
             }
             finally
             {
@@ -158,7 +163,15 @@ namespace LibreSpotUWP.Services
                 throw new SpotifyUnauthorizedException(new InvalidOperationException("Unable to refresh Spotify access token."));
 
             ct.ThrowIfCancellationRequested();
-            _client = new SpotifyClient(token);
+            _client = CreateClient(token);
+        }
+
+        private SpotifyClient CreateClient(string accessToken)
+        {
+            var config = SpotifyClientConfig
+                .CreateDefault(accessToken)
+                .WithHTTPClient(_httpClient);
+            return new SpotifyClient(config);
         }
 
         private async Task EnsureUserContextAsync(CancellationToken ct)

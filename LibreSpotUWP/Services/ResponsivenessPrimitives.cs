@@ -7,6 +7,57 @@ using System.Threading.Tasks;
 
 namespace LibreSpotUWP.Services
 {
+    public static class SessionReadinessWaiter
+    {
+        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
+
+        public static async Task WaitAsync(
+            Func<bool> isReady,
+            Func<bool> isValid,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            if (isReady == null)
+                throw new ArgumentNullException(nameof(isReady));
+            if (isValid == null)
+                throw new ArgumentNullException(nameof(isValid));
+            if (timeout <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(timeout));
+
+            var deadline = DateTimeOffset.UtcNow + timeout;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!isValid())
+                    throw new InvalidOperationException("The native Spotify session is no longer available.");
+                if (isReady())
+                    return;
+
+                var remaining = deadline - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                    throw new TimeoutException("Timed out waiting for the native Spotify session to authenticate.");
+
+                await Task.Delay(
+                    remaining < PollInterval ? remaining : PollInterval,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    internal static class CacheFreshness
+    {
+        public static bool IsStale(DateTimeOffset timestamp, TimeSpan ttl, DateTimeOffset now)
+        {
+            if (ttl == TimeSpan.MaxValue)
+                return false;
+
+            if (ttl <= TimeSpan.Zero)
+                return true;
+
+            return now - timestamp >= ttl;
+        }
+    }
+
     public sealed class BoundedAsyncGate : IDisposable
     {
         private readonly SemaphoreSlim _gate;

@@ -1,6 +1,7 @@
 using LibreSpotUWP.Helpers;
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
+using LibreSpotUWP.Services;
 using SpotifyAPI.Web;
 using System.Collections.Generic;
 using System;
@@ -36,8 +37,9 @@ namespace LibreSpotUWP.ViewModels
                 StatusMessage = BuildStatusMessage(albumResponse, tracksResponse);
                 CachedAt = GetCachedAt(albumResponse, tracksResponse);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogService.Error(ex, $"[AlbumPageViewModel.LoadAsync] Unable to load album {id}.");
                 Album = null;
                 Tracks = new Paging<SimpleTrack> { Items = new List<SimpleTrack>() };
                 LastLoadedBatch = new List<SimpleTrack>();

@@ -25,6 +25,7 @@ namespace LibreSpotUWP.Services
     {
         private const int NativeQueueWindowSize = 50;
         private const int NativeQueueLookbehind = 5;
+        private static readonly TimeSpan NativeSessionReadyTimeout = TimeSpan.FromSeconds(10);
         private readonly object _stateLock = new object();
 
         private IntPtr _dllHandle = IntPtr.Zero;
@@ -288,8 +289,9 @@ namespace LibreSpotUWP.Services
                 disconnectedGeneration = Interlocked.Increment(ref _sessionGeneration);
                 if (_instance != IntPtr.Zero)
                 {
-                    Librespot.librespot_free(_instance);
+                    var instance = _instance;
                     _instance = IntPtr.Zero;
+                    await FreeNativeInstanceAsync(instance, "disconnect").ConfigureAwait(false);
                 }
 
                 _activeAccessToken = null;
@@ -429,14 +431,12 @@ namespace LibreSpotUWP.Services
             ThrowIfDisposed();
             if (!_initialized)
                 throw new InvalidOperationException("LibrespotService not initialized.");
-            if (_instance == IntPtr.Zero)
-                throw new InvalidOperationException("Not connected.");
-
             await _appDataGate.WaitAsync().ConfigureAwait(false);
             using (UiResponsivenessTelemetry.BeginOperation("Librespot.AppData." + kind))
             {
                 try
                 {
+                    var nativeInstance = await WaitForConnectedNativeInstanceAsync().ConfigureAwait(false);
                     var stopwatch = Stopwatch.StartNew();
                     var result = await Task.Run(() =>
                     {
@@ -447,7 +447,7 @@ namespace LibreSpotUWP.Services
                         {
                             UiResponsivenessTelemetry.VerifyBackgroundThread("librespot app-data callback");
                             argumentPtr = AllocUtf8String(argument ?? string.Empty);
-                            payloadPtr = Librespot.librespot_appdata_get(_instance, (int)kind, argumentPtr);
+                            payloadPtr = Librespot.librespot_appdata_get(nativeInstance, (int)kind, argumentPtr);
 
                             if (payloadPtr == IntPtr.Zero)
                             {
@@ -519,7 +519,7 @@ namespace LibreSpotUWP.Services
             public T Data { get; set; }
         }
 
-        private Task<T> GetTypedPayloadAsync<T>(
+        private async Task<T> GetTypedPayloadAsync<T>(
             string argument,
             Func<IntPtr, IntPtr, IntPtr> getter,
             Action<IntPtr> freer,
@@ -528,17 +528,16 @@ namespace LibreSpotUWP.Services
             ThrowIfDisposed();
             if (!_initialized)
                 throw new InvalidOperationException("LibrespotService not initialized.");
-            if (_instance == IntPtr.Zero)
-                throw new InvalidOperationException("Not connected.");
             if (string.IsNullOrWhiteSpace(argument))
                 throw new ArgumentException("Argument must not be null or empty.", nameof(argument));
 
-            return Task.Run(() =>
+            var nativeInstance = await WaitForConnectedNativeInstanceAsync().ConfigureAwait(false);
+            return await Task.Run(() =>
             {
                 IntPtr argumentPtr = AllocUtf8String(argument);
                 try
                 {
-                    var resultPtr = getter(_instance, argumentPtr);
+                    var resultPtr = getter(nativeInstance, argumentPtr);
                     if (resultPtr == IntPtr.Zero)
                     {
                         var lastError = GetLastNativeError();
@@ -1029,8 +1028,9 @@ namespace LibreSpotUWP.Services
                 {
                     if (_instance != IntPtr.Zero)
                     {
-                        Librespot.librespot_free(_instance);
+                        var instance = _instance;
                         _instance = IntPtr.Zero;
+                        await FreeNativeInstanceAsync(instance, "dispose").ConfigureAwait(false);
                     }
                     _activeAccessToken = null;
                 }
@@ -1046,7 +1046,36 @@ namespace LibreSpotUWP.Services
                     NativeProbe.TryFree(_dllHandle);
                     _dllHandle = IntPtr.Zero;
                 }
-            });
+            }).ConfigureAwait(false);
+        }
+
+        private async Task<IntPtr> WaitForConnectedNativeInstanceAsync()
+        {
+            await SessionReadinessWaiter.WaitAsync(
+                () =>
+                {
+                    lock (_stateLock)
+                    {
+                        return _instance != IntPtr.Zero &&
+                            _session != null &&
+                            _session.IsConnected;
+                    }
+                },
+                () =>
+                {
+                    lock (_stateLock)
+                        return _initialized && !_disposed;
+                },
+                NativeSessionReadyTimeout,
+                CancellationToken.None).ConfigureAwait(false);
+
+            lock (_stateLock)
+            {
+                if (_instance == IntPtr.Zero || _session == null || !_session.IsConnected)
+                    throw new InvalidOperationException("The native Spotify session disconnected before the request began.");
+
+                return _instance;
+            }
         }
 
         private void ThrowIfDisposed()
@@ -1489,8 +1518,9 @@ namespace LibreSpotUWP.Services
             long generation = Interlocked.Increment(ref _sessionGeneration);
             if (_instance != IntPtr.Zero)
             {
-                Librespot.librespot_free(_instance);
+                var instance = _instance;
                 _instance = IntPtr.Zero;
+                await FreeNativeInstanceAsync(instance, "access-token-recreation").ConfigureAwait(false);
             }
 
             lock (_stateLock)
@@ -1515,7 +1545,9 @@ namespace LibreSpotUWP.Services
             var cfg = BuildConfig(accessToken);
             try
             {
-                _instance = Librespot.librespot_new(cfg, _callbackDelegate, IntPtr.Zero);
+                _instance = await Task.Run(
+                    () => Librespot.librespot_new(cfg, _callbackDelegate, IntPtr.Zero))
+                    .ConfigureAwait(false);
                 if (_instance == IntPtr.Zero)
                     throw new InvalidOperationException("librespot_new (with token) returned NULL.");
             }
@@ -1525,7 +1557,18 @@ namespace LibreSpotUWP.Services
             }
 
             LogService.Info($"[LibrespotService.RecreateInstanceWithAccessTokenAsync] Native session created. sessionGeneration={generation}.");
-            await Task.CompletedTask;
+        }
+
+        private static async Task FreeNativeInstanceAsync(IntPtr instance, string reason)
+        {
+            if (instance == IntPtr.Zero)
+                return;
+
+            var stopwatch = Stopwatch.StartNew();
+            await Task.Run(() => Librespot.librespot_free(instance)).ConfigureAwait(false);
+            stopwatch.Stop();
+            LogService.Info(
+                $"[LibrespotService.FreeNativeInstanceAsync] Native runner stopped off-dispatcher. reason={reason}, elapsedMs={stopwatch.ElapsedMilliseconds}.");
         }
 
         private static string[] CreateNativeQueueWindow(string[] tracks, string startUri)

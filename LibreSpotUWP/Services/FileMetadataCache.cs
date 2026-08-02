@@ -146,9 +146,11 @@ public sealed class FileMetadataCache : IMetadataCache
             if (envelope == null)
                 return null;
 
-            var isStale = false;
-            if (evaluateStaleness && ttl != TimeSpan.Zero && ttl != TimeSpan.MaxValue)
-                isStale = DateTimeOffset.UtcNow - envelope.Timestamp >= ttl;
+            var isStale = evaluateStaleness &&
+                LibreSpotUWP.Services.CacheFreshness.IsStale(
+                    envelope.Timestamp,
+                    ttl,
+                    DateTimeOffset.UtcNow);
 
             return new CacheResponse<T>(envelope.Data, envelope.Timestamp, true, isStale);
         }

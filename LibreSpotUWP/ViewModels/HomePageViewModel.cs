@@ -5,6 +5,7 @@ using LibreSpotUWP.Services;
 using SpotifyAPI.Web;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -110,6 +111,14 @@ namespace LibreSpotUWP.ViewModels
             public List<FullTrack> Tracks = new List<FullTrack>();
         }
 
+        private sealed class StagedHomeSnapshot
+        {
+            public HomeSnapshot Snapshot;
+            public string Section;
+            public int Stage;
+            public long ElapsedMs;
+        }
+
         private readonly OperationGeneration _loadGeneration = new OperationGeneration();
         private readonly OperationGeneration _albumEnrichmentGeneration = new OperationGeneration();
         private readonly object _artistAlbumCacheSync = new object();
@@ -155,15 +164,45 @@ namespace LibreSpotUWP.ViewModels
             _albumEnrichmentGeneration.CancelCurrent();
             var lease = _loadGeneration.Begin(ct);
             var requestGate = new BoundedAsyncGate(MaximumRequestConcurrency);
-            var fastSnapshotReady = new TaskCompletionSource<HomeSnapshot>();
+            var fastSnapshotReady = new TaskCompletionSource<StagedHomeSnapshot>();
             var initialPublishComplete = new TaskCompletionSource<bool>();
+            var pendingStages = new List<StagedHomeSnapshot>();
+            var lastAppliedStage = 0;
+            var initialPublishSucceeded = false;
+            var incrementalProgress = new Progress<StagedHomeSnapshot>(update =>
+            {
+                if (update == null ||
+                    update.Stage <= lastAppliedStage ||
+                    !_loadGeneration.IsCurrent(lease.Generation))
+                {
+                    return;
+                }
+
+                if (!initialPublishComplete.Task.IsCompleted)
+                {
+                    pendingStages.Add(update);
+                    return;
+                }
+
+                if (initialPublishComplete.Task.Status != TaskStatus.RanToCompletion ||
+                    !initialPublishSucceeded)
+                {
+                    return;
+                }
+
+                ApplyIncrementalSnapshot(update);
+                if (string.Equals(update.Section, "Top Artists", StringComparison.Ordinal))
+                    StartAlbumEnrichment(spotify, update.Snapshot, forceRefresh, lease.Token);
+                lastAppliedStage = update.Stage;
+            });
             var snapshotTask = Task.Run(
                 () => BuildOnlineSnapshotAsync(
                     spotify,
                     requestGate,
                     lease.Token,
                     forceRefresh,
-                    fastSnapshotReady),
+                    fastSnapshotReady,
+                    incrementalProgress),
                 lease.Token);
             _ = CompleteOnlineLoadAsync(
                 spotify,
@@ -189,20 +228,28 @@ namespace LibreSpotUWP.ViewModels
                     if (fastSnapshotReady.Task.IsCompleted &&
                         fastSnapshotReady.Task.Status == TaskStatus.RanToCompletion)
                     {
-                        initialSnapshot = await fastSnapshotReady.Task.ConfigureAwait(true);
+                        var initialStage = await fastSnapshotReady.Task.ConfigureAwait(true);
+                        initialSnapshot = initialStage.Snapshot;
+                        lastAppliedStage = initialStage.Stage;
                     }
                     else
                     {
                         initialSnapshot = new HomeSnapshot();
-                        _ = ApplyFastSnapshotWhenReadyAsync(
-                            fastSnapshotReady.Task,
-                            snapshotTask,
-                            initialPublishComplete.Task,
-                            lease.Generation);
                     }
 
                     ApplySnapshot(initialSnapshot);
+                    initialPublishSucceeded = true;
                     initialPublishComplete.TrySetResult(true);
+                    foreach (var pendingStage in pendingStages
+                        .Where(stage => stage.Stage > lastAppliedStage)
+                        .OrderBy(stage => stage.Stage))
+                    {
+                        ApplyIncrementalSnapshot(pendingStage);
+                        if (string.Equals(pendingStage.Section, "Top Artists", StringComparison.Ordinal))
+                            StartAlbumEnrichment(spotify, pendingStage.Snapshot, forceRefresh, lease.Token);
+                        lastAppliedStage = pendingStage.Stage;
+                    }
+                    pendingStages.Clear();
                     return true;
                 }
                 catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
@@ -218,33 +265,6 @@ namespace LibreSpotUWP.ViewModels
                     initialPublishComplete.TrySetResult(false);
                     throw;
                 }
-            }
-        }
-
-        private async Task ApplyFastSnapshotWhenReadyAsync(
-            Task<HomeSnapshot> fastSnapshotTask,
-            Task<HomeSnapshot> fullSnapshotTask,
-            Task<bool> initialPublishTask,
-            long generation)
-        {
-            try
-            {
-                var snapshot = await fastSnapshotTask.ConfigureAwait(true);
-                if (!await initialPublishTask.ConfigureAwait(true) ||
-                    fullSnapshotTask.IsCompleted ||
-                    !_loadGeneration.IsCurrent(generation))
-                {
-                    return;
-                }
-
-                ApplySnapshot(snapshot);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"Unable to publish the fast Home snapshot: {ex.Message}");
             }
         }
 
@@ -265,8 +285,9 @@ namespace LibreSpotUWP.ViewModels
                     return;
 
                 LastMaximumRequestConcurrency = requestGate.MaximumObserved;
-                ApplySnapshot(snapshot);
-                StartAlbumEnrichment(spotify, snapshot, forceRefresh, lease.Token);
+                ApplySnapshotMetadata(snapshot);
+                if (!string.IsNullOrWhiteSpace(snapshot.FailureSummary))
+                    LogService.Warn(snapshot.FailureSummary);
             }
             catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
             {
@@ -337,9 +358,11 @@ namespace LibreSpotUWP.ViewModels
             BoundedAsyncGate requestGate,
             CancellationToken ct,
             bool forceRefresh,
-            TaskCompletionSource<HomeSnapshot> fastSnapshotReady)
+            TaskCompletionSource<StagedHomeSnapshot> fastSnapshotReady,
+            IProgress<StagedHomeSnapshot> incrementalProgress)
         {
             UiResponsivenessTelemetry.VerifyBackgroundThread("Home online snapshot assembly");
+            var stopwatch = Stopwatch.StartNew();
             var context = new HomeLoadContext();
             var recentTask = LoadRecentlyPlayedAsync(spotify, requestGate, context, ct, forceRefresh);
             var playlistsTask = LoadUserPlaylistsAsync(spotify, requestGate, context, ct, forceRefresh);
@@ -355,43 +378,71 @@ namespace LibreSpotUWP.ViewModels
                 .GroupBy(album => album.Id, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToList();
-            fastSnapshotReady.TrySetResult(new HomeSnapshot
+            var snapshot = new HomeSnapshot
             {
                 RecentlyPlayedPlaylists = recent.Playlists,
                 RecentlyPlayedAlbums = recent.Albums,
                 RecentlyPlayedArtists = recent.Artists,
                 RecentlyPlayedTracks = recent.Tracks,
-                AlbumsYouStarted = albumsYouStarted,
-                UsedCachedData = context.UsedCachedData,
-                UsedOfflineFallback = context.UsedOfflineFallback,
-                CachedAt = context.CachedAt,
-                FailureSummary = context.BuildFailureSummary()
-            });
-
-            await Task.WhenAll(playlistsTask, artistsTask, tracksTask, savedTask, followedTask)
-                .ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-
-            var topArtists = await artistsTask.ConfigureAwait(false);
-
-            return new HomeSnapshot
-            {
-                RecentlyPlayedPlaylists = recent.Playlists,
-                RecentlyPlayedAlbums = recent.Albums,
-                RecentlyPlayedArtists = recent.Artists,
-                RecentlyPlayedTracks = recent.Tracks,
-                UserPlaylists = await playlistsTask.ConfigureAwait(false),
-                TopArtists = topArtists,
-                TopTracks = await tracksTask.ConfigureAwait(false),
-                SavedAlbums = await savedTask.ConfigureAwait(false),
-                FollowedArtists = await followedTask.ConfigureAwait(false),
-                AlbumsFromTopArtists = new List<FullAlbum>(),
-                AlbumsYouStarted = albumsYouStarted,
-                UsedCachedData = context.UsedCachedData,
-                UsedOfflineFallback = context.UsedOfflineFallback,
-                CachedAt = context.CachedAt,
-                FailureSummary = context.BuildFailureSummary()
+                AlbumsYouStarted = albumsYouStarted
             };
+            ApplyLoadMetadata(snapshot, context);
+
+            var stage = 1;
+            var recentStage = CreateStage(snapshot, "Recently Played", stage, stopwatch.ElapsedMilliseconds);
+            fastSnapshotReady.TrySetResult(recentStage);
+            incrementalProgress?.Report(recentStage);
+            LogHomeStage(recentStage);
+
+            var remaining = new List<Task>
+            {
+                playlistsTask,
+                artistsTask,
+                tracksTask,
+                savedTask,
+                followedTask
+            };
+
+            while (remaining.Count > 0)
+            {
+                var completed = await Task.WhenAny(remaining).ConfigureAwait(false);
+                remaining.Remove(completed);
+                ct.ThrowIfCancellationRequested();
+
+                string section;
+                if (ReferenceEquals(completed, playlistsTask))
+                {
+                    snapshot.UserPlaylists = await playlistsTask.ConfigureAwait(false);
+                    section = "Your Playlists";
+                }
+                else if (ReferenceEquals(completed, artistsTask))
+                {
+                    snapshot.TopArtists = await artistsTask.ConfigureAwait(false);
+                    section = "Top Artists";
+                }
+                else if (ReferenceEquals(completed, tracksTask))
+                {
+                    snapshot.TopTracks = await tracksTask.ConfigureAwait(false);
+                    section = "Top Tracks";
+                }
+                else if (ReferenceEquals(completed, savedTask))
+                {
+                    snapshot.SavedAlbums = await savedTask.ConfigureAwait(false);
+                    section = "Saved Albums";
+                }
+                else
+                {
+                    snapshot.FollowedArtists = await followedTask.ConfigureAwait(false);
+                    section = "Artists You Follow";
+                }
+
+                ApplyLoadMetadata(snapshot, context);
+                var update = CreateStage(snapshot, section, ++stage, stopwatch.ElapsedMilliseconds);
+                incrementalProgress?.Report(update);
+                LogHomeStage(update);
+            }
+
+            return snapshot;
         }
 
         private void StartAlbumEnrichment(
@@ -751,6 +802,146 @@ namespace LibreSpotUWP.ViewModels
             }
         }
 
+        private static StagedHomeSnapshot CreateStage(
+            HomeSnapshot snapshot,
+            string section,
+            int stage,
+            long elapsedMs)
+        {
+            return new StagedHomeSnapshot
+            {
+                Snapshot = CloneSnapshot(snapshot),
+                Section = section,
+                Stage = stage,
+                ElapsedMs = elapsedMs
+            };
+        }
+
+        private static HomeSnapshot CloneSnapshot(HomeSnapshot snapshot)
+        {
+            return new HomeSnapshot
+            {
+                RecentlyPlayedPlaylists = new List<FullPlaylist>(snapshot.RecentlyPlayedPlaylists),
+                RecentlyPlayedAlbums = new List<FullAlbum>(snapshot.RecentlyPlayedAlbums),
+                RecentlyPlayedArtists = new List<FullArtist>(snapshot.RecentlyPlayedArtists),
+                RecentlyPlayedTracks = new List<FullTrack>(snapshot.RecentlyPlayedTracks),
+                TopTracks = new List<FullTrack>(snapshot.TopTracks),
+                TopArtists = new List<FullArtist>(snapshot.TopArtists),
+                SavedAlbums = new List<SavedAlbum>(snapshot.SavedAlbums),
+                UserPlaylists = new List<FullPlaylist>(snapshot.UserPlaylists),
+                FollowedArtists = new List<FullArtist>(snapshot.FollowedArtists),
+                AlbumsFromTopArtists = new List<FullAlbum>(snapshot.AlbumsFromTopArtists),
+                AlbumsYouStarted = new List<FullAlbum>(snapshot.AlbumsYouStarted),
+                MixedForYou = new List<FullTrack>(snapshot.MixedForYou),
+                OfflinePlaylists = snapshot.OfflinePlaylists == null
+                    ? null
+                    : new List<OfflinePlaylistEntry>(snapshot.OfflinePlaylists),
+                OfflineAlbums = snapshot.OfflineAlbums == null
+                    ? null
+                    : new List<OfflineAlbumEntry>(snapshot.OfflineAlbums),
+                OfflineTracks = snapshot.OfflineTracks == null
+                    ? null
+                    : new List<OfflineTrackEntry>(snapshot.OfflineTracks),
+                IsOfflineOnly = snapshot.IsOfflineOnly,
+                UsedCachedData = snapshot.UsedCachedData,
+                UsedOfflineFallback = snapshot.UsedOfflineFallback,
+                CachedAt = snapshot.CachedAt,
+                FailureSummary = snapshot.FailureSummary
+            };
+        }
+
+        private static void ApplyLoadMetadata(HomeSnapshot snapshot, HomeLoadContext context)
+        {
+            snapshot.UsedCachedData = context.UsedCachedData;
+            snapshot.UsedOfflineFallback = context.UsedOfflineFallback;
+            snapshot.CachedAt = context.CachedAt;
+            snapshot.FailureSummary = context.BuildFailureSummary();
+        }
+
+        private static void LogHomeStage(StagedHomeSnapshot update)
+        {
+            LogService.Info(
+                $"[HomePageViewModel.BuildOnlineSnapshotAsync] section={update.Section}, " +
+                $"stage={update.Stage}, elapsedMs={update.ElapsedMs}.");
+        }
+
+        private void ApplyIncrementalSnapshot(StagedHomeSnapshot update)
+        {
+            var snapshot = update.Snapshot;
+            switch (update.Section)
+            {
+                case "Recently Played":
+                    ApplySnapshot(snapshot);
+                    break;
+                case "Your Playlists":
+                    UserPlaylists.ReplaceAll(snapshot.UserPlaylists);
+                    ReplaceHomeGroup("Your Playlists", snapshot.UserPlaylists);
+                    break;
+                case "Top Artists":
+                    UserTopArtistsShortTerm.ReplaceAll(snapshot.TopArtists);
+                    ReplaceHomeGroup("Top Artists", snapshot.TopArtists);
+                    break;
+                case "Top Tracks":
+                    UserTopTracksShortTerm.ReplaceAll(snapshot.TopTracks);
+                    ReplaceHomeGroup("Top Tracks", snapshot.TopTracks);
+                    break;
+                case "Saved Albums":
+                    SavedAlbumsFull.ReplaceAll(snapshot.SavedAlbums);
+                    ReplaceHomeGroup("Saved Albums", snapshot.SavedAlbums);
+                    break;
+                case "Artists You Follow":
+                    FollowedArtists.ReplaceAll(snapshot.FollowedArtists);
+                    ReplaceHomeGroup("Artists You Follow", snapshot.FollowedArtists);
+                    break;
+            }
+
+            ApplySnapshotMetadata(snapshot);
+            LogService.Info(
+                $"[HomePageViewModel.ApplyIncrementalSnapshot] section={update.Section}, " +
+                $"stage={update.Stage}, elapsedMs={update.ElapsedMs}.");
+        }
+
+        private void ReplaceHomeGroup<T>(string title, IEnumerable<T> items)
+        {
+            var materialized = items?
+                .Where(item => item != null)
+                .Cast<object>()
+                .ToList() ?? new List<object>();
+            var existing = GroupedHomeContent.FirstOrDefault(
+                group => string.Equals(group.Title, title, StringComparison.OrdinalIgnoreCase));
+
+            if (materialized.Count == 0)
+            {
+                if (existing != null)
+                    GroupedHomeContent.Remove(existing);
+                return;
+            }
+
+            if (existing != null)
+            {
+                existing.Items.ReplaceAll(materialized);
+                return;
+            }
+
+            var newGroup = new HomeSectionGroup { Title = title };
+            newGroup.Items.ReplaceAll(materialized);
+            var insertIndex = 1;
+            while (insertIndex < GroupedHomeContent.Count &&
+                   CompareSections(GroupedHomeContent[insertIndex].Title, title) <= 0)
+            {
+                insertIndex++;
+            }
+            GroupedHomeContent.Insert(insertIndex, newGroup);
+        }
+
+        private static int CompareSections(string left, string right)
+        {
+            var rankComparison = GetSectionRank(left).CompareTo(GetSectionRank(right));
+            return rankComparison != 0
+                ? rankComparison
+                : StringComparer.OrdinalIgnoreCase.Compare(left, right);
+        }
+
         private void ApplySnapshot(HomeSnapshot snapshot)
         {
             RecentlyPlayedPlaylists.ReplaceAll(snapshot.RecentlyPlayedPlaylists);
@@ -766,12 +957,17 @@ namespace LibreSpotUWP.ViewModels
             AlbumsYouStarted.ReplaceAll(snapshot.AlbumsYouStarted);
             MixedForYou.ReplaceAll(snapshot.MixedForYou);
 
-            _cachedAt = snapshot.CachedAt;
-            StatusMessage = BuildStatusMessage(snapshot);
+            ApplySnapshotMetadata(snapshot);
             GroupedHomeContent.ReplaceAll(BuildGroups(snapshot));
 
             if (!string.IsNullOrWhiteSpace(snapshot.FailureSummary))
                 LogService.Warn(snapshot.FailureSummary);
+        }
+
+        private void ApplySnapshotMetadata(HomeSnapshot snapshot)
+        {
+            _cachedAt = snapshot.CachedAt;
+            StatusMessage = BuildStatusMessage(snapshot);
         }
 
         private static List<HomeSectionGroup> BuildGroups(HomeSnapshot snapshot)
