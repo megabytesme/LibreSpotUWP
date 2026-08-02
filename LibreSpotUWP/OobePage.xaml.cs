@@ -100,6 +100,9 @@ namespace LibreSpotUWP
 
         private async void BtnSpotifySignIn_Click(object sender, RoutedEventArgs e)
         {
+            if (!await AudioKeyCompatibilityWarning.ShowIfNeededAsync(allowCancel: true))
+                return;
+
             TxtAuthStatus.Text = "Waiting for Spotify to return to LibreSpotUWP...";
             await App.SpotifyAuth.BeginPkceLoginAsync();
         }

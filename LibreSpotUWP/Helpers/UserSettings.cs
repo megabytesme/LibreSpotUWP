@@ -22,6 +22,7 @@ namespace LibreSpotUWP.Helpers
         private const string AudioBackendKey = "AudioBackend";
         private const string SpotifyConnectDeviceIdKey = "SpotifyConnectDeviceId";
         private const string SpotifyCustomClientIdKey = "SpotifyCustomClientId";
+        private const string HideAudioKeyCompatibilityWarningKey = "HideAudioKeyCompatibilityWarning";
         private const string EqualizerBandsKey = "AudioEffectsEqualizerBands";
         private const string EqualizerBandsUnitKey = "AudioEffectsEqualizerBandsUnit";
         private const string EqualizerBandsUnitDb = "Db";
@@ -182,6 +183,12 @@ namespace LibreSpotUWP.Helpers
 
         public static bool HasSpotifyCustomClientId =>
             !string.IsNullOrWhiteSpace(SpotifyCustomClientId);
+
+        public static bool HideAudioKeyCompatibilityWarning
+        {
+            get => GetBoolSetting(HideAudioKeyCompatibilityWarningKey, defaultValue: false);
+            set => ApplicationData.Current.LocalSettings.Values[HideAudioKeyCompatibilityWarningKey] = value;
+        }
 
         public static bool RememberLastPlaybackState
         {

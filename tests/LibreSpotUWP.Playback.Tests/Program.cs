@@ -20,6 +20,7 @@ internal static class Program
             SessionCacheLifetimeIsFiniteAndExplicit,
             NativeSessionReadinessWaitsForAuthentication,
             ReportedNetworkAndAudioFailurePathsAreHardened,
+            AudioKeyCompatibilityWarningCoversEverySignInPath,
             VolumeSliderWorkIsCoalesced,
             NavigationCancelsOldHomeGeneration,
             StaleHomeResultsCannotUpdateReplacementGeneration,
@@ -227,6 +228,31 @@ internal static class Program
                media.Contains("Interlocked.CompareExchange(ref _volumeUpdateRunning") &&
                media.Contains("version != Volatile.Read(ref _volumeVersion)"),
             "volume updates are not coalesced or stale-request safe");
+    }
+
+    private static void AudioKeyCompatibilityWarningCoversEverySignInPath()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var warning = File.ReadAllText(Path.Combine(appRoot, "Helpers", "AudioKeyCompatibilityWarning.cs"));
+        Assert(warning.Contains("Some Spotify accounts created after 2024") &&
+               warning.Contains("Spotify does not expose an account creation date") &&
+               warning.Contains("librespot-org/librespot/issues/1649") &&
+               warning.Contains("Don't show this warning again") &&
+               warning.Contains("UserSettings.HideAudioKeyCompatibilityWarning = true"),
+            "the audio-key compatibility warning is incomplete or cannot be suppressed");
+
+        var app = File.ReadAllText(Path.Combine(appRoot, "App.xaml.cs"));
+        var oobe = File.ReadAllText(Path.Combine(appRoot, "OobePage.xaml.cs"));
+        var qr = File.ReadAllText(Path.Combine(appRoot, "Helpers", "QrLoginHelper.cs"));
+        var account = File.ReadAllText(Path.Combine(appRoot, "Controls", "SpotifyAccountControl.xaml.cs"));
+        Assert(app.Contains("if (isSignedIn)") &&
+               app.Contains("await AudioKeyCompatibilityWarning.ShowIfNeededAsync();"),
+            "already-signed-in upgrades do not show the audio-key compatibility warning");
+        Assert(oobe.Contains("ShowIfNeededAsync(allowCancel: true)") &&
+               qr.Contains("await AudioKeyCompatibilityWarning.ShowIfNeededAsync();") &&
+               account.Contains("ShowIfNeededAsync(allowCancel: true)"),
+            "one or more LibreSpotUWP sign-in paths bypass the audio-key compatibility warning");
     }
 
     private static void HomeRequestsUseArmSafeBoundedConcurrency()

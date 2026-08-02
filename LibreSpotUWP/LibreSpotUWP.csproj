@@ -180,6 +180,7 @@
     </Compile>
     <Compile Include="Converters\Converters.cs" />
     <Compile Include="Helpers\AudioFormatProbe.cs" />
+    <Compile Include="Helpers\AudioKeyCompatibilityWarning.cs" />
     <Compile Include="Helpers\BarcodeHelper.cs" />
     <Compile Include="Helpers\AppResetHelper.cs" />
     <Compile Include="Helpers\NavigationHelper.cs" />

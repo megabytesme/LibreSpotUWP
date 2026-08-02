@@ -84,6 +84,7 @@ namespace LibreSpotUWP.Helpers
                     PrimaryButtonText = "OK"
                 };
                 await successDialog.ShowAsync();
+                await AudioKeyCompatibilityWarning.ShowIfNeededAsync();
             }
             catch (SpotifyPremiumRequiredException ex)
             {

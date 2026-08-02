@@ -209,7 +209,12 @@ namespace LibreSpotUWP.Controls
                         HorizontalAlignment = HorizontalAlignment.Stretch,
                         Margin = new Thickness(0, 0, 0, 10)
                     };
-                    btnLogin.Click += async (s, args) => { dialog.Hide(); await _auth.BeginPkceLoginAsync(); };
+                    btnLogin.Click += async (s, args) =>
+                    {
+                        dialog.Hide();
+                        if (await AudioKeyCompatibilityWarning.ShowIfNeededAsync(allowCancel: true))
+                            await _auth.BeginPkceLoginAsync();
+                    };
                     stackPanel.Children.Add(btnLogin);
                 }
 

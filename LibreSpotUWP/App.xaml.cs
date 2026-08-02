@@ -210,15 +210,18 @@ namespace LibreSpotUWP
                     UiResponsivenessTelemetry.SetCurrentPage(isSignedIn ? "Home" : "Oobe");
                     UiResponsivenessTelemetry.Start();
 
-                    if (shouldCheckForUpdates)
-                        _ = CheckForUpdatesAtStartup();
-
                     if (_startupPremiumRequiredException != null)
                     {
                         var premiumRequired = _startupPremiumRequiredException;
                         _startupPremiumRequiredException = null;
                         await PremiumRequiredDialog.ShowAsync(premiumRequired);
                     }
+
+                    if (isSignedIn)
+                        await AudioKeyCompatibilityWarning.ShowIfNeededAsync();
+
+                    if (shouldCheckForUpdates)
+                        _ = CheckForUpdatesAtStartup();
 
                     if (shouldNavigateToLaunchTarget)
                         await NavigateToLiveTileTargetAsync(launchNavigationTag);
