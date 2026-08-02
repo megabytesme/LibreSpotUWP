@@ -16,6 +16,11 @@ internal static class Program
         var tests = new Action[]
         {
             HomeRequestsUseArmSafeBoundedConcurrency,
+            HomePublishesSecondarySectionsIndependently,
+            SessionCacheLifetimeIsFiniteAndExplicit,
+            NativeSessionReadinessWaitsForAuthentication,
+            ReportedNetworkAndAudioFailurePathsAreHardened,
+            VolumeSliderWorkIsCoalesced,
             NavigationCancelsOldHomeGeneration,
             StaleHomeResultsCannotUpdateReplacementGeneration,
             TileRefreshBurstProducesOneUpdate,
@@ -90,6 +95,140 @@ internal static class Program
         }
     }
 
+    private static void SessionCacheLifetimeIsFiniteAndExplicit()
+    {
+        var now = new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
+        Assert(CacheFreshness.IsStale(now, TimeSpan.Zero, now),
+            "zero TTL did not force an immediate refresh");
+        Assert(!CacheFreshness.IsStale(now.AddMinutes(-4), TimeSpan.FromMinutes(5), now),
+            "fresh session data was treated as stale");
+        Assert(CacheFreshness.IsStale(now.AddMinutes(-5), TimeSpan.FromMinutes(5), now),
+            "expired session data was treated as fresh");
+        Assert(!CacheFreshness.IsStale(now.AddYears(-10), TimeSpan.MaxValue, now),
+            "immutable cached data expired");
+    }
+
+    private static void NativeSessionReadinessWaitsForAuthentication()
+    {
+        var ready = false;
+        var valid = true;
+        var completion = SessionReadinessWaiter.WaitAsync(
+            () => Volatile.Read(ref ready),
+            () => Volatile.Read(ref valid),
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+
+        Task.Delay(75).ContinueWith(_ => Volatile.Write(ref ready, true)).GetAwaiter().GetResult();
+        completion.GetAwaiter().GetResult();
+
+        ready = false;
+        valid = false;
+        AssertThrows<InvalidOperationException>(() => SessionReadinessWaiter.WaitAsync(
+            () => Volatile.Read(ref ready),
+            () => Volatile.Read(ref valid),
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None).GetAwaiter().GetResult(),
+            "an invalidated native session did not fail immediately");
+
+        valid = true;
+        AssertThrows<TimeoutException>(() => SessionReadinessWaiter.WaitAsync(
+            () => false,
+            () => Volatile.Read(ref valid),
+            TimeSpan.FromMilliseconds(75),
+            CancellationToken.None).GetAwaiter().GetResult(),
+            "native session readiness was not bounded by a timeout");
+    }
+
+    private static void ReportedNetworkAndAudioFailurePathsAreHardened()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var spotify = File.ReadAllText(Path.Combine(appRoot, "Services", "SpotifyWebService.cs"));
+        Assert(spotify.Contains("RequestTimeout = TimeSpan.FromSeconds(20)") &&
+               spotify.Contains("_httpClient.SetRequestTimeout(RequestTimeout)") &&
+               spotify.Contains("TtlSession = TimeSpan.FromMinutes(5)"),
+            "Spotify requests or session cache lifetime are not explicitly bounded");
+
+        var librespot = File.ReadAllText(Path.Combine(appRoot, "Services", "LibrespotService.cs"));
+        Assert(librespot.Contains("await FreeNativeInstanceAsync(instance, \"access-token-recreation\")") &&
+               librespot.Contains("Task.Run(() => Librespot.librespot_free(instance))"),
+            "native session recreation can still synchronously join the runner");
+        Assert(librespot.Contains("WaitForConnectedNativeInstanceAsync") &&
+               librespot.Contains("_session.IsConnected") &&
+               librespot.Contains("EventType.PlaybackKeyUnavailable"),
+            "native metadata requests or audio-key failures are not session-safe");
+
+        var media = File.ReadAllText(Path.Combine(appRoot, "Services", "MediaService.cs"));
+        var createReplacement = media.IndexOf(
+            "replacementPlayer = await CreateAudioPlayerAsync(backend, outputDeviceId)",
+            StringComparison.Ordinal);
+        var publishReplacement = media.IndexOf(
+            "_ringPlayer = replacementPlayer",
+            createReplacement,
+            StringComparison.Ordinal);
+        var disposePrevious = media.IndexOf(
+            "await previousPlayer.DisposeAsync()",
+            publishReplacement,
+            StringComparison.Ordinal);
+        Assert(createReplacement >= 0 &&
+               publishReplacement > createReplacement &&
+               disposePrevious > publishReplacement,
+            "audio output replacement is not committed before the previous player is disposed");
+        Assert(media.Contains("liveNativeSwitch={backend != AudioBackendKind.RingBuffer}") &&
+               media.Contains("UserSettings.AudioOutputDeviceId = deviceId;") &&
+               media.Contains("(_ringPlayer as NativeWindowsAudioPlayer)?.CommitOutputDevice(deviceId)"),
+            "native output-device changes do not update both the renderer and its managed controller");
+
+        var themes = new[] { "Win10_1507", "Win10_1709", "Win11" };
+        foreach (var theme in themes)
+        {
+            var playerPage = File.ReadAllText(Path.Combine(
+                appRoot,
+                "Views",
+                theme,
+                "PlayerPage_" + theme + ".xaml.cs"));
+            Assert(playerPage.Contains("Unable to change audio output") &&
+                   playerPage.Contains("await LoadOutputDevicesAsync();") &&
+                   playerPage.Contains("_changingOutputDevice") &&
+                   playerPage.Contains("OutputDeviceComboBox.IsEnabled = false;"),
+                "output-device loading or failure recovery is missing from " + theme);
+        }
+
+        var mediaController = File.ReadAllText(Path.Combine(appRoot, "Controls", "MediaControllerBar.xaml.cs"));
+        Assert(mediaController.Contains("MediaControllerBar.OutputDeviceComboBox_SelectionChanged") &&
+               mediaController.Contains("await LoadOutputDevicesAsync();") &&
+               mediaController.Contains("_changingOutputDevice") &&
+               mediaController.Contains("OutputDeviceComboBox.IsEnabled = false;"),
+            "compact media-bar output-device selection is not race-safe");
+
+        Assert(media.Contains("HandleAudioKeyUnavailable(playbackEvent)") &&
+               media.Contains("Playback stopped without queue skipping"),
+            "Spotify audio-key rejection can still feed the decoder or skip the entire queue");
+    }
+
+    private static void VolumeSliderWorkIsCoalesced()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var media = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "LibreSpotUWP",
+            "Services",
+            "MediaService.cs"));
+        var setterStart = media.IndexOf("public void SetVolumeDebounced", StringComparison.Ordinal);
+        var applyStart = media.IndexOf("private async Task ApplyPendingVolumeAsync", setterStart, StringComparison.Ordinal);
+        var setter = media.Substring(setterStart, applyStart - setterStart);
+
+        Assert(setterStart >= 0 && applyStart > setterStart,
+            "debounced volume apply pipeline is missing");
+        Assert(!setter.Contains("settings.Values[VolumeKey]") &&
+               !setter.Contains("UpdateState(s =>"),
+            "volume slider still performs storage or broadcast work for every pixel");
+        Assert(setter.Contains("UpdateStateWithoutNotification") &&
+               media.Contains("Interlocked.CompareExchange(ref _volumeUpdateRunning") &&
+               media.Contains("version != Volatile.Read(ref _volumeVersion)"),
+            "volume updates are not coalesced or stale-request safe");
+    }
+
     private static void HomeRequestsUseArmSafeBoundedConcurrency()
     {
         using (var gate = new BoundedAsyncGate(3))
@@ -115,6 +254,29 @@ internal static class Program
             Assert(maximum == 3, "Home request gate did not exercise the configured ARM-safe concurrency");
             Assert(gate.MaximumObserved == 3, "Home request concurrency diagnostics were incorrect");
         }
+    }
+
+    private static void HomePublishesSecondarySectionsIndependently()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var home = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "LibreSpotUWP",
+            "ViewModels",
+            "HomePageViewModel.cs"));
+        var buildStart = home.IndexOf("private async Task<HomeSnapshot> BuildOnlineSnapshotAsync", StringComparison.Ordinal);
+        var enrichmentStart = home.IndexOf("private void StartAlbumEnrichment", buildStart, StringComparison.Ordinal);
+        var build = home.Substring(buildStart, enrichmentStart - buildStart);
+
+        Assert(build.Contains("await Task.WhenAny(remaining)") &&
+               build.Contains("incrementalProgress?.Report(update)") &&
+               !build.Contains("Task.WhenAll(playlistsTask, artistsTask, tracksTask, savedTask, followedTask)"),
+            "Home secondary sections still wait behind the slowest request");
+        Assert(home.Contains("ApplyIncrementalSnapshot(update)") &&
+               home.Contains("ReplaceHomeGroup(\"Your Playlists\"") &&
+               home.Contains("ReplaceHomeGroup(\"Saved Albums\"") &&
+               home.Contains("StartAlbumEnrichment(spotify, update.Snapshot"),
+            "Home section completions are not published incrementally");
     }
 
     private static void NavigationCancelsOldHomeGeneration()
@@ -1315,5 +1477,20 @@ internal static class Program
     {
         if (!condition)
             throw new InvalidOperationException(message);
+    }
+
+    private static void AssertThrows<TException>(Action action, string message)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(message);
     }
 }

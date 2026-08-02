@@ -99,6 +99,7 @@ namespace LibreSpotUWP.Interop
             Preloading = 22,
             TimeToPreloadNextTrack = 23,
             PositionChanged = 24,
+            PlaybackKeyUnavailable = 25,
         }
 
         [StructLayout(LayoutKind.Sequential)]

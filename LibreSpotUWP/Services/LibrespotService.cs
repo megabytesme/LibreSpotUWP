@@ -1162,6 +1162,18 @@ namespace LibreSpotUWP.Services
                         evt.event_type == EventType.PlaybackUnavailable);
                     break;
 
+                case EventType.PlaybackKeyUnavailable:
+                    LogService.Error(
+                        new InvalidOperationException("Spotify rejected the required audio key."),
+                        $"{logPrefix} Playback cannot start because Spotify rejected this account's audio-key request. Known upstream issue: https://github.com/librespot-org/librespot/issues/1649");
+                    UpdatePlaybackState(
+                        LibrespotPlaybackState.Stopped,
+                        evt.data,
+                        sessionGeneration,
+                        isUnavailable: false,
+                        isAudioKeyUnavailable: true);
+                    break;
+
                 case EventType.EndOfTrack:
                     var endedTrackUri = ReadString(evt.data.track_uri);
                     LogService.Info($"{logPrefix} Reached end of track URI: {endedTrackUri}");
@@ -1303,7 +1315,8 @@ namespace LibreSpotUWP.Services
             LibrespotPlaybackState state,
             EventData data,
             long sessionGeneration,
-            bool isUnavailable = false)
+            bool isUnavailable = false,
+            bool isAudioKeyUnavailable = false)
         {
             lock (_stateLock)
             {
@@ -1320,7 +1333,8 @@ namespace LibreSpotUWP.Services
                 SessionGeneration = sessionGeneration,
                 TrackUri = ReadString(data.track_uri),
                 PositionMs = data.position_ms,
-                IsUnavailable = isUnavailable
+                IsUnavailable = isUnavailable,
+                IsAudioKeyUnavailable = isAudioKeyUnavailable
             };
             RaiseOnMainThread(() => PlaybackStateChanged?.Invoke(this, state), nameof(PlaybackStateChanged), sessionGeneration);
             PublishPlaybackEvent(playbackEvent, sessionGeneration);

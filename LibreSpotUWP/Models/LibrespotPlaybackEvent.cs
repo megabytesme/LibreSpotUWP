@@ -10,5 +10,6 @@ namespace LibreSpotUWP.Models
         public uint PositionMs { get; set; }
         public bool IsSeek { get; set; }
         public bool IsUnavailable { get; set; }
+        public bool IsAudioKeyUnavailable { get; set; }
     }
 }

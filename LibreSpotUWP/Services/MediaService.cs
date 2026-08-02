@@ -2623,6 +2623,12 @@ namespace LibreSpotUWP.Services
                     return;
                 }
 
+                if (playbackEvent.IsAudioKeyUnavailable)
+                {
+                    HandleAudioKeyUnavailable(playbackEvent);
+                    return;
+                }
+
                 if (playbackEvent.IsUnavailable &&
                     await TryHandleUnavailableApplicationQueueTrackAsync(playbackEvent).ConfigureAwait(false))
                 {
@@ -2825,6 +2831,26 @@ namespace LibreSpotUWP.Services
             {
                 LogService.Error(ex, $"[MediaService.OnPlaybackChanged] Unhandled error while processing playback state {playbackEvent?.State}");
             }
+        }
+
+        private void HandleAudioKeyUnavailable(LibrespotPlaybackEvent playbackEvent)
+        {
+            Volatile.Write(ref _playbackRequested, 0);
+            _ringPlayer?.Stop();
+            _mediaPlayer?.Pause();
+            _positionSynchronizer.ObserveAuthoritative(
+                0,
+                PlaybackPositionOrigin.StateTransition,
+                isPlaying: false);
+            ApplyPlaybackPosition(0, persistSnapshot: false);
+            UpdateState(state =>
+            {
+                state.PlaybackState = LibrespotPlaybackState.Stopped;
+                state.StatusMessage = "Spotify rejected this account's audio key. This is a known Spotify/librespot compatibility issue.";
+            });
+            _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
+            PersistPlaybackSnapshot(forceWrite: true);
+            LogService.Warn($"[MediaService.HandleAudioKeyUnavailable] Playback stopped without queue skipping. track={playbackEvent.TrackUri ?? "(unknown)"}, sessionGeneration={playbackEvent.SessionGeneration}.");
         }
 
         private async Task<bool> TryHandleUnavailableApplicationQueueTrackAsync(
