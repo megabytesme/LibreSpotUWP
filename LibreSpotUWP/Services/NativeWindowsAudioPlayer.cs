@@ -18,7 +18,7 @@ namespace LibreSpotUWP.Services
         private static long _nextInstanceId;
         private static readonly object BackendSelectionSync = new object();
         private readonly AudioBackendKind _backend;
-        private readonly string _outputDeviceId;
+        private string _outputDeviceId;
         private readonly long _instanceId = Interlocked.Increment(ref _nextInstanceId);
         private int _disposed;
 
@@ -41,9 +41,16 @@ namespace LibreSpotUWP.Services
         public async Task InitializeAsync()
         {
             ThrowIfDisposed();
-            await SelectBackendAsync(_backend, _outputDeviceId).ConfigureAwait(false);
+            var outputDeviceId = Volatile.Read(ref _outputDeviceId) ?? string.Empty;
+            await SelectBackendAsync(_backend, outputDeviceId).ConfigureAwait(false);
             ApplyEffects();
-            LogService.Info($"[NativeWindowsAudioPlayer.InitializeAsync] backend={_backend}, outputDevice={(_outputDeviceId.Length == 0 ? "default" : _outputDeviceId)}, nativePlayerId={_instanceId}.");
+            LogService.Info($"[NativeWindowsAudioPlayer.InitializeAsync] backend={_backend}, outputDevice={(outputDeviceId.Length == 0 ? "default" : outputDeviceId)}, nativePlayerId={_instanceId}.");
+        }
+
+        internal void CommitOutputDevice(string outputDeviceId)
+        {
+            ThrowIfDisposed();
+            Volatile.Write(ref _outputDeviceId, outputDeviceId ?? string.Empty);
         }
 
         internal static Task SelectBackendAsync(AudioBackendKind backend, string outputDeviceId)

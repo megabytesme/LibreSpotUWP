@@ -22,6 +22,7 @@ namespace LibreSpotUWP.Controls
         private bool _isReady = false;
         private string _currentArtworkUri = null;
         private bool _loadingOutputDevices;
+        private bool _changingOutputDevice;
         private bool _loadingSpotifyConnectDevices;
         private bool _spotifyConnectDropdownOpen;
         private bool _spotifyConnectRefreshPending;
@@ -222,10 +223,11 @@ namespace LibreSpotUWP.Controls
 
         private async Task LoadOutputDevicesAsync()
         {
-            if (_media == null || OutputDeviceComboBox == null)
+            if (_media == null || OutputDeviceComboBox == null || _loadingOutputDevices)
                 return;
 
             _loadingOutputDevices = true;
+            OutputDeviceComboBox.IsEnabled = false;
             try
             {
                 var devices = await _media.GetAudioOutputDevicesAsync();
@@ -237,15 +239,31 @@ namespace LibreSpotUWP.Controls
             finally
             {
                 _loadingOutputDevices = false;
+                OutputDeviceComboBox.IsEnabled = !_changingOutputDevice;
             }
         }
 
         private async void OutputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_loadingOutputDevices || !(OutputDeviceComboBox.SelectedItem is AudioOutputDeviceInfo device) || _media == null)
+            if (_loadingOutputDevices || _changingOutputDevice || !(OutputDeviceComboBox.SelectedItem is AudioOutputDeviceInfo device) || _media == null)
                 return;
 
-            await _media.SetAudioOutputDeviceAsync(device.Id);
+            _changingOutputDevice = true;
+            OutputDeviceComboBox.IsEnabled = false;
+            try
+            {
+                await _media.SetAudioOutputDeviceAsync(device.Id);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaControllerBar.OutputDeviceComboBox_SelectionChanged] Unable to change audio output: {ex}");
+                await LoadOutputDevicesAsync();
+            }
+            finally
+            {
+                _changingOutputDevice = false;
+                OutputDeviceComboBox.IsEnabled = !_loadingOutputDevices;
+            }
         }
 
         private async Task LoadSpotifyConnectDevicesAsync()
