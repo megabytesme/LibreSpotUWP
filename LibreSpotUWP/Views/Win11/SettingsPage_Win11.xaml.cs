@@ -5,7 +5,6 @@ using LibreSpotUWP.Services;
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
@@ -643,8 +642,8 @@ namespace LibreSpotUWP.Views.Win11
                         new Run { Text = "LibreSpot Commit: " },
                         new Hyperlink
                         {
-                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/0418ad2687e1978ee9a15ab5a451c5638896a6f6"),
-                            Inlines = { new Run { Text = "0418ad2687e1978ee9a15ab5a451c5638896a6f6" } }
+                            NavigateUri = new Uri("https://github.com/megabytesme/librespot/tree/fd74028f4c6edfdf3ed2ec3a2b9d3e36df6e150e"),
+                            Inlines = { new Run { Text = "fd74028f4c6edfdf3ed2ec3a2b9d3e36df6e150e" } }
                         },
                         new LineBreak(),
                         new LineBreak(),
@@ -783,54 +782,28 @@ namespace LibreSpotUWP.Views.Win11
 
         private async Task RefreshStorageStatusAsync()
         {
-            try
-            {
-                var persistedAudioPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "audio");
-                var cachedAudioPath = Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "audio");
+            var persistedTask = StorageStatisticsHelper.GetChildFolderStatsAsync(
+                ApplicationData.Current.LocalFolder,
+                "audio");
+            var cachedTask = StorageStatisticsHelper.GetChildFolderStatsAsync(
+                ApplicationData.Current.LocalCacheFolder,
+                "audio");
+            await Task.WhenAll(persistedTask, cachedTask);
+            var persistedStats = await persistedTask;
+            var cachedStats = await cachedTask;
 
-                var persistedStats = await Task.Run(() => GetStorageStats(persistedAudioPath));
-                var cachedStats = await Task.Run(() => GetStorageStats(cachedAudioPath));
-
-                await Dispatcher.RunAsync(
-                    Windows.UI.Core.CoreDispatcherPriority.Normal,
-                    () =>
-                    {
-                        PersistedStorageText.Text =
-                            $"Persisted audio: {FormatBytes(persistedStats.Bytes)} across {persistedStats.FileCount} song{(persistedStats.FileCount == 1 ? string.Empty : "s")}";
-                        CachedStorageText.Text =
-                            $"Cached audio: {FormatBytes(cachedStats.Bytes)} across {cachedStats.FileCount} song{(cachedStats.FileCount == 1 ? string.Empty : "s")}";
-                    });
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"Failed to refresh storage status: {ex}");
-                PersistedStorageText.Text = "Persisted audio: Unavailable";
-                CachedStorageText.Text = "Cached audio: Unavailable";
-            }
+            PersistedStorageText.Text = FormatStorageStatus("Persisted", persistedStats);
+            CachedStorageText.Text = FormatStorageStatus("Cached", cachedStats);
         }
 
-        private static (long Bytes, int FileCount) GetStorageStats(string path)
+        private static string FormatStorageStatus(string label, StorageFolderStatistics statistics)
         {
-            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-                return (0, 0);
+            if (statistics == null || !statistics.IsAvailable)
+                return $"{label} audio: Unavailable";
 
-            long bytes = 0;
-            int count = 0;
-
-            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    var info = new FileInfo(file);
-                    bytes += info.Length;
-                    count++;
-                }
-                catch
-                {
-                }
-            }
-
-            return (bytes, count);
+            return
+                $"{label} audio: {FormatBytes(statistics.Bytes)} across {statistics.FileCount} " +
+                $"song{(statistics.FileCount == 1 ? string.Empty : "s")}";
         }
 
         private static string FormatBytes(long bytes)

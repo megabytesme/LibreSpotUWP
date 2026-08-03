@@ -20,6 +20,7 @@ internal static class Program
             SessionCacheLifetimeIsFiniteAndExplicit,
             NativeSessionReadinessWaitsForAuthentication,
             ReportedNetworkAndAudioFailurePathsAreHardened,
+            WindowsMobileStorageAndXAudio28RoutingAreHardened,
             AudioKeyCompatibilityWarningCoversEverySignInPath,
             VolumeSliderWorkIsCoalesced,
             NavigationCancelsOldHomeGeneration,
@@ -228,6 +229,50 @@ internal static class Program
                media.Contains("Interlocked.CompareExchange(ref _volumeUpdateRunning") &&
                media.Contains("version != Volatile.Read(ref _volumeVersion)"),
             "volume updates are not coalesced or stale-request safe");
+    }
+
+    private static void WindowsMobileStorageAndXAudio28RoutingAreHardened()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var media = File.ReadAllText(Path.Combine(appRoot, "Services", "MediaService.cs"));
+        Assert(!media.Contains("xaudio2-explicit-output-fallback") &&
+               !media.Contains("effectiveBackend = AudioBackendKind.RustWasapi") &&
+               media.Contains("NativeWindowsAudioPlayer.SelectBackendAsync(backend, deviceId)"),
+            "an output change substitutes WASAPI for the selected XAudio2 backend");
+
+        var rustRoot = Path.Combine(
+            Directory.GetParent(repositoryRoot).FullName,
+            "librespot",
+            "playback",
+            "src",
+            "audio_backend");
+        var xaudio2 = File.ReadAllText(Path.Combine(rustRoot, "uwp_xaudio2.rs"));
+        Assert(xaudio2.Contains("#[link(name = \"xaudio2_8\")]") &&
+               !xaudio2.Contains("#[link(name = \"xaudio2\")]"),
+            "the UWP XAudio2 backend does not explicitly bind the Windows Phone-compatible 2.8 runtime");
+
+        var storageHelper = File.ReadAllText(Path.Combine(
+            appRoot,
+            "Helpers",
+            "StorageStatisticsHelper.cs"));
+        Assert(storageHelper.Contains("await folder.GetItemsAsync()") &&
+               storageHelper.Contains("await file.GetBasicPropertiesAsync()") &&
+               !storageHelper.Contains("Directory.EnumerateFiles"),
+            "storage statistics do not use the WinRT storage broker");
+
+        foreach (var theme in new[] { "Win10_1507", "Win10_1709", "Win11" })
+        {
+            var settings = File.ReadAllText(Path.Combine(
+                appRoot,
+                "Views",
+                theme,
+                "SettingsPage_" + theme + ".xaml.cs"));
+            Assert(settings.Contains("StorageStatisticsHelper.GetChildFolderStatsAsync") &&
+                   settings.Contains("FormatStorageStatus") &&
+                   !settings.Contains("Directory.EnumerateFiles"),
+                "brokered and independent storage statistics are missing from " + theme);
+        }
     }
 
     private static void AudioKeyCompatibilityWarningCoversEverySignInPath()

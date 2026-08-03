@@ -164,6 +164,7 @@
     <Compile Include="Helpers\ImageUriHelper.cs" />
     <Compile Include="Helpers\NowPlayingLyricsPresenter.cs" />
     <Compile Include="Helpers\PlaybackNavigationHelper.cs" />
+    <Compile Include="Helpers\StorageStatisticsHelper.cs" />
     <Compile Include="Helpers\UserSettings.cs" />
     <Compile Include="Helpers\UwpBackgroundExecutionManager.cs" />
     <Compile Include="Helpers\UwpSettingsNavigator.cs" />
