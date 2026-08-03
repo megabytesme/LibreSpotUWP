@@ -207,6 +207,11 @@ namespace LibreSpotUWP.Services
             commandManager.PauseBehavior.EnablingRule = MediaCommandEnablingRule.Always;
             commandManager.NextBehavior.EnablingRule = MediaCommandEnablingRule.Always;
             commandManager.PreviousBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+            commandManager.ShuffleBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+            commandManager.AutoRepeatModeBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+
+            commandManager.ShuffleReceived += OnSmtcShuffleReceived;
+            commandManager.AutoRepeatModeReceived += OnSmtcAutoRepeatModeReceived;
 
             _smtc = _mediaPlayer.SystemMediaTransportControls;
             _smtc.IsPlayEnabled = true;
@@ -3048,6 +3053,7 @@ namespace LibreSpotUWP.Services
 
             UpdateState(s => s.Shuffle = enabled);
             _applicationQueue.UpdateShuffle(enabled);
+            SyncSmtcShuffle(enabled);
         }
 
         private void OnRepeatChanged(object sender, uint mode)
@@ -3057,6 +3063,89 @@ namespace LibreSpotUWP.Services
 
             UpdateState(s => s.RepeatMode = (int)mode);
             _applicationQueue.UpdateRepeatMode((int)mode);
+            SyncSmtcRepeat(mode);
+        }
+
+        private void SyncSmtcShuffle(bool enabled)
+        {
+            try
+            {
+                if (_smtc != null)
+                    _smtc.ShuffleEnabled = enabled;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Unable to sync SMTC shuffle state: {ex.Message}");
+            }
+        }
+
+        private void SyncSmtcRepeat(uint mode)
+        {
+            try
+            {
+                if (_smtc != null)
+                    _smtc.AutoRepeatMode = ToAutoRepeatMode(mode);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Unable to sync SMTC repeat state: {ex.Message}");
+            }
+        }
+
+        private static MediaPlaybackAutoRepeatMode ToAutoRepeatMode(uint mode)
+        {
+            switch (mode)
+            {
+                case 1: return MediaPlaybackAutoRepeatMode.List;
+                case 2: return MediaPlaybackAutoRepeatMode.Track;
+                default: return MediaPlaybackAutoRepeatMode.None;
+            }
+        }
+
+        private static uint ToLibrespotRepeatMode(MediaPlaybackAutoRepeatMode mode)
+        {
+            switch (mode)
+            {
+                case MediaPlaybackAutoRepeatMode.List: return 1u;
+                case MediaPlaybackAutoRepeatMode.Track: return 2u;
+                default: return 0u;
+            }
+        }
+
+        private async void OnSmtcShuffleReceived(MediaPlaybackCommandManager sender, MediaPlaybackCommandManagerShuffleReceivedEventArgs args)
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                args.Handled = true;
+                await _librespot.SetShuffleAsync(args.IsShuffleRequested);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"SMTC shuffle request failed: {ex.Message}");
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        }
+
+        private async void OnSmtcAutoRepeatModeReceived(MediaPlaybackCommandManager sender, MediaPlaybackCommandManagerAutoRepeatModeReceivedEventArgs args)
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                args.Handled = true;
+                await _librespot.SetRepeatAsync(ToLibrespotRepeatMode(args.AutoRepeatMode));
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"SMTC repeat request failed: {ex.Message}");
+            }
+            finally
+            {
+                deferral.Complete();
+            }
         }
 
         private void OnAuthChanged(object sender, AuthState auth)
@@ -5210,6 +5299,17 @@ namespace LibreSpotUWP.Services
             _librespot.VolumeChanged -= OnVolumeChanged;
             _librespot.ShuffleChanged -= OnShuffleChanged;
             _librespot.RepeatChanged -= OnRepeatChanged;
+
+            if (_mediaPlayer != null)
+            {
+                var cm = _mediaPlayer.CommandManager;
+                if (cm != null)
+                {
+                    cm.ShuffleReceived -= OnSmtcShuffleReceived;
+                    cm.AutoRepeatModeReceived -= OnSmtcAutoRepeatModeReceived;
+                }
+            }
+
             _librespot.EndOfTrack -= OnEndOfTrack;
             _librespot.TimeToPreloadNextTrack -= OnTimeToPreloadNextTrack;
             _librespot.TrackPreloading -= OnTrackPreloading;
