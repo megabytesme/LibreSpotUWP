@@ -477,6 +477,7 @@ namespace LibreSpotUWP
                 UiResponsivenessTelemetry.Start();
                 if (Media != null)
                     await Media.ResumeAfterSuspendingAsync();
+                LiveTiles?.RefreshAfterResuming();
             }
             catch (Exception ex)
             {

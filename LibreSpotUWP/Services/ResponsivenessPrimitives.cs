@@ -58,6 +58,17 @@ namespace LibreSpotUWP.Services
         }
     }
 
+    internal static class BackgroundPlaybackPolicy
+    {
+        public static bool ShouldKeepRunning(
+            bool isLocalDevice,
+            bool playbackRequested,
+            bool isPlayingOrLoading)
+        {
+            return isLocalDevice && playbackRequested && isPlayingOrLoading;
+        }
+    }
+
     public sealed class BoundedAsyncGate : IDisposable
     {
         private readonly SemaphoreSlim _gate;
@@ -308,7 +319,10 @@ namespace LibreSpotUWP.Services
                 _force |= force;
                 if (!string.IsNullOrWhiteSpace(reason))
                     _reasons.Add(reason);
-                if (dueAt > _dueAt)
+                // Coalescing must never let a slower request postpone urgent work.
+                // This is especially important for live-tile track transitions,
+                // which can arrive while a delayed launch refresh is pending.
+                if (_dueAt == DateTimeOffset.MinValue || dueAt < _dueAt)
                     _dueAt = dueAt;
 
                 if (_workerRunning)

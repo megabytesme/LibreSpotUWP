@@ -40,6 +40,7 @@ namespace LibreSpotUWP.Services
         public string PreloadedUri { get; set; }
         public string ActualChangedUri { get; set; }
         public bool FallbackUsed { get; set; }
+        public bool RequiresCorrection { get; set; }
         public string InternalQueueFailureReason { get; set; }
         public long ElapsedTransitionMilliseconds { get; set; }
         public long QueueGenerationId { get; set; }
@@ -348,6 +349,30 @@ namespace LibreSpotUWP.Services
                 if (pending != null && pending.QueueGenerationId == _generationId)
                 {
                     var actualIndex = FindTransitionOccurrence(trackUri, pending);
+
+                    // librespot may continue the album that supplied the current track even
+                    // though the application started playback from a playlist. Once an end
+                    // boundary has named the application's expected occurrence, an unrelated
+                    // TrackChanged marker must not complete or advance that transition. Keep
+                    // it armed so MediaService can immediately load the authoritative target.
+                    if (pending.EndObserved &&
+                        (pending.ExpectedIndex < 0 || actualIndex != pending.ExpectedIndex))
+                    {
+                        var mismatchReason = pending.FailureReason;
+                        mismatchReason = AppendReason(
+                            mismatchReason,
+                            actualIndex < 0
+                                ? "actual-track-outside-application-queue"
+                                : "unexpected-track-changed");
+                        pending.FailureReason = mismatchReason;
+                        return CreateResult(
+                            pending,
+                            trackUri,
+                            mismatchReason,
+                            observedAtUtc,
+                            requiresCorrection: true);
+                    }
+
                     if (actualIndex >= 0)
                         _currentIndex = actualIndex;
 
@@ -667,7 +692,8 @@ namespace LibreSpotUWP.Services
             ApplicationQueueTransition transition,
             string actualUri,
             string failureReason,
-            DateTimeOffset completedAtUtc)
+            DateTimeOffset completedAtUtc,
+            bool requiresCorrection = false)
         {
             var elapsed = transition.StartedAtUtc == DateTimeOffset.MinValue
                 ? 0
@@ -678,6 +704,7 @@ namespace LibreSpotUWP.Services
                 PreloadedUri = transition.PreloadedUri,
                 ActualChangedUri = actualUri,
                 FallbackUsed = transition.FallbackUsed,
+                RequiresCorrection = requiresCorrection,
                 InternalQueueFailureReason = failureReason,
                 ElapsedTransitionMilliseconds = elapsed,
                 QueueGenerationId = transition.QueueGenerationId,

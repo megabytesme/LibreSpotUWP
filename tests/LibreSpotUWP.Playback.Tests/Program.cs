@@ -26,6 +26,8 @@ internal static class Program
             NavigationCancelsOldHomeGeneration,
             StaleHomeResultsCannotUpdateReplacementGeneration,
             TileRefreshBurstProducesOneUpdate,
+            LiveTileUpdatesAreImmediateAndDurable,
+            BackgroundingPreservesActiveLocalPlayback,
             RepetitiveTelemetryProducesOneSinkEntry,
             PlaybackEventStormCreatesOnePendingDispatcherItem,
             MetadataAndLyricsCompletionCannotOutliveNavigation,
@@ -64,6 +66,7 @@ internal static class Program
             OldSessionEventsCannotChangeReplacementSession,
             GraphDisposalWaitsForCallbacksInFlight,
             SuccessfulNormalPreloadAndHandoff,
+            PlaylistBoundaryRejectsAlbumContinuation,
             UnavailableSpotifyContextUsesApplicationFallback,
             EmptyInternalQueueUsesApplicationFallback,
             NoTrackChangedAfterEndUsesFallback,
@@ -248,9 +251,20 @@ internal static class Program
             "src",
             "audio_backend");
         var xaudio2 = File.ReadAllText(Path.Combine(rustRoot, "uwp_xaudio2.rs"));
+        var uwp = File.ReadAllText(Path.Combine(rustRoot, "uwp.rs"));
+        var endpointCompatibility = File.ReadAllText(Path.Combine(
+            rustRoot,
+            "uwp_xaudio2_endpoint.rs"));
         Assert(xaudio2.Contains("#[link(name = \"xaudio2_8\")]") &&
                !xaudio2.Contains("#[link(name = \"xaudio2\")]"),
             "the UWP XAudio2 backend does not explicitly bind the Windows Phone-compatible 2.8 runtime");
+        Assert(uwp.Contains("XAudio2EndpointSink::new") &&
+               uwp.Contains("Err(xaudio_error) if !device.is_empty()") &&
+               endpointCompatibility.Contains("WasapiSink") &&
+               endpointCompatibility.Contains("SoftwareEffects") &&
+               endpointCompatibility.Contains("disabled_compatibility_effects_are_bit_exact") &&
+               endpointCompatibility.Contains("maximum_compatibility_effects_remain_finite_and_bounded"),
+            "XAudio2 cannot retain its effects profile when Mobile rejects an explicit endpoint");
 
         var storageHelper = File.ReadAllText(Path.Combine(
             appRoot,
@@ -397,6 +411,123 @@ internal static class Program
         Assert(request.Force, "tile burst lost its merged force-refresh flag");
         Assert(request.Reasons.Split('+').Length == 4, "tile burst did not merge refresh reasons");
         Assert(!coalescer.CompleteOrContinue(), "tile burst left a second OS update pending");
+
+        var delayed = due.AddSeconds(10);
+        var immediate = due.AddSeconds(1);
+        Assert(coalescer.Enqueue(false, "launch", delayed), "delayed tile refresh did not start a worker");
+        Assert(!coalescer.Enqueue(false, "media", immediate), "urgent tile refresh started a second worker");
+        Assert(coalescer.TryTake(immediate, out request, out remaining),
+            "urgent media refresh was postponed behind delayed tile work");
+        Assert(request.Reasons.Contains("launch") && request.Reasons.Contains("media"),
+            "urgent tile refresh lost a merged reason");
+        Assert(!coalescer.CompleteOrContinue(), "urgent tile refresh left extra work pending");
+    }
+
+    private static void LiveTileUpdatesAreImmediateAndDurable()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var liveTile = File.ReadAllText(Path.Combine(appRoot, "Services", "LiveTileService.cs"));
+        var app = File.ReadAllText(Path.Combine(appRoot, "App.xaml.cs"));
+        var manifest = File.ReadAllText(Path.Combine(appRoot, "Package.appxmanifest"));
+
+        Assert(!liveTile.Contains("MinimumOsUpdateInterval"),
+            "live tile still imposes a fixed delay on meaningful media changes");
+        Assert(liveTile.Contains("reason: \"media\"") &&
+               liveTile.Contains("reason: \"launch\"") &&
+               CountOccurrences(liveTile, "delay: TimeSpan.Zero") >= 3,
+            "media or launch tile refresh is not immediate");
+        Assert(liveTile.Contains("RefreshMediaTileImmediatelyAsync") &&
+               liveTile.Contains("reason: \"media-immediate\"") &&
+               liveTile.Contains("CreateImmediateIdleNotification") &&
+               liveTile.Contains("_tileUpdateGate") &&
+               liveTile.Contains("_mediaRevision"),
+            "media-state tiles still wait behind the network-enrichment worker");
+        var immediateStart = liveTile.IndexOf(
+            "private async Task RefreshMediaTileImmediatelyAsync",
+            StringComparison.Ordinal);
+        var applyStart = liveTile.IndexOf(
+            "private async Task<bool> ApplyNotificationsIfCurrentAsync",
+            StringComparison.Ordinal);
+        Assert(immediateStart >= 0 && applyStart > immediateStart,
+            "immediate current-track tile method could not be inspected");
+        var immediateBody = liveTile.Substring(immediateStart, applyStart - immediateStart);
+        Assert(!immediateBody.Contains("EnsureTileDataAsync"),
+            "immediate media-state tiles still perform network enrichment");
+        Assert(immediateBody.Contains("nowPlaying") &&
+               immediateBody.Contains("CreateImmediateIdleNotification"),
+            "playback stopping cannot immediately replace stale Now Playing content");
+        Assert(liveTile.Contains("_refreshWakeSignal.WaitAsync(remainingDelay)") &&
+               liveTile.Contains("_refreshWakeSignal.Release()"),
+            "an urgent tile refresh cannot wake a delayed worker");
+        Assert(liveTile.Contains("new ScheduledTileNotification") &&
+               liveTile.Contains("GetScheduledTileNotifications") &&
+               liveTile.Contains("RemoveFromSchedule") &&
+               liveTile.Contains("AddToSchedule"),
+            "live tile does not schedule and replace its song-boundary fallback");
+        Assert(liveTile.Contains("state.DurationMs.ToString()") &&
+               liveTile.Contains("state.DurationMs > 0") &&
+               liveTile.Contains(": 0;") &&
+               liveTile.Contains("notification.ExpirationTime.Value.UtcDateTime.Ticks"),
+            "live tile does not reschedule when duration arrives or expire promptly at track end");
+        Assert(liveTile.Contains("public void RefreshAfterResuming()") &&
+               app.Contains("LiveTiles?.RefreshAfterResuming()"),
+            "live tile is not reconciled when a suspended app resumes");
+        Assert(manifest.Contains("<uap:ShowNameOnTiles>") &&
+               manifest.Contains("ShortName=\"LibreSpotUWP\""),
+            "the default tile has no visible identity before the first app launch");
+    }
+
+    private static void BackgroundingPreservesActiveLocalPlayback()
+    {
+        Assert(BackgroundPlaybackPolicy.ShouldKeepRunning(
+                isLocalDevice: true,
+                playbackRequested: true,
+                isPlayingOrLoading: true),
+            "active local playback was not classified as background-capable");
+        Assert(!BackgroundPlaybackPolicy.ShouldKeepRunning(
+                isLocalDevice: false,
+                playbackRequested: true,
+                isPlayingOrLoading: true),
+            "remote Spotify Connect playback was classified as local background audio");
+        Assert(!BackgroundPlaybackPolicy.ShouldKeepRunning(
+                isLocalDevice: true,
+                playbackRequested: false,
+                isPlayingOrLoading: true),
+            "a user-paused transport was classified as active background audio");
+        Assert(!BackgroundPlaybackPolicy.ShouldKeepRunning(
+                isLocalDevice: true,
+                playbackRequested: true,
+                isPlayingOrLoading: false),
+            "an idle local transport was classified as active background audio");
+
+        var repositoryRoot = FindRepositoryRoot();
+        var media = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "LibreSpotUWP",
+            "Services",
+            "MediaService.cs"));
+        var prepareStart = media.IndexOf(
+            "public Task PrepareForSuspendingAsync()",
+            StringComparison.Ordinal);
+        var resumeStart = prepareStart >= 0
+            ? media.IndexOf(
+                "public Task ResumeAfterSuspendingAsync()",
+                prepareStart,
+                StringComparison.Ordinal)
+            : -1;
+        Assert(prepareStart >= 0 && resumeStart > prepareStart,
+            "background playback lifecycle methods could not be inspected");
+
+        var prepare = media.Substring(prepareStart, resumeStart - prepareStart);
+        Assert(prepare.Contains("BackgroundPlaybackPolicy.ShouldKeepRunning") &&
+               prepare.Contains("_mediaPlayer.Play()") &&
+               prepare.Contains("PersistPlaybackSnapshot(forceWrite: true)"),
+            "suspension does not keep the UWP background-media sponsor and playback snapshot alive");
+        Assert(!prepare.Contains("_ringPlayer.PauseAsync") &&
+               !prepare.Contains("_mediaPlayer?.Pause") &&
+               !prepare.Contains("_librespot.PauseAsync"),
+            "pressing Home can still issue an explicit playback pause");
     }
 
     private static void RepetitiveTelemetryProducesOneSinkEntry()
@@ -629,6 +760,19 @@ internal static class Program
         }
 
         throw new InvalidOperationException("Unable to locate repository root for static UI audit");
+    }
+
+    private static int CountOccurrences(string source, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
     }
 
     private static void UpdateMaximum(ref int target, int value)
@@ -1307,6 +1451,59 @@ internal static class Program
         ApplicationQueueTransition ignored;
         Assert(!queue.TryClaimFallback(transition.QueueGenerationId, transition.TransitionId, out ignored),
             "fallback remained armed after normal TrackChanged");
+    }
+
+    private static void PlaylistBoundaryRejectsAlbumContinuation()
+    {
+        const string whisperMyName = "spotify:track:whisper-my-name";
+        const string mph = "spotify:track:mph";
+        const string plotTwist = "spotify:track:plot-twist";
+        var queue = ReadyQueue(new[] { whisperMyName, mph }, whisperMyName, 10, 1);
+        var started = DateTimeOffset.UtcNow;
+        var transition = queue.BeginEndOfTrack(whisperMyName, 10, 1, started);
+
+        var unexpected = queue.ObserveTrackChanged(
+            plotTwist,
+            11,
+            1,
+            started.AddMilliseconds(80));
+
+        Assert(unexpected != null && unexpected.RequiresCorrection,
+            "librespot's album continuation was accepted as the playlist continuation");
+        Assert(queue.Snapshot.CurrentIndex == 0,
+            "the unexpected album continuation advanced the application playlist");
+
+        ApplicationQueueTransition correction;
+        Assert(queue.TryClaimFallback(
+                transition.QueueGenerationId,
+                transition.TransitionId,
+                out correction),
+            "the unexpected album continuation disarmed the application correction");
+        Assert(correction.ExpectedUri == mph,
+            "the correction did not retain the next track from the playlist context");
+
+        var corrected = queue.ObserveTrackChanged(mph, 12, 1, started.AddMilliseconds(160));
+        Assert(corrected != null && !corrected.RequiresCorrection && corrected.ActualChangedUri == mph,
+            "the corrected playlist track was not accepted");
+        Assert(queue.Snapshot.CurrentIndex == 1,
+            "the corrected playlist track did not advance the application queue");
+
+        var repositoryRoot = FindRepositoryRoot();
+        var mediaService = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "LibreSpotUWP",
+            "Services",
+            "MediaService.cs"));
+        var correctionCheck = mediaService.IndexOf(
+            "transitionResult?.RequiresCorrection == true",
+            StringComparison.Ordinal);
+        var statePublication = mediaService.IndexOf(
+            "var queueSnapshot = _applicationQueue.Snapshot;",
+            correctionCheck,
+            StringComparison.Ordinal);
+        Assert(correctionCheck >= 0 && statePublication > correctionCheck &&
+               mediaService.Contains("CorrectUnexpectedApplicationQueueTrackAsync"),
+            "MediaService does not correct an album continuation before publishing it as the current playlist track");
     }
 
     private static void UnavailableSpotifyContextUsesApplicationFallback()
