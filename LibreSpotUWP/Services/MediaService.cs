@@ -1431,6 +1431,7 @@ namespace LibreSpotUWP.Services
 
                 UpdateState(s => s.Shuffle = enabled);
                 _applicationQueue.UpdateShuffle(enabled);
+                SyncSmtcShuffle(enabled);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
             }
@@ -1439,6 +1440,7 @@ namespace LibreSpotUWP.Services
 
             UpdateState(s => s.Shuffle = enabled);
             _applicationQueue.UpdateShuffle(enabled);
+            SyncSmtcShuffle(enabled);
         }
 
         public async Task SetRepeatAsync(int mode)
@@ -1459,6 +1461,7 @@ namespace LibreSpotUWP.Services
 
                 UpdateState(s => s.RepeatMode = mode);
                 _applicationQueue.UpdateRepeatMode(mode);
+                SyncSmtcRepeat((uint)mode);
                 await RefreshSpotifyConnectPlaybackAsync(force: true).ConfigureAwait(false);
                 return;
             }
@@ -1467,6 +1470,7 @@ namespace LibreSpotUWP.Services
 
             UpdateState(s => s.RepeatMode = mode);
             _applicationQueue.UpdateRepeatMode(mode);
+            SyncSmtcRepeat((uint)mode);
         }
 
         public async Task SetCurrentTrackPersistedAsync(bool persisted)
@@ -2360,6 +2364,7 @@ namespace LibreSpotUWP.Services
                 trackInfo != null ? (uint)trackInfo.Duration.TotalMilliseconds : Current.DurationMs,
                 playback.IsPlaying);
 
+            var repeatMode = MapRepeatMode(playback.RepeatState);
             UpdateState(s =>
             {
                 s.SpotifyConnectDeviceId = selectedId;
@@ -2378,7 +2383,7 @@ namespace LibreSpotUWP.Services
                 s.IsCurrentTrackPersisted = trackInfo != null && App.OfflineCatalog.IsTrackPersisted(trackInfo.Uri);
                 s.StatusMessage = null;
                 s.Shuffle = playback.ShuffleState;
-                s.RepeatMode = MapRepeatMode(playback.RepeatState);
+                s.RepeatMode = repeatMode;
                 if (device?.VolumePercent.HasValue == true)
                     s.Volume = (ushort)Math.Max(0, Math.Min(65535, device.VolumePercent.Value * 65535 / 100));
             });
@@ -2387,6 +2392,8 @@ namespace LibreSpotUWP.Services
             UpdateSmtcTimeline(synchronizedProgress);
             if (_smtc != null)
                 _smtc.PlaybackStatus = playback.IsPlaying ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+            SyncSmtcShuffle(playback.ShuffleState);
+            SyncSmtcRepeat((uint)repeatMode);
         }
 
         private void UpdateEstimatedRemotePosition()
@@ -3075,7 +3082,7 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"Unable to sync SMTC shuffle state: {ex.Message}");
+                LogService.Warn($"[MediaService.SyncSmtcShuffle] Unable to sync shuffle state: {ex.Message}");
             }
         }
 
@@ -3088,7 +3095,7 @@ namespace LibreSpotUWP.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"Unable to sync SMTC repeat state: {ex.Message}");
+                LogService.Warn($"[MediaService.SyncSmtcRepeat] Unable to sync repeat state: {ex.Message}");
             }
         }
 
@@ -3096,33 +3103,42 @@ namespace LibreSpotUWP.Services
         {
             switch (mode)
             {
-                case 1: return MediaPlaybackAutoRepeatMode.List;
-                case 2: return MediaPlaybackAutoRepeatMode.Track;
-                default: return MediaPlaybackAutoRepeatMode.None;
+                case 1:
+                    return MediaPlaybackAutoRepeatMode.List;
+                case 2:
+                    return MediaPlaybackAutoRepeatMode.Track;
+                default:
+                    return MediaPlaybackAutoRepeatMode.None;
             }
         }
 
-        private static uint ToLibrespotRepeatMode(MediaPlaybackAutoRepeatMode mode)
+        private static int ToLibrespotRepeatMode(MediaPlaybackAutoRepeatMode mode)
         {
             switch (mode)
             {
-                case MediaPlaybackAutoRepeatMode.List: return 1u;
-                case MediaPlaybackAutoRepeatMode.Track: return 2u;
-                default: return 0u;
+                case MediaPlaybackAutoRepeatMode.List:
+                    return 1;
+                case MediaPlaybackAutoRepeatMode.Track:
+                    return 2;
+                default:
+                    return 0;
             }
         }
 
-        private async void OnSmtcShuffleReceived(MediaPlaybackCommandManager sender, MediaPlaybackCommandManagerShuffleReceivedEventArgs args)
+        private async void OnSmtcShuffleReceived(
+            MediaPlaybackCommandManager sender,
+            MediaPlaybackCommandManagerShuffleReceivedEventArgs args)
         {
             var deferral = args.GetDeferral();
             try
             {
                 args.Handled = true;
-                await _librespot.SetShuffleAsync(args.IsShuffleRequested);
+                await SetShuffleAsync(args.IsShuffleRequested).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                LogService.Warn($"SMTC shuffle request failed: {ex.Message}");
+                SyncSmtcShuffle(Current.Shuffle);
+                LogService.Warn($"[MediaService.OnSmtcShuffleReceived] Shuffle request failed: {ex.Message}");
             }
             finally
             {
@@ -3130,17 +3146,20 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async void OnSmtcAutoRepeatModeReceived(MediaPlaybackCommandManager sender, MediaPlaybackCommandManagerAutoRepeatModeReceivedEventArgs args)
+        private async void OnSmtcAutoRepeatModeReceived(
+            MediaPlaybackCommandManager sender,
+            MediaPlaybackCommandManagerAutoRepeatModeReceivedEventArgs args)
         {
             var deferral = args.GetDeferral();
             try
             {
                 args.Handled = true;
-                await _librespot.SetRepeatAsync(ToLibrespotRepeatMode(args.AutoRepeatMode));
+                await SetRepeatAsync(ToLibrespotRepeatMode(args.AutoRepeatMode)).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                LogService.Warn($"SMTC repeat request failed: {ex.Message}");
+                SyncSmtcRepeat((uint)Current.RepeatMode);
+                LogService.Warn($"[MediaService.OnSmtcAutoRepeatModeReceived] Repeat request failed: {ex.Message}");
             }
             finally
             {
@@ -5300,14 +5319,10 @@ namespace LibreSpotUWP.Services
             _librespot.ShuffleChanged -= OnShuffleChanged;
             _librespot.RepeatChanged -= OnRepeatChanged;
 
-            if (_mediaPlayer != null)
+            if (_mediaPlayer?.CommandManager != null)
             {
-                var cm = _mediaPlayer.CommandManager;
-                if (cm != null)
-                {
-                    cm.ShuffleReceived -= OnSmtcShuffleReceived;
-                    cm.AutoRepeatModeReceived -= OnSmtcAutoRepeatModeReceived;
-                }
+                _mediaPlayer.CommandManager.ShuffleReceived -= OnSmtcShuffleReceived;
+                _mediaPlayer.CommandManager.AutoRepeatModeReceived -= OnSmtcAutoRepeatModeReceived;
             }
 
             _librespot.EndOfTrack -= OnEndOfTrack;
