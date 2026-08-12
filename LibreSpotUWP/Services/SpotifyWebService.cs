@@ -714,11 +714,12 @@ namespace LibreSpotUWP.Services
                 async () =>
                 {
                     ct.ThrowIfCancellationRequested();
-                    var payload = await _librespot.GetUserProfileAsync(_userId).ConfigureAwait(false);
+                    // Account identity belongs to the Web API session. Keep it available while
+                    // playback is waiting for its separate one-time authorization.
+                    var user = await ExecuteAsync(c => c.UserProfile.Current(ct), ct).ConfigureAwait(false);
 
-                    _userId = payload.Id;
-                    _userCountry = payload.Country;
-                    var user = MapPrivateUser(payload);
+                    _userId = user.Id;
+                    _userCountry = user.Country;
                     var cached = await _cache.TryGetAsync<PrivateUser>($"users/{_userId}/profile").ConfigureAwait(false);
                     if ((user.Images == null || user.Images.Count == 0 || string.IsNullOrWhiteSpace(user.Images[0].Url)) &&
                         cached?.Value?.Images != null &&

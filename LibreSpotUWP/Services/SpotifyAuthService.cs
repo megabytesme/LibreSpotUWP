@@ -28,7 +28,10 @@ namespace LibreSpotUWP.Services
         private const int RequiredAuthVersion = 1;
         private const string SpotifyMeEndpoint = "https://api.spotify.com/v1/me";
         private static readonly TimeSpan OfflinePersistenceLeaseDuration = TimeSpan.FromDays(30);
-        private static readonly HttpClient AccountHttpClient = new HttpClient();
+        private static readonly HttpClient AccountHttpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(20)
+        };
 
         public AuthState Current { get; private set; }
         public event EventHandler<AuthState> AuthStateChanged;

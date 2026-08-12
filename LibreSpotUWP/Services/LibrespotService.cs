@@ -51,7 +51,7 @@ namespace LibreSpotUWP.Services
         private bool _disposed;
         private bool _shuffle;
         private uint _repeatMode;
-        private string _activeAccessToken;
+        private string _activePlaybackAuthorization;
         private long _sessionGeneration;
 
         private string ts = DateTime.Now.ToString("HH:mm:ss");
@@ -85,6 +85,8 @@ namespace LibreSpotUWP.Services
         public event EventHandler<string> Panic;
         public event EventHandler<bool> ShuffleChanged;
         public event EventHandler<uint> RepeatChanged;
+        public event EventHandler<PlaybackCredentialsEventArgs> PlaybackCredentialsAvailable;
+        public event EventHandler PlaybackAuthorizationRejected;
 
         public LibrespotService(AudioKeyCache keyCache)
         {
@@ -211,33 +213,33 @@ namespace LibreSpotUWP.Services
             _ = _audioKeyCache.RemoveVolatileKeyAsync(trackIdHex);
         }
 
-        public async Task ConnectWithAccessTokenAsync(string accessToken)
+        public async Task ConnectWithPlaybackAuthAsync(PlaybackConnectionMaterial authorization)
         {
             ThrowIfDisposed();
             if (!_initialized)
                 throw new InvalidOperationException("LibrespotService not initialized.");
 
-            if (string.IsNullOrWhiteSpace(accessToken))
-                throw new ArgumentException("Access token must not be null or empty.", nameof(accessToken));
+            if (authorization == null || authorization.IsEmpty)
+                throw new ArgumentException("Playback authorization must not be empty.", nameof(authorization));
 
             await _connectGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (_instance != IntPtr.Zero && string.Equals(_activeAccessToken, accessToken, StringComparison.Ordinal))
+                if (_instance != IntPtr.Zero && string.Equals(_activePlaybackAuthorization, authorization.Identity, StringComparison.Ordinal))
                 {
-                    LogService.Info("[LibrespotService.ConnectWithAccessTokenAsync] Existing librespot instance already uses this access token.");
+                    LogService.Info("[LibrespotService.ConnectWithPlaybackAuthAsync] Existing librespot instance already uses this playback authorization.");
                     return;
                 }
 
-                LogService.Info($"[LibrespotService.ConnectWithAccessTokenAsync] Connecting with access token. activeSessionGeneration={SessionGeneration}.");
+                LogService.Info($"[LibrespotService.ConnectWithPlaybackAuthAsync] Connecting with playback authorization. activeSessionGeneration={SessionGeneration}.");
                 try
                 {
-                    await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
-                    _activeAccessToken = accessToken;
+                    await RecreateInstanceWithPlaybackAuthAsync(authorization).ConfigureAwait(false);
+                    _activePlaybackAuthorization = authorization.Identity;
                 }
                 catch
                 {
-                    _activeAccessToken = null;
+                    _activePlaybackAuthorization = null;
                     throw;
                 }
             }
@@ -247,27 +249,27 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        public async Task ReconnectWithAccessTokenAsync(string accessToken)
+        public async Task ReconnectWithPlaybackAuthAsync(PlaybackConnectionMaterial authorization)
         {
             ThrowIfDisposed();
             if (!_initialized)
                 throw new InvalidOperationException("LibrespotService not initialized.");
 
-            if (string.IsNullOrWhiteSpace(accessToken))
-                throw new ArgumentException("Access token must not be null or empty.", nameof(accessToken));
+            if (authorization == null || authorization.IsEmpty)
+                throw new ArgumentException("Playback authorization must not be empty.", nameof(authorization));
 
             await _connectGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                LogService.Info($"[LibrespotService.ReconnectWithAccessTokenAsync] Recreating librespot instance. activeSessionGeneration={SessionGeneration}.");
+                LogService.Info($"[LibrespotService.ReconnectWithPlaybackAuthAsync] Recreating librespot instance. activeSessionGeneration={SessionGeneration}.");
                 try
                 {
-                    await RecreateInstanceWithAccessTokenAsync(accessToken).ConfigureAwait(false);
-                    _activeAccessToken = accessToken;
+                    await RecreateInstanceWithPlaybackAuthAsync(authorization).ConfigureAwait(false);
+                    _activePlaybackAuthorization = authorization.Identity;
                 }
                 catch
                 {
-                    _activeAccessToken = null;
+                    _activePlaybackAuthorization = null;
                     throw;
                 }
             }
@@ -294,7 +296,7 @@ namespace LibreSpotUWP.Services
                     await FreeNativeInstanceAsync(instance, "disconnect").ConfigureAwait(false);
                 }
 
-                _activeAccessToken = null;
+                _activePlaybackAuthorization = null;
                 lock (_stateLock)
                 {
                     _session = new LibrespotSessionState
@@ -1032,7 +1034,7 @@ namespace LibreSpotUWP.Services
                         _instance = IntPtr.Zero;
                         await FreeNativeInstanceAsync(instance, "dispose").ConfigureAwait(false);
                     }
-                    _activeAccessToken = null;
+                    _activePlaybackAuthorization = null;
                 }
                 finally
                 {
@@ -1246,6 +1248,19 @@ namespace LibreSpotUWP.Services
                 case EventType.SessionConnected:
                     string user = ReadString(evt.data.session_user);
                     LogService.Info($"{logPrefix} Connected as user: {user}");
+                    var reusableCredentials = ReadReusablePlaybackCredentials();
+                    if (!string.IsNullOrWhiteSpace(reusableCredentials))
+                    {
+                        var credentialArgs = new PlaybackCredentialsEventArgs
+                        {
+                            CredentialsJson = reusableCredentials,
+                            SessionUser = user
+                        };
+                        RaiseOnMainThread(
+                            () => PlaybackCredentialsAvailable?.Invoke(this, credentialArgs),
+                            nameof(PlaybackCredentialsAvailable),
+                            sessionGeneration);
+                    }
                     OnSessionChanged(true, user, sessionGeneration);
                     break;
 
@@ -1258,6 +1273,15 @@ namespace LibreSpotUWP.Services
                     string client = ReadString(evt.data.client_name);
                     LogService.Info($"{logPrefix} Active Client switched to: {client}");
                     UpdateClientInfo(client, sessionGeneration);
+                    break;
+
+                case EventType.PlaybackAuthorizationRejected:
+                    LogService.Warn($"{logPrefix} Spotify rejected the playback authorization.");
+                    _activePlaybackAuthorization = null;
+                    RaiseOnMainThread(
+                        () => PlaybackAuthorizationRejected?.Invoke(this, EventArgs.Empty),
+                        nameof(PlaybackAuthorizationRejected),
+                        sessionGeneration);
                     break;
 
                 case EventType.AutoPlayChanged:
@@ -1304,6 +1328,26 @@ namespace LibreSpotUWP.Services
                 snapshot = _session;
             }
             RaiseOnMainThread(() => SessionStateChanged?.Invoke(this, snapshot), nameof(SessionStateChanged), sessionGeneration);
+        }
+
+        private string ReadReusablePlaybackCredentials()
+        {
+            var instance = _instance;
+            if (instance == IntPtr.Zero)
+                return null;
+
+            var value = Librespot.librespot_get_playback_credentials(instance);
+            if (value == IntPtr.Zero)
+                return null;
+
+            try
+            {
+                return ReadString(value);
+            }
+            finally
+            {
+                Librespot.librespot_string_free(value);
+            }
         }
 
         private void UpdatePlaybackState(LibrespotPlaybackState state)
@@ -1527,7 +1571,7 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private async Task RecreateInstanceWithAccessTokenAsync(string accessToken)
+        private async Task RecreateInstanceWithPlaybackAuthAsync(PlaybackConnectionMaterial authorization)
         {
             long generation = Interlocked.Increment(ref _sessionGeneration);
             if (_instance != IntPtr.Zero)
@@ -1556,21 +1600,21 @@ namespace LibreSpotUWP.Services
             _callbackDelegate = callback;
             _sessionCallbacks.Add(callback);
 
-            var cfg = BuildConfig(accessToken);
+            var cfg = BuildConfig(authorization);
             try
             {
                 _instance = await Task.Run(
                     () => Librespot.librespot_new(cfg, _callbackDelegate, IntPtr.Zero))
                     .ConfigureAwait(false);
                 if (_instance == IntPtr.Zero)
-                    throw new InvalidOperationException("librespot_new (with token) returned NULL.");
+                    throw new InvalidOperationException("librespot_new (with playback authorization) returned NULL.");
             }
             finally
             {
                 FreeConfig(cfg);
             }
 
-            LogService.Info($"[LibrespotService.RecreateInstanceWithAccessTokenAsync] Native session created. sessionGeneration={generation}.");
+            LogService.Info($"[LibrespotService.RecreateInstanceWithPlaybackAuthAsync] Native session created. sessionGeneration={generation}.");
         }
 
         private static async Task FreeNativeInstanceAsync(IntPtr instance, string reason)
@@ -1608,7 +1652,7 @@ namespace LibreSpotUWP.Services
                 .ToArray();
         }
 
-        private LibrespotConfig BuildConfig(string accessToken)
+        private LibrespotConfig BuildConfig(PlaybackConnectionMaterial authorization)
         {
             string deviceType;
             switch (AnalyticsInfo.VersionInfo.DeviceFamily)
@@ -1645,7 +1689,12 @@ namespace LibreSpotUWP.Services
                 username = IntPtr.Zero,
                 password = IntPtr.Zero,
                 auth_blob = IntPtr.Zero,
-                access_token = AllocUtf8String(accessToken),
+                access_token = string.IsNullOrWhiteSpace(authorization?.BootstrapAccessToken)
+                    ? IntPtr.Zero
+                    : AllocUtf8String(authorization.BootstrapAccessToken),
+                playback_credentials = string.IsNullOrWhiteSpace(authorization?.StoredCredentials)
+                    ? IntPtr.Zero
+                    : AllocUtf8String(authorization.StoredCredentials),
                 key_callback = _keyCallbackDelegate,
                 key_save_callback = _keySaveDelegate,
                 key_remove_callback = _keyRemoveDelegate,
@@ -1683,6 +1732,7 @@ namespace LibreSpotUWP.Services
             FreeHGlobalIfNeeded(cfg.password);
             FreeHGlobalIfNeeded(cfg.auth_blob);
             FreeHGlobalIfNeeded(cfg.access_token);
+            FreeHGlobalIfNeeded(cfg.playback_credentials);
         }
 
         private static void FreeHGlobalIfNeeded(IntPtr ptr)

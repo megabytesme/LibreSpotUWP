@@ -20,6 +20,7 @@ using Windows.Media.Playback;
 using Windows.Networking.Connectivity;
 using Windows.Storage;
 using Windows.Storage.Streams;
+using Windows.UI.Core;
 using Windows.UI.Xaml;
 using static LibreSpotUWP.Interop.Librespot;
 
@@ -29,6 +30,7 @@ namespace LibreSpotUWP.Services
     {
         private readonly ILibrespotService _librespot;
         private readonly ISpotifyAuthService _auth;
+        private readonly ISpotifyPlaybackAuthService _playbackAuth;
         private readonly ISpotifyWebService _web;
 
         private readonly object _lock = new object();
@@ -163,10 +165,12 @@ namespace LibreSpotUWP.Services
         public MediaService(
             ILibrespotService librespot,
             ISpotifyAuthService auth,
+            ISpotifyPlaybackAuthService playbackAuth,
             ISpotifyWebService web)
         {
             _librespot = librespot;
             _auth = auth;
+            _playbackAuth = playbackAuth;
             _web = web;
         }
 
@@ -233,8 +237,9 @@ namespace LibreSpotUWP.Services
             _librespot.TimeToPreloadNextTrack += OnTimeToPreloadNextTrack;
             _librespot.TrackPreloading += OnTrackPreloading;
             _librespot.LogMessage += OnLibrespotLogMessage;
-
-            _auth.AuthStateChanged += OnAuthChanged;
+            _librespot.PlaybackCredentialsAvailable += OnPlaybackCredentialsAvailable;
+            _librespot.PlaybackAuthorizationRejected += OnPlaybackAuthorizationRejected;
+            _playbackAuth.PlaybackAuthStateChanged += OnPlaybackAuthChanged;
 
             _mediaPlayer.Source = CreateSilentMediaSource();
             await RestorePlaybackSnapshotAsync();
@@ -956,6 +961,16 @@ namespace LibreSpotUWP.Services
                 return false;
             }
 
+            var playbackAuthorization = await _playbackAuth.GetConnectionMaterialAsync().ConfigureAwait(false);
+            if (playbackAuthorization == null || playbackAuthorization.IsEmpty)
+            {
+                UpdateState(s =>
+                {
+                    s.StatusMessage = "Spotify playback authorization is required. Open Account settings to continue.";
+                });
+                return false;
+            }
+
             if ((forceFreshOnlineSession || _librespotTransportUnhealthy || requiresOnlineReconnect) && !isOffline)
             {
                 _ringPlayer?.BeginTransition(
@@ -965,12 +980,12 @@ namespace LibreSpotUWP.Services
                     preserveCurrent: false,
                     shouldPlay: Current.PlaybackState == LibrespotPlaybackState.Playing ||
                         Current.PlaybackState == LibrespotPlaybackState.Loading);
-                await _librespot.ReconnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                await _librespot.ReconnectWithPlaybackAuthAsync(playbackAuthorization).ConfigureAwait(false);
                 _librespotTransportUnhealthy = false;
             }
             else
             {
-                await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                await _librespot.ConnectWithPlaybackAuthAsync(playbackAuthorization).ConfigureAwait(false);
             }
 
             if (!isOffline && !await WaitForLocalLibrespotSessionConnectedAsync(
@@ -3167,18 +3182,87 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        private void OnAuthChanged(object sender, AuthState auth)
+        private void OnPlaybackAuthChanged(object sender, PlaybackAuthState authorization)
         {
             if (!ConnectivityHelper.HasInternetAccess())
                 return;
 
-            if (auth == null || auth.IsExpired || string.IsNullOrEmpty(auth.AccessToken))
+            if (authorization == null ||
+                authorization.Status == PlaybackAuthorizationStatus.Missing ||
+                authorization.Status == PlaybackAuthorizationStatus.Rejected)
                 return;
 
             if ((_librespot as LibrespotService)?.HasInstance == true)
                 return;
 
-            _ = ConnectAfterAuthChangedAsync(auth.AccessToken);
+            _ = ConnectAfterPlaybackAuthChangedAsync();
+        }
+
+        private async void OnPlaybackCredentialsAvailable(object sender, PlaybackCredentialsEventArgs args)
+        {
+            var dispatcher = Window.Current?.Dispatcher;
+            try
+            {
+                await _playbackAuth
+                    .SaveReusableCredentialsAsync(args.CredentialsJson, args.SessionUser)
+                    .ConfigureAwait(false);
+                LogService.Info("[MediaService.OnPlaybackCredentialsAvailable] Reusable playback authorization saved securely.");
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(ex, "[MediaService.OnPlaybackCredentialsAvailable] Unable to retain playback authorization");
+                try
+                {
+                    await _playbackAuth.MarkRejectedAsync().ConfigureAwait(false);
+                    await _librespot.DisconnectAsync().ConfigureAwait(false);
+                    if (dispatcher != null)
+                    {
+                        await dispatcher.RunAsync(
+                            CoreDispatcherPriority.Normal,
+                            () => _ = PlaybackAuthorizationDialog.ShowIfNeededAsync(force: true));
+                    }
+                }
+                catch (Exception cleanupError)
+                {
+                    LogService.Error(cleanupError, "[MediaService.OnPlaybackCredentialsAvailable] Rejection cleanup failed");
+                }
+            }
+        }
+
+        private async void OnPlaybackAuthorizationRejected(object sender, EventArgs args)
+        {
+            var dispatcher = Window.Current?.Dispatcher;
+            try
+            {
+                await _playbackAuth.MarkRejectedAsync().ConfigureAwait(false);
+                await _librespot.DisconnectAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.OnPlaybackAuthorizationRejected] Cleanup failed: {ex.Message}");
+            }
+            finally
+            {
+                UpdateState(state =>
+                {
+                    state.PlaybackState = LibrespotPlaybackState.Stopped;
+                    state.StatusMessage = "Spotify playback authorization expired. Open Account settings to authorize playback again.";
+                });
+
+                try
+                {
+                    if (dispatcher != null)
+                    {
+                        await dispatcher.RunAsync(
+                            CoreDispatcherPriority.Normal,
+                            () => _ = PlaybackAuthorizationDialog.ShowIfNeededAsync(force: true));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Warn($"[MediaService.OnPlaybackAuthorizationRejected] Unable to show recovery dialog: {ex.Message}");
+                }
+            }
         }
 
         private void OnLibrespotLogMessage(object sender, string message)
@@ -3368,6 +3452,9 @@ namespace LibreSpotUWP.Services
                     cancellationToken.ThrowIfCancellationRequested();
                     if (string.IsNullOrWhiteSpace(accessToken))
                         throw new InvalidOperationException("No access token is available for producer recovery.");
+                    var playbackAuthorization = await _playbackAuth.GetConnectionMaterialAsync().ConfigureAwait(false);
+                    if (playbackAuthorization == null || playbackAuthorization.IsEmpty)
+                        throw new InvalidOperationException("Spotify playback authorization is required for producer recovery.");
 
                     LogService.Warn($"[MediaService.RecoverProducerAsync] Starting attempt={attempt}/{MaxProducerRecoveryAttempts}, graphId={player.GraphInstanceId}, failedSessionGeneration={trigger.SessionGeneration}, reason={trigger.Reason}, track={trackUri}, positionMs={positionMs}.");
                     player.BeginTransition(
@@ -3382,7 +3469,7 @@ namespace LibreSpotUWP.Services
                         state.StatusMessage = "Spotify playback stalled. Reconnecting…";
                     });
 
-                    await _librespot.ReconnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                    await _librespot.ReconnectWithPlaybackAuthAsync(playbackAuthorization).ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     long replacementSessionGeneration = _librespot.SessionGeneration;
                     var replacementSession = _librespot.Session;
@@ -3527,17 +3614,19 @@ namespace LibreSpotUWP.Services
             LogService.Warn($"[MediaService.MarkFailedDownloadedTrackFromLibrespotLog] Excluding failed downloaded track for this session: {trackUri}");
         }
 
-        private async Task ConnectAfterAuthChangedAsync(string accessToken)
+        private async Task ConnectAfterPlaybackAuthChangedAsync()
         {
             CancelPlaybackContinuationWatchdog();
             await _playbackGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                var authorization = await _playbackAuth.GetConnectionMaterialAsync().ConfigureAwait(false);
+                if (authorization != null && !authorization.IsEmpty)
+                    await _librespot.ConnectWithPlaybackAuthAsync(authorization).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                LogService.Warn($"[MediaService.OnAuthChanged] Unable to reconnect librespot after auth changed: {ex.Message}");
+                LogService.Warn($"[MediaService.OnPlaybackAuthChanged] Unable to reconnect librespot after playback authorization changed: {ex.Message}");
             }
             finally
             {
@@ -4851,7 +4940,9 @@ namespace LibreSpotUWP.Services
                 }
 
                 var accessToken = await _auth.EnsureValidAccessTokenAsync(interactive: false);
+                var playbackAuthorization = await _playbackAuth.GetConnectionMaterialAsync();
                 if (!string.IsNullOrWhiteSpace(accessToken) &&
+                    playbackAuthorization != null && !playbackAuthorization.IsEmpty &&
                     (!_librespot.Session.IsConnected || _librespotTransportUnhealthy))
                 {
                     CancelPlaybackContinuationWatchdog();
@@ -4868,13 +4959,13 @@ namespace LibreSpotUWP.Services
                                 preserveCurrent: false,
                                 shouldPlay: _state.PlaybackState == LibrespotPlaybackState.Playing ||
                                     _state.PlaybackState == LibrespotPlaybackState.Loading);
-                            await _librespot.ReconnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                            await _librespot.ReconnectWithPlaybackAuthAsync(playbackAuthorization).ConfigureAwait(false);
                             _librespotTransportUnhealthy = false;
                         }
                         else
                         {
                             LogService.Info("[MediaService.HandleNetworkStatusChangedAsync] Connectivity restored, reconnecting librespot.");
-                            await _librespot.ConnectWithAccessTokenAsync(accessToken).ConfigureAwait(false);
+                            await _librespot.ConnectWithPlaybackAuthAsync(playbackAuthorization).ConfigureAwait(false);
                         }
                     }
                     finally
@@ -5310,7 +5401,7 @@ namespace LibreSpotUWP.Services
             NetworkInformation.NetworkStatusChanged -= OnNetworkStatusChanged;
             ConnectivityHelper.InternetAccessFailureReported -= OnInternetAccessFailureReported;
             ConnectivityHelper.ConnectivityStatusChanged -= OnConnectivityStatusChanged;
-            _auth.AuthStateChanged -= OnAuthChanged;
+            _playbackAuth.PlaybackAuthStateChanged -= OnPlaybackAuthChanged;
             _librespot.TrackChanged -= OnTrackChanged;
             _librespot.PlaybackEvent -= OnPlaybackChanged;
             _librespot.PositionChanged -= OnPositionChanged;
@@ -5329,6 +5420,9 @@ namespace LibreSpotUWP.Services
             _librespot.TimeToPreloadNextTrack -= OnTimeToPreloadNextTrack;
             _librespot.TrackPreloading -= OnTrackPreloading;
             _librespot.LogMessage -= OnLibrespotLogMessage;
+            _librespot.PlaybackCredentialsAvailable -= OnPlaybackCredentialsAvailable;
+            _librespot.PlaybackAuthorizationRejected -= OnPlaybackAuthorizationRejected;
+            _playbackAuth.PlaybackAuthStateChanged -= OnPlaybackAuthChanged;
 
             _positionTimer?.Stop();
             _volumeDebounceTimer?.Stop();

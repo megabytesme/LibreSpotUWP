@@ -34,6 +34,7 @@ namespace LibreSpotUWP.Controls
     {
         private static readonly Uri LoginHelperProjectUri = new Uri("https://github.com/megabytesme/LibreSpotUWPLoginHelper/releases/latest");
         private ISpotifyAuthService _auth;
+        private ISpotifyPlaybackAuthService _playbackAuth;
         private ISpotifyWebService _web;
 
         private AppUserProfile _user;
@@ -44,12 +45,14 @@ namespace LibreSpotUWP.Controls
             InitializeComponent();
 
             _auth = App.SpotifyAuth;
+            _playbackAuth = App.SpotifyPlaybackAuth;
             _web = App.SpotifyWeb;
 
             Loaded += async (s, e) => await Initialize();
 
             SpotifyAccountManager.Instance.UserChanged += OnGlobalUserChanged;
             _auth.AuthStateChanged += OnAuthStateChanged;
+            _playbackAuth.PlaybackAuthStateChanged += OnPlaybackAuthStateChanged;
             Unloaded += OnUnloaded;
         }
 
@@ -68,6 +71,7 @@ namespace LibreSpotUWP.Controls
 
         public async Task Initialize()
         {
+            UpdatePlaybackStatus(_playbackAuth.Current);
             var token = await _auth.GetAccessToken();
 
             if (string.IsNullOrEmpty(token))
@@ -104,7 +108,40 @@ namespace LibreSpotUWP.Controls
         {
             SpotifyAccountManager.Instance.UserChanged -= OnGlobalUserChanged;
             _auth.AuthStateChanged -= OnAuthStateChanged;
+            _playbackAuth.PlaybackAuthStateChanged -= OnPlaybackAuthStateChanged;
             Unloaded -= OnUnloaded;
+        }
+
+        private async void OnPlaybackAuthStateChanged(object sender, PlaybackAuthState state)
+        {
+            await Dispatcher.RunAsync(
+                Windows.UI.Core.CoreDispatcherPriority.Normal,
+                () => UpdatePlaybackStatus(state));
+        }
+
+        private void UpdatePlaybackStatus(PlaybackAuthState state)
+        {
+            if (state == null || state.Status == PlaybackAuthorizationStatus.Missing)
+            {
+                PlaybackStatusText.Text = "Playback authorization required";
+                return;
+            }
+
+            switch (state.Status)
+            {
+                case PlaybackAuthorizationStatus.BootstrapPending:
+                    PlaybackStatusText.Text = "Finishing playback authorization...";
+                    break;
+                case PlaybackAuthorizationStatus.Ready:
+                    PlaybackStatusText.Text = "Playback authorized";
+                    break;
+                case PlaybackAuthorizationStatus.Rejected:
+                    PlaybackStatusText.Text = "Playback authorization expired";
+                    break;
+                default:
+                    PlaybackStatusText.Text = "Playback authorization required";
+                    break;
+            }
         }
 
         private void OnGlobalUserChanged(object sender, AppUserProfile user)
@@ -150,6 +187,7 @@ namespace LibreSpotUWP.Controls
             {
                 DisplayNameText.Text = "Not Signed In";
                 EmailText.Text = "Connect your Spotify account";
+                PlaybackStatusText.Text = "Sign in to authorize playback";
                 UserAvatarBrush.ImageSource = null;
                 BtnManage.Content = "Sign In";
             }
@@ -223,12 +261,47 @@ namespace LibreSpotUWP.Controls
             }
             else
             {
+                var playbackPackage = await App.SpotifyPlaybackAuth.ExportAsync();
+                if (playbackPackage == null)
+                {
+                    if (OSHelper.SupportsBrowserSpotifyLogin)
+                    {
+                        var btnAuthorizePlaybackInBrowser = new Button
+                        {
+                            Content = "Authorize Playback in Browser",
+                            HorizontalAlignment = HorizontalAlignment.Stretch,
+                            Margin = new Thickness(0, 0, 0, 10)
+                        };
+                        btnAuthorizePlaybackInBrowser.Click += async (s, args) =>
+                        {
+                            dialog.Hide();
+                            await PlaybackBrowserAuthorizationHelper.ShowAsync(
+                                _user?.Id ?? App.SpotifyPlaybackAuth.Current?.AccountId);
+                        };
+                        stackPanel.Children.Add(btnAuthorizePlaybackInBrowser);
+                    }
+
+                    var btnAuthorizePlayback = new Button
+                    {
+                        Content = "Authorize Playback with Login Helper",
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        Margin = new Thickness(0, 0, 0, 10)
+                    };
+                    btnAuthorizePlayback.Click += async (s, args) =>
+                    {
+                        dialog.Hide();
+                        await ShowQrSignInHelpAsync();
+                    };
+                    stackPanel.Children.Add(btnAuthorizePlayback);
+                }
+
                 var btnShare = new Button
                 {
                     Content = "Share My Session (QR)",
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     Margin = new Thickness(0, 0, 0, 10)
                 };
+                btnShare.IsEnabled = playbackPackage != null;
                 btnShare.Click += async (s, args) => { dialog.Hide(); await ShareCurrentAccountQrAsync(); };
 
                 var btnShareText = new Button
@@ -237,6 +310,7 @@ namespace LibreSpotUWP.Controls
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     Margin = new Thickness(0, 0, 0, 10)
                 };
+                btnShareText.IsEnabled = playbackPackage != null;
                 btnShareText.Click += async (s, args) => { dialog.Hide(); await ShareCurrentAccountTextAsync(); };
 
                 var btnLogout = new Button
@@ -244,12 +318,12 @@ namespace LibreSpotUWP.Controls
                     Content = "Log Out",
                     HorizontalAlignment = HorizontalAlignment.Stretch
                 };
-                btnLogout.Click += (s, args) =>
+                btnLogout.Click += async (s, args) =>
                 {
                     dialog.Hide();
-
-                    _auth.ResetAuthStateAsync();
-
+                    await App.Librespot.DisconnectAsync();
+                    await App.SpotifyPlaybackAuth.ResetAsync();
+                    await _auth.ResetAuthStateAsync();
                     SpotifyAccountManager.Instance.SetUser(null);
                 };
 
@@ -336,45 +410,29 @@ namespace LibreSpotUWP.Controls
 
         private async Task PasteSignInDetailsAsync()
         {
-            var textBox = new TextBox
-            {
-                AcceptsReturn = true,
-                TextWrapping = TextWrapping.Wrap,
-                Height = 220,
-                PlaceholderText = "Paste sign-in details from another LibreSpotUWP client or the Login Helper app"
-            };
-
-            var container = new StackPanel();
-            container.Children.Add(new TextBlock
-            {
-                Text = "Paste the full sign-in details text. It uses the same data as the QR code.",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 12)
-            });
-            container.Children.Add(textBox);
-
-            var dialog = new ContentDialog
-            {
-                Title = "Paste Sign-in Details",
-                Content = container,
-                PrimaryButtonText = "Import",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Primary)
-                return;
-
-            await QrLoginHelper.ImportQrLoginAsync(textBox.Text, _auth, value => IsLoading = value);
+            await QrLoginHelper.ShowPasteSignInDetailsAsync(_auth, value => IsLoading = value);
         }
 
-        private Task<string> BuildCurrentAccountPayloadAsync()
+        private async Task<string> BuildCurrentAccountPayloadAsync()
         {
-            return Task.Run(() =>
+            var playback = await App.SpotifyPlaybackAuth.ExportAsync();
+            if (playback == null)
+                throw new InvalidOperationException("Spotify playback must be authorized before this session can be shared.");
+
+            var package = new LoginPackage
+            {
+                Format = LoginPackage.CurrentFormat,
+                Version = LoginPackage.CurrentVersion,
+                MinimumAppVersion = "1.0.5.0",
+                AccountId = _user?.Id ?? App.SpotifyPlaybackAuth.Current?.AccountId,
+                Web = _auth.Current,
+                Playback = playback
+            };
+
+            return await Task.Run(() =>
             {
                 UiResponsivenessTelemetry.VerifyBackgroundThread("account export JSON serialization");
-                return Newtonsoft.Json.JsonConvert.SerializeObject(_auth.Current);
+                return Newtonsoft.Json.JsonConvert.SerializeObject(package);
             });
         }
 

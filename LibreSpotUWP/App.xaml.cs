@@ -34,6 +34,7 @@ namespace LibreSpotUWP
         public static string AuthToken { get; set; }
         public static ILibrespotService Librespot { get; private set; }
         public static ISpotifyAuthService SpotifyAuth { get; private set; }
+        public static ISpotifyPlaybackAuthService SpotifyPlaybackAuth { get; private set; }
         public static ISpotifyWebService SpotifyWeb { get; private set; }
         public static IMediaService Media { get; private set; }
         public static IOfflineCatalogService OfflineCatalog { get; private set; }
@@ -130,6 +131,7 @@ namespace LibreSpotUWP
                     {
                         LogService.Info("PKCE Code received.");
                         await SpotifyAuth.ExchangePkceCodeAsync(code);
+                        await PlaybackAuthorizationDialog.ShowIfNeededAsync(force: true);
                     }
 
                     Window.Current.Activate();
@@ -218,6 +220,9 @@ namespace LibreSpotUWP
                     }
 
                     if (isSignedIn)
+                        await PlaybackAuthorizationDialog.ShowIfNeededAsync();
+
+                    if (isSignedIn)
                         await AudioKeyCompatibilityWarning.ShowIfNeededAsync();
 
                     if (shouldCheckForUpdates)
@@ -263,10 +268,13 @@ namespace LibreSpotUWP
             await KeyCache.InitializeAsync();
             Librespot = new LibrespotService(KeyCache);
             SpotifyAuth = new SpotifyAuthService(_secureStorage);
+            SpotifyPlaybackAuth = new SpotifyPlaybackAuthService(_secureStorage);
+            await SpotifyPlaybackAuth.InitializeAsync();
+            SpotifyAuth.AuthStateChanged += OnSpotifyWebAuthStateChanged;
             SpotifyWeb = new SpotifyWebService(SpotifyAuth, _metadataCache, Librespot);
             OfflineCatalog = new OfflineCatalogService();
             Downloads = new DownloadTrackerService();
-            Media = new MediaService(Librespot, SpotifyAuth, SpotifyWeb);
+            Media = new MediaService(Librespot, SpotifyAuth, SpotifyPlaybackAuth, SpotifyWeb);
             BackgroundExecution = new UwpBackgroundExecutionManager();
 
             await Librespot.InitializeAsync();
@@ -296,7 +304,11 @@ namespace LibreSpotUWP
 
             if (!string.IsNullOrEmpty(token))
             {
-                await Librespot.ConnectWithAccessTokenAsync(token);
+                var playbackAuthorization = await SpotifyPlaybackAuth.GetConnectionMaterialAsync();
+                if (playbackAuthorization != null && !playbackAuthorization.IsEmpty)
+                    await Librespot.ConnectWithPlaybackAuthAsync(playbackAuthorization);
+                else
+                    LogService.Warn("[App.EnsureServicesInitializedAsync] Spotify Web API session is valid, but playback authorization is required.");
 
                 if (hasInternet)
                     await OfflineCatalog.RemoveExpiredPersistedTracksAsync();
@@ -321,6 +333,24 @@ namespace LibreSpotUWP
 
             _servicesInitialized = true;
             return isSignedIn;
+        }
+
+        private async void OnSpotifyWebAuthStateChanged(object sender, Models.AuthState state)
+        {
+            if (state != null)
+                return;
+
+            try
+            {
+                if (Librespot != null)
+                    await Librespot.DisconnectAsync();
+                if (SpotifyPlaybackAuth != null)
+                    await SpotifyPlaybackAuth.ResetAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[App.OnSpotifyWebAuthStateChanged] Unable to clear playback authorization after sign-out: {ex.Message}");
+            }
         }
 
         private static bool IsCurrentUserSignedIn()

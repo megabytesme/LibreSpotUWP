@@ -187,6 +187,8 @@
     <Compile Include="Helpers\NavigationHelper.cs" />
     <Compile Include="Helpers\OSHelper.cs" />
     <Compile Include="Helpers\PremiumRequiredDialog.cs" />
+    <Compile Include="Helpers\PlaybackAuthorizationDialog.cs" />
+    <Compile Include="Helpers\PlaybackBrowserAuthorizationHelper.cs" />
     <Compile Include="Helpers\QrLoginHelper.cs" />
     <Compile Include="Helpers\SpotifyIdHelper.cs" />
     <Compile Include="Helpers\SpotifyDjSupportHelper.cs" />
@@ -197,6 +199,7 @@
     <Compile Include="Interfaces\IMetadataCache.cs" />
     <Compile Include="Interfaces\ILibrespotService.cs" />
     <Compile Include="Interfaces\ISpotifyAuthService.cs" />
+    <Compile Include="Interfaces\ISpotifyPlaybackAuthService.cs" />
     <Compile Include="Interfaces\IMediaService.cs" />
     <Compile Include="Interfaces\IAppShell.cs" />
     <Compile Include="Models\Enums.cs" />
@@ -220,6 +223,8 @@
     <Compile Include="Models\LibrespotTrackInfo.cs" />
     <Compile Include="Models\LibrespotSessionState.cs" />
     <Compile Include="Models\AuthState.cs" />
+    <Compile Include="Models\LoginPackage.cs" />
+    <Compile Include="Models\PlaybackAuthState.cs" />
     <Compile Include="Interfaces\ISecureStorage.cs" />
     <Compile Include="Services\AppearanceService.cs" />
     <Compile Include="Services\AudioKeyCache.cs" />
@@ -227,6 +232,7 @@
     <Compile Include="Services\SecureStorage.cs" />
     <Compile Include="Exceptions\SpotifyWebExceptions.cs" />
     <Compile Include="Services\SpotifyAuthService.cs" />
+    <Compile Include="Services\SpotifyPlaybackAuthService.cs" />
     <Compile Include="Services\FileMetadataCache.cs" />
     <Compile Include="Services\FileSystem.cs" />
     <Compile Include="Services\LogService.cs" />

@@ -50,6 +50,13 @@
                 Opacity="0.7"
                 Text="Connect your Spotify account"
                 TextTrimming="CharacterEllipsis" />
+
+            <TextBlock
+                x:Name="PlaybackStatusText"
+                FontSize="12"
+                Opacity="0.7"
+                Text="Playback authorization required"
+                TextTrimming="CharacterEllipsis" />
         </StackPanel>
 
         <Button

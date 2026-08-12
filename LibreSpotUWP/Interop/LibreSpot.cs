@@ -49,6 +49,7 @@ namespace LibreSpotUWP.Interop
             public IntPtr password;
             public IntPtr auth_blob;
             public IntPtr access_token;
+            public IntPtr playback_credentials;
 
             public LibrespotKeyCallback key_callback;
             public LibrespotKeySaveCallback key_save_callback;
@@ -100,6 +101,7 @@ namespace LibreSpotUWP.Interop
             TimeToPreloadNextTrack = 23,
             PositionChanged = 24,
             PlaybackKeyUnavailable = 25,
+            PlaybackAuthorizationRejected = 26,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -434,6 +436,9 @@ namespace LibreSpotUWP.Interop
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void librespot_string_free(IntPtr value);
+
+        [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr librespot_get_playback_credentials(IntPtr inst);
 
         [DllImport("librespot.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr librespot_track_get(IntPtr inst, IntPtr argument);

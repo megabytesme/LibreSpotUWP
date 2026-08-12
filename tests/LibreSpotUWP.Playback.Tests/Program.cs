@@ -22,6 +22,7 @@ internal static class Program
             ReportedNetworkAndAudioFailurePathsAreHardened,
             WindowsMobileStorageAndXAudio28RoutingAreHardened,
             AudioKeyCompatibilityWarningCoversEverySignInPath,
+            PlaybackAuthorizationBoundaryIsSeparated,
             VolumeSliderWorkIsCoalesced,
             NavigationCancelsOldHomeGeneration,
             StaleHomeResultsCannotUpdateReplacementGeneration,
@@ -209,6 +210,69 @@ internal static class Program
         Assert(media.Contains("HandleAudioKeyUnavailable(playbackEvent)") &&
                media.Contains("Playback stopped without queue skipping"),
             "Spotify audio-key rejection can still feed the decoder or skip the entire queue");
+    }
+
+    private static void PlaybackAuthorizationBoundaryIsSeparated()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appRoot = Path.Combine(repositoryRoot, "LibreSpotUWP");
+        var workspaceRoot = Directory.GetParent(repositoryRoot).FullName;
+        var rustRoot = Path.Combine(workspaceRoot, "librespot");
+        var helperRoot = Path.Combine(workspaceRoot, "LibreSpotUWPLoginHelper");
+
+        var app = File.ReadAllText(Path.Combine(appRoot, "App.xaml.cs"));
+        Assert(app.Contains("SpotifyPlaybackAuth.GetConnectionMaterialAsync()") &&
+               !app.Contains("ConnectWithAccessTokenAsync(token)"),
+            "startup still supplies the Spotify Web API token to native playback");
+
+        var playbackAuth = File.ReadAllText(Path.Combine(
+            appRoot,
+            "Services",
+            "SpotifyPlaybackAuthService.cs"));
+        Assert(playbackAuth.Contains("spotify_playback_auth_state") &&
+               playbackAuth.Contains("PlaybackClientId") &&
+               playbackAuth.Contains("PlaybackRedirectUri") &&
+               playbackAuth.Contains("Timeout = TimeSpan.FromSeconds(30)"),
+            "playback authorization is not independently stored or bounded");
+
+        var spotifyWeb = File.ReadAllText(Path.Combine(appRoot, "Services", "SpotifyWebService.cs"));
+        Assert(spotifyWeb.Contains("c.UserProfile.Current(ct)") &&
+               spotifyWeb.Contains("playback is waiting for its separate one-time authorization"),
+            "the Web account identity incorrectly depends on an authorized native playback session");
+
+        var nativeService = File.ReadAllText(Path.Combine(appRoot, "Services", "LibrespotService.cs"));
+        Assert(nativeService.Contains("authorization.BootstrapAccessToken") &&
+               nativeService.Contains("authorization.StoredCredentials") &&
+               nativeService.Contains("librespot_get_playback_credentials") &&
+               nativeService.Contains("PlaybackAuthorizationRejected"),
+            "managed/native playback credential exchange or rejection reporting is incomplete");
+
+        var loginPackage = File.ReadAllText(Path.Combine(appRoot, "Models", "LoginPackage.cs"));
+        var qrImport = File.ReadAllText(Path.Combine(appRoot, "Helpers", "QrLoginHelper.cs"));
+        Assert(loginPackage.Contains("CurrentVersion = 2") &&
+               loginPackage.Contains("PlaybackAuthorizationPackage") &&
+               qrImport.Contains("ValidateImportAsync(loginPackage.Playback)") &&
+               qrImport.Contains("legacy Spotify Web session"),
+            "versioned QR import does not distinguish Web and playback authorization");
+
+        var rustConfig = File.ReadAllText(Path.Combine(rustRoot, "src", "config.rs"));
+        var rustRunner = File.ReadAllText(Path.Combine(rustRoot, "src", "runner.rs"));
+        var login5 = File.ReadAllText(Path.Combine(rustRoot, "core", "src", "login5.rs"));
+        Assert(rustConfig.Contains("AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS") &&
+               rustConfig.Contains("Authenticating via playback bootstrap token") &&
+               rustRunner.Contains("PlaybackAuthorizationRejected") &&
+               rustRunner.Contains("last_creds = None") &&
+               login5.Contains("Error::unauthenticated(err)"),
+            "native playback authorization does not stop and surface login5 rejection");
+
+        var helperWindow = File.ReadAllText(Path.Combine(helperRoot, "MainWindow.xaml.cs"));
+        var helperPackage = File.ReadAllText(Path.Combine(helperRoot, "Models", "LoginPackage.cs"));
+        Assert(helperWindow.Contains("65b708073fc0480ea92a077233ca87bd") &&
+               helperWindow.Contains("PlaybackLoopbackPort = 5588") &&
+               helperWindow.Contains("BuildPlaybackAuthOptions") &&
+               helperPackage.Contains("CurrentVersion = 2") &&
+               helperPackage.Contains("PlaybackAuthorizationPackage"),
+            "Login Helper does not emit the two-stage versioned login package");
     }
 
     private static void VolumeSliderWorkIsCoalesced()

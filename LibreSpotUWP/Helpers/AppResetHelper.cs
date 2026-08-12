@@ -28,6 +28,15 @@ namespace LibreSpotUWP.Helpers
 
             try
             {
+                if (App.SpotifyPlaybackAuth != null)
+                    await App.SpotifyPlaybackAuth.ResetAsync();
+            }
+            catch
+            {
+            }
+
+            try
+            {
                 if (App.SpotifyAuth != null)
                     await App.SpotifyAuth.ResetAuthStateAsync();
             }
