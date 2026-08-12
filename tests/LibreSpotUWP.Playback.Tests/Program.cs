@@ -222,7 +222,9 @@ internal static class Program
 
         var app = File.ReadAllText(Path.Combine(appRoot, "App.xaml.cs"));
         Assert(app.Contains("SpotifyPlaybackAuth.GetConnectionMaterialAsync()") &&
-               !app.Contains("ConnectWithAccessTokenAsync(token)"),
+               !app.Contains("ConnectWithAccessTokenAsync(token)") &&
+               app.Contains("quarantining it and continuing without playback") &&
+               app.Contains("await SpotifyPlaybackAuth.MarkRejectedAsync()"),
             "startup still supplies the Spotify Web API token to native playback");
 
         var playbackAuth = File.ReadAllText(Path.Combine(
@@ -232,7 +234,11 @@ internal static class Program
         Assert(playbackAuth.Contains("spotify_playback_auth_state") &&
                playbackAuth.Contains("PlaybackClientId") &&
                playbackAuth.Contains("PlaybackRedirectUri") &&
-               playbackAuth.Contains("Timeout = TimeSpan.FromSeconds(30)"),
+               playbackAuth.Contains("Timeout = TimeSpan.FromSeconds(30)") &&
+               playbackAuth.Contains("RequiredAuthVersion = 2") &&
+               playbackAuth.Contains("streaming user-read-private") &&
+               playbackAuth.Contains("ValidateBootstrapAccountAsync") &&
+               playbackAuth.Contains("The playback authorization belongs to a different Spotify account"),
             "playback authorization is not independently stored or bounded");
 
         var spotifyWeb = File.ReadAllText(Path.Combine(appRoot, "Services", "SpotifyWebService.cs"));
@@ -249,20 +255,25 @@ internal static class Program
 
         var loginPackage = File.ReadAllText(Path.Combine(appRoot, "Models", "LoginPackage.cs"));
         var qrImport = File.ReadAllText(Path.Combine(appRoot, "Helpers", "QrLoginHelper.cs"));
-        Assert(loginPackage.Contains("CurrentVersion = 2") &&
+        Assert(loginPackage.Contains("CurrentVersion = 3") &&
                loginPackage.Contains("PlaybackAuthorizationPackage") &&
-               qrImport.Contains("ValidateImportAsync(loginPackage.Playback)") &&
+               qrImport.Contains("loginPackage.Playback,") &&
+               qrImport.Contains("loginPackage.AccountId") &&
                qrImport.Contains("legacy Spotify Web session"),
             "versioned QR import does not distinguish Web and playback authorization");
 
         var rustConfig = File.ReadAllText(Path.Combine(rustRoot, "src", "config.rs"));
         var rustRunner = File.ReadAllText(Path.Combine(rustRoot, "src", "runner.rs"));
         var login5 = File.ReadAllText(Path.Combine(rustRoot, "core", "src", "login5.rs"));
+        var rustSession = File.ReadAllText(Path.Combine(rustRoot, "core", "src", "session.rs"));
         Assert(rustConfig.Contains("AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS") &&
                rustConfig.Contains("Authenticating via playback bootstrap token") &&
                rustRunner.Contains("PlaybackAuthorizationRejected") &&
+               rustRunner.Contains("PlaybackAccountUnsupported") &&
                rustRunner.Contains("last_creds = None") &&
-               login5.Contains("Error::unauthenticated(err)"),
+               login5.Contains("Error::unauthenticated(err)") &&
+               !rustSession.Contains("process::exit") &&
+               !rustSession.Contains("exit(1)"),
             "native playback authorization does not stop and surface login5 rejection");
 
         var helperWindow = File.ReadAllText(Path.Combine(helperRoot, "MainWindow.xaml.cs"));
@@ -270,7 +281,9 @@ internal static class Program
         Assert(helperWindow.Contains("65b708073fc0480ea92a077233ca87bd") &&
                helperWindow.Contains("PlaybackLoopbackPort = 5588") &&
                helperWindow.Contains("BuildPlaybackAuthOptions") &&
-               helperPackage.Contains("CurrentVersion = 2") &&
+               helperWindow.Contains("\"streaming\", \"user-read-private\"") &&
+               helperPackage.Contains("CurrentVersion = 3") &&
+               helperPackage.Contains("AuthVersion { get; set; } = 2") &&
                helperPackage.Contains("PlaybackAuthorizationPackage"),
             "Login Helper does not emit the two-stage versioned login package");
     }

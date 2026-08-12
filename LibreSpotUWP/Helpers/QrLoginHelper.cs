@@ -92,7 +92,9 @@ namespace LibreSpotUWP.Helpers
                 if (importedState == null)
                     throw new InvalidOperationException("The sign-in details did not contain a valid session.");
                 if (loginPackage != null)
-                    await App.SpotifyPlaybackAuth.ValidateImportAsync(loginPackage.Playback);
+                    await App.SpotifyPlaybackAuth.ValidateImportAsync(
+                        loginPackage.Playback,
+                        loginPackage.AccountId);
 
                 var stackPanel = new StackPanel();
                 stackPanel.Children.Add(new TextBlock
@@ -132,7 +134,7 @@ namespace LibreSpotUWP.Helpers
                     return;
 
                 setBusy?.Invoke(true);
-                await auth.ImportAuthStateAsync(importedState);
+                await auth.ImportAuthStateAsync(importedState, loginPackage?.AccountId);
                 if (loginPackage != null)
                     await App.SpotifyPlaybackAuth.ImportAsync(loginPackage.Playback, loginPackage.AccountId);
                 else
@@ -162,7 +164,13 @@ namespace LibreSpotUWP.Helpers
                 var errorDialog = new ContentDialog
                 {
                     Title = "Import Failed",
-                    Content = new TextBlock { Text = "Failed to read sign-in details. They may be corrupted or in an invalid format." },
+                    Content = new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(ex.Message)
+                            ? "Failed to read sign-in details. They may be corrupted or in an invalid format."
+                            : ex.Message,
+                        TextWrapping = TextWrapping.Wrap
+                    },
                     PrimaryButtonText = "Close"
                 };
                 await errorDialog.ShowAsync();

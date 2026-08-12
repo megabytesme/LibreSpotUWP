@@ -5,7 +5,7 @@ namespace LibreSpotUWP.Models
     public sealed class LoginPackage
     {
         public const string CurrentFormat = "LibreSpotUWP.Login";
-        public const int CurrentVersion = 2;
+        public const int CurrentVersion = 3;
 
         public string Format { get; set; }
         public int Version { get; set; }

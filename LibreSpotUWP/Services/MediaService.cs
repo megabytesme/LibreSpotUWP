@@ -239,6 +239,7 @@ namespace LibreSpotUWP.Services
             _librespot.LogMessage += OnLibrespotLogMessage;
             _librespot.PlaybackCredentialsAvailable += OnPlaybackCredentialsAvailable;
             _librespot.PlaybackAuthorizationRejected += OnPlaybackAuthorizationRejected;
+            _librespot.PlaybackAccountUnsupported += OnPlaybackAccountUnsupported;
             _playbackAuth.PlaybackAuthStateChanged += OnPlaybackAuthChanged;
 
             _mediaPlayer.Source = CreateSilentMediaSource();
@@ -3265,6 +3266,43 @@ namespace LibreSpotUWP.Services
             }
         }
 
+        private async void OnPlaybackAccountUnsupported(object sender, EventArgs args)
+        {
+            var dispatcher = Window.Current?.Dispatcher;
+            try
+            {
+                await _playbackAuth.MarkRejectedAsync().ConfigureAwait(false);
+                await _librespot.DisconnectAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"[MediaService.OnPlaybackAccountUnsupported] Cleanup failed: {ex.Message}");
+            }
+            finally
+            {
+                UpdateState(state =>
+                {
+                    state.PlaybackState = LibrespotPlaybackState.Stopped;
+                    state.StatusMessage = "The account selected for playback is not Spotify Premium. Authorize playback again with the same Premium account used for your library.";
+                });
+
+                try
+                {
+                    if (dispatcher != null)
+                    {
+                        await dispatcher.RunAsync(
+                            CoreDispatcherPriority.Normal,
+                            () => _ = PremiumRequiredDialog.ShowAsync(
+                                new SpotifyPremiumRequiredException("free")));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.Warn($"[MediaService.OnPlaybackAccountUnsupported] Unable to show Premium account warning: {ex.Message}");
+                }
+            }
+        }
+
         private void OnLibrespotLogMessage(object sender, string message)
         {
             var applicationQueueFailure = GetApplicationQueueFailureReason(message);
@@ -5422,6 +5460,7 @@ namespace LibreSpotUWP.Services
             _librespot.LogMessage -= OnLibrespotLogMessage;
             _librespot.PlaybackCredentialsAvailable -= OnPlaybackCredentialsAvailable;
             _librespot.PlaybackAuthorizationRejected -= OnPlaybackAuthorizationRejected;
+            _librespot.PlaybackAccountUnsupported -= OnPlaybackAccountUnsupported;
             _playbackAuth.PlaybackAuthStateChanged -= OnPlaybackAuthChanged;
 
             _positionTimer?.Stop();

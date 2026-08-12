@@ -94,6 +94,7 @@ namespace LibreSpotUWP.Interfaces
         event EventHandler<string> Panic;
         event EventHandler<PlaybackCredentialsEventArgs> PlaybackCredentialsAvailable;
         event EventHandler PlaybackAuthorizationRejected;
+        event EventHandler PlaybackAccountUnsupported;
     }
 
 }

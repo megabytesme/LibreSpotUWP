@@ -102,6 +102,7 @@ namespace LibreSpotUWP.Interop
             PositionChanged = 24,
             PlaybackKeyUnavailable = 25,
             PlaybackAuthorizationRejected = 26,
+            PlaybackAccountUnsupported = 27,
         }
 
         [StructLayout(LayoutKind.Sequential)]

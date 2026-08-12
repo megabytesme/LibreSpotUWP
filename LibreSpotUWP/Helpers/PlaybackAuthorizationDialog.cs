@@ -43,7 +43,7 @@ namespace LibreSpotUWP.Helpers
                 content.Children.Add(new TextBlock
                 {
                     Text = state?.Status == PlaybackAuthorizationStatus.Rejected
-                        ? "Spotify rejected the saved playback authorization. Your library and playlists are still signed in, but playback must be authorized again."
+                        ? "Spotify rejected the saved playback authorization. Your library and playlists are still signed in, but playback must be authorized again using the same Spotify Premium account."
                         : "Spotify now authorizes music playback separately from library access. Your library and playlists remain signed in, but this device needs a one-time playback authorization.",
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 0, 0, 12)

@@ -87,6 +87,7 @@ namespace LibreSpotUWP.Services
         public event EventHandler<uint> RepeatChanged;
         public event EventHandler<PlaybackCredentialsEventArgs> PlaybackCredentialsAvailable;
         public event EventHandler PlaybackAuthorizationRejected;
+        public event EventHandler PlaybackAccountUnsupported;
 
         public LibrespotService(AudioKeyCache keyCache)
         {
@@ -1281,6 +1282,15 @@ namespace LibreSpotUWP.Services
                     RaiseOnMainThread(
                         () => PlaybackAuthorizationRejected?.Invoke(this, EventArgs.Empty),
                         nameof(PlaybackAuthorizationRejected),
+                        sessionGeneration);
+                    break;
+
+                case EventType.PlaybackAccountUnsupported:
+                    LogService.Warn($"{logPrefix} Spotify reported an unsupported non-Premium playback account.");
+                    _activePlaybackAuthorization = null;
+                    RaiseOnMainThread(
+                        () => PlaybackAccountUnsupported?.Invoke(this, EventArgs.Empty),
+                        nameof(PlaybackAccountUnsupported),
                         sessionGeneration);
                     break;
 

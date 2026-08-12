@@ -12,7 +12,7 @@ namespace LibreSpotUWP.Interfaces
         Task InitializeAsync();
         Task<Uri> BeginBrowserAuthorizationAsync();
         Task CompleteBrowserAuthorizationAsync(string callbackUri, string accountId);
-        Task ValidateImportAsync(PlaybackAuthorizationPackage package);
+        Task ValidateImportAsync(PlaybackAuthorizationPackage package, string accountId);
         Task<PlaybackConnectionMaterial> GetConnectionMaterialAsync();
         Task ImportAsync(PlaybackAuthorizationPackage package, string accountId);
         Task SaveReusableCredentialsAsync(string credentialsJson, string sessionUser);

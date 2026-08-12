@@ -304,11 +304,35 @@ namespace LibreSpotUWP
 
             if (!string.IsNullOrEmpty(token))
             {
-                var playbackAuthorization = await SpotifyPlaybackAuth.GetConnectionMaterialAsync();
-                if (playbackAuthorization != null && !playbackAuthorization.IsEmpty)
-                    await Librespot.ConnectWithPlaybackAuthAsync(playbackAuthorization);
-                else
-                    LogService.Warn("[App.EnsureServicesInitializedAsync] Spotify Web API session is valid, but playback authorization is required.");
+                try
+                {
+                    var playbackAuthorization = await SpotifyPlaybackAuth.GetConnectionMaterialAsync();
+                    if (playbackAuthorization != null && !playbackAuthorization.IsEmpty)
+                        await Librespot.ConnectWithPlaybackAuthAsync(playbackAuthorization);
+                    else
+                        LogService.Warn("[App.EnsureServicesInitializedAsync] Spotify Web API session is valid, but playback authorization is required.");
+                }
+                catch (Exception ex)
+                {
+                    LogService.Error(ex, "[App.EnsureServicesInitializedAsync] Playback authorization failed during startup; quarantining it and continuing without playback");
+                    try
+                    {
+                        await SpotifyPlaybackAuth.MarkRejectedAsync();
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        LogService.Warn($"[App.EnsureServicesInitializedAsync] Unable to quarantine startup playback authorization: {cleanupError.Message}");
+                    }
+
+                    try
+                    {
+                        await Librespot.DisconnectAsync();
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        LogService.Warn($"[App.EnsureServicesInitializedAsync] Unable to stop failed startup playback session: {cleanupError.Message}");
+                    }
+                }
 
                 if (hasInternet)
                     await OfflineCatalog.RemoveExpiredPersistedTracksAsync();
