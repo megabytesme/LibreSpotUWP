@@ -12,6 +12,7 @@
     <Compile Include="..\..\LibreSpotUWP\Services\PositionSeekInteraction.cs" Link="PositionSeekInteraction.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\SpotifyConnectTransferTracker.cs" Link="SpotifyConnectTransferTracker.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\PlaybackLifecycleCoordinator.cs" Link="PlaybackLifecycleCoordinator.cs" />
+    <Compile Include="..\..\LibreSpotUWP\Services\PlaybackAccountIdentityValidator.cs" Link="PlaybackAccountIdentityValidator.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\ApplicationPlaybackQueue.cs" Link="ApplicationPlaybackQueue.cs" />
     <Compile Include="..\..\LibreSpotUWP\Services\ResponsivenessPrimitives.cs" Link="ResponsivenessPrimitives.cs" />
   </ItemGroup>

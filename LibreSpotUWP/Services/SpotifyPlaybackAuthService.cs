@@ -1,13 +1,11 @@
 using LibreSpotUWP.Interfaces;
 using LibreSpotUWP.Models;
 using LibreSpotUWP.Constants;
-using LibreSpotUWP.Exceptions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
@@ -19,7 +17,6 @@ namespace LibreSpotUWP.Services
     {
         private const string StorageKey = "spotify_playback_auth_state";
         private const int RequiredAuthVersion = 2;
-        private const string SpotifyMeEndpoint = "https://api.spotify.com/v1/me";
         private readonly ISecureStorage _storage;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
         private static readonly HttpClient TokenHttpClient = new HttpClient
@@ -53,7 +50,7 @@ namespace LibreSpotUWP.Services
                 "https://accounts.spotify.com/authorize" +
                 "?response_type=code" +
                 "&client_id=" + Uri.EscapeDataString(SpotifyConfig.PlaybackClientId) +
-                "&scope=" + Uri.EscapeDataString("streaming user-read-private") +
+                "&scope=" + Uri.EscapeDataString("streaming") +
                 "&code_challenge_method=S256" +
                 "&code_challenge=" + Uri.EscapeDataString(codes.Item2) +
                 "&redirect_uri=" + Uri.EscapeDataString(SpotifyConfig.PlaybackRedirectUri) +
@@ -124,9 +121,10 @@ namespace LibreSpotUWP.Services
             }
         }
 
-        public async Task ValidateImportAsync(PlaybackAuthorizationPackage package, string accountId)
+        public Task ValidateImportAsync(PlaybackAuthorizationPackage package, string accountId)
         {
-            await ValidatePackageForAccountAsync(package, accountId).ConfigureAwait(false);
+            ValidatePackageForExpectedAccount(package, accountId);
+            return Task.CompletedTask;
         }
 
         public async Task<PlaybackConnectionMaterial> GetConnectionMaterialAsync()
@@ -173,7 +171,7 @@ namespace LibreSpotUWP.Services
 
         public async Task ImportAsync(PlaybackAuthorizationPackage package, string accountId)
         {
-            await ValidatePackageForAccountAsync(package, accountId).ConfigureAwait(false);
+            ValidatePackageForExpectedAccount(package, accountId);
 
             var hasStoredCredentials = !string.IsNullOrWhiteSpace(package.StoredCredentials);
             var hasBootstrapToken = !string.IsNullOrWhiteSpace(package.AccessToken) &&
@@ -208,20 +206,19 @@ namespace LibreSpotUWP.Services
         public async Task SaveReusableCredentialsAsync(string credentialsJson, string sessionUser)
         {
             var credentialUser = ValidateStoredCredentials(credentialsJson);
-            if (!string.IsNullOrWhiteSpace(sessionUser) &&
-                !string.Equals(sessionUser, credentialUser, StringComparison.OrdinalIgnoreCase))
-            {
-                await MarkRejectedAsync().ConfigureAwait(false);
-                throw new InvalidOperationException("Spotify returned inconsistent playback account identities.");
-            }
             await InitializeAsync().ConfigureAwait(false);
             await _gate.WaitAsync().ConfigureAwait(false);
             try
             {
                 var state = Current ?? new PlaybackAuthState { AuthVersion = RequiredAuthVersion };
-                if (string.IsNullOrWhiteSpace(state.AccountId))
-                    throw new InvalidOperationException("The playback authorization is not linked to a Spotify account.");
-                if (!string.Equals(state.AccountId, credentialUser, StringComparison.OrdinalIgnoreCase))
+                try
+                {
+                    PlaybackAccountIdentityValidator.EnsureConsistent(
+                        state.AccountId,
+                        credentialUser,
+                        sessionUser);
+                }
+                catch
                 {
                     state.StoredCredentials = null;
                     state.BootstrapAccessToken = null;
@@ -229,7 +226,7 @@ namespace LibreSpotUWP.Services
                     state.Status = PlaybackAuthorizationStatus.Rejected;
                     Current = state;
                     await SaveCoreAsync().ConfigureAwait(false);
-                    throw new InvalidOperationException("The playback authorization belongs to a different Spotify account.");
+                    throw;
                 }
 
                 state.StoredCredentials = credentialsJson;
@@ -397,7 +394,7 @@ namespace LibreSpotUWP.Services
                 ValidateStoredCredentials(package.StoredCredentials);
         }
 
-        private static async Task ValidatePackageForAccountAsync(
+        private static void ValidatePackageForExpectedAccount(
             PlaybackAuthorizationPackage package,
             string accountId)
         {
@@ -410,48 +407,14 @@ namespace LibreSpotUWP.Services
             if (!string.IsNullOrWhiteSpace(package.StoredCredentials))
             {
                 var credentialUser = ValidateStoredCredentials(package.StoredCredentials);
-                if (!string.Equals(accountId, credentialUser, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException(
-                        "The reusable playback authorization belongs to a different Spotify account.");
-                }
+                PlaybackAccountIdentityValidator.EnsureConsistent(accountId, credentialUser, null);
                 return;
             }
 
-            await ValidateBootstrapAccountAsync(package.AccessToken, accountId).ConfigureAwait(false);
-        }
-
-        private static async Task ValidateBootstrapAccountAsync(
-            string accessToken,
-            string expectedAccountId)
-        {
-            using (var request = new HttpRequestMessage(HttpMethod.Get, SpotifyMeEndpoint))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                using (var response = await TokenHttpClient.SendAsync(request).ConfigureAwait(false))
-                {
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        throw new InvalidOperationException(
-                            "Spotify could not verify the playback account. Start playback authorization again and approve the requested account access.");
-                    }
-
-                    var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    var profile = JObject.Parse(body);
-                    var accountId = (string)profile["id"];
-                    var product = (string)profile["product"];
-
-                    if (!string.Equals(product, "premium", StringComparison.OrdinalIgnoreCase))
-                        throw new SpotifyPremiumRequiredException(product);
-                    if (string.IsNullOrWhiteSpace(accountId))
-                        throw new InvalidOperationException("Spotify did not return a playback account identifier.");
-                    if (!string.Equals(expectedAccountId, accountId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new InvalidOperationException(
-                            "Playback was authorized with a different Spotify account. Start again and select the same account used for your library.");
-                    }
-                }
-            }
+            // Spotify's desktop playback client issues a bootstrap token for native
+            // authentication, not a Web API identity token. The authenticated session
+            // reports its canonical username with the reusable credentials; that is
+            // compared with accountId in SaveReusableCredentialsAsync before storage.
         }
 
         private void RaiseChanged(PlaybackAuthState state)

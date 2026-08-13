@@ -232,6 +232,7 @@
     <Compile Include="Services\SecureStorage.cs" />
     <Compile Include="Exceptions\SpotifyWebExceptions.cs" />
     <Compile Include="Services\SpotifyAuthService.cs" />
+    <Compile Include="Services\PlaybackAccountIdentityValidator.cs" />
     <Compile Include="Services\SpotifyPlaybackAuthService.cs" />
     <Compile Include="Services\FileMetadataCache.cs" />
     <Compile Include="Services\FileSystem.cs" />

@@ -23,6 +23,7 @@ internal static class Program
             WindowsMobileStorageAndXAudio28RoutingAreHardened,
             AudioKeyCompatibilityWarningCoversEverySignInPath,
             PlaybackAuthorizationBoundaryIsSeparated,
+            PlaybackAccountIdentityIsVerifiedAfterNativeAuthentication,
             VolumeSliderWorkIsCoalesced,
             NavigationCancelsOldHomeGeneration,
             StaleHomeResultsCannotUpdateReplacementGeneration,
@@ -236,9 +237,12 @@ internal static class Program
                playbackAuth.Contains("PlaybackRedirectUri") &&
                playbackAuth.Contains("Timeout = TimeSpan.FromSeconds(30)") &&
                playbackAuth.Contains("RequiredAuthVersion = 2") &&
-               playbackAuth.Contains("streaming user-read-private") &&
-               playbackAuth.Contains("ValidateBootstrapAccountAsync") &&
-               playbackAuth.Contains("The playback authorization belongs to a different Spotify account"),
+               playbackAuth.Contains("Uri.EscapeDataString(\"streaming\")") &&
+               !playbackAuth.Contains("ValidateBootstrapAccountAsync") &&
+               !playbackAuth.Contains("api.spotify.com/v1/me") &&
+               playbackAuth.Contains("SaveReusableCredentialsAsync") &&
+               playbackAuth.Contains("PlaybackAccountIdentityValidator.EnsureConsistent") &&
+               playbackAuth.Contains("state.Status = PlaybackAuthorizationStatus.Rejected"),
             "playback authorization is not independently stored or bounded");
 
         var spotifyWeb = File.ReadAllText(Path.Combine(appRoot, "Services", "SpotifyWebService.cs"));
@@ -277,15 +281,48 @@ internal static class Program
             "native playback authorization does not stop and surface login5 rejection");
 
         var helperWindow = File.ReadAllText(Path.Combine(helperRoot, "MainWindow.xaml.cs"));
+        var helperTokenExchange = File.ReadAllText(Path.Combine(
+            helperRoot,
+            "Services",
+            "SpotifyTokenExchangeService.cs"));
         var helperPackage = File.ReadAllText(Path.Combine(helperRoot, "Models", "LoginPackage.cs"));
         Assert(helperWindow.Contains("65b708073fc0480ea92a077233ca87bd") &&
                helperWindow.Contains("PlaybackLoopbackPort = 5588") &&
                helperWindow.Contains("BuildPlaybackAuthOptions") &&
-               helperWindow.Contains("\"streaming\", \"user-read-private\"") &&
+               helperWindow.Contains("new[] { \"streaming\" }") &&
+               helperWindow.Contains("will verify the playback account during its first native connection") &&
+               helperTokenExchange.Split(new[] { "GetPremiumAccountIdAsync(" }, StringSplitOptions.None).Length - 1 == 1 &&
                helperPackage.Contains("CurrentVersion = 3") &&
                helperPackage.Contains("AuthVersion { get; set; } = 2") &&
                helperPackage.Contains("PlaybackAuthorizationPackage"),
             "Login Helper does not emit the two-stage versioned login package");
+    }
+
+    private static void PlaybackAccountIdentityIsVerifiedAfterNativeAuthentication()
+    {
+        PlaybackAccountIdentityValidator.EnsureConsistent(
+            "matching-user",
+            "MATCHING-USER",
+            "matching-user");
+
+        AssertThrows<InvalidOperationException>(
+            () => PlaybackAccountIdentityValidator.EnsureConsistent(
+                "library-user",
+                "other-user",
+                "other-user"),
+            "a playback account different from the Web/library account was accepted");
+        AssertThrows<InvalidOperationException>(
+            () => PlaybackAccountIdentityValidator.EnsureConsistent(
+                "library-user",
+                "library-user",
+                "other-session-user"),
+            "inconsistent native session and reusable credential identities were accepted");
+        AssertThrows<InvalidOperationException>(
+            () => PlaybackAccountIdentityValidator.EnsureConsistent(
+                null,
+                "library-user",
+                "library-user"),
+            "a playback credential without a linked Web/library account was accepted");
     }
 
     private static void VolumeSliderWorkIsCoalesced()
